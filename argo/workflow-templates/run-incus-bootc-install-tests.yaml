@@ -169,9 +169,11 @@ spec:
         # means the image installs itself rather than the ISO installing it.
         INSTALL_SH=$(cat <<SCRIPT
         #!/bin/bash
+        # -e matters here: without it a failed mkfs or mount passes silently and
+        # the failure surfaces much later as an unrelated "no space" error.
+        set -eux
         exec > >(tee /dev/console) 2>&1
         echo "${M_BEGIN}"
-        set -x
         for i in \$(seq 1 30); do ip route get 1.1.1.1 >/dev/null 2>&1 && break; sleep 5; done
         # Two disks are attached, and neither is the ISO (type rom). The larger
         # is the install target; the smaller is scratch for container storage.
@@ -188,9 +190,24 @@ spec:
         # multi-GB bootc image there dies with "no space left on device" partway
         # through writing a layer. Give podman real storage on the scratch disk.
         # The target disk cannot serve: bootc install --wipe destroys it.
+        # Stop anything already holding /var/lib/containers, or the mount below
+        # fails with EBUSY. The live ISO may have podman services running.
+        systemctl stop podman.socket podman.service 2>/dev/null || true
+        pkill -9 podman 2>/dev/null || true
+
         mkfs.ext4 -F -q "\${SCRATCH}"
         mkdir -p /var/lib/containers
         mount "\${SCRATCH}" /var/lib/containers
+
+        # Verify, loudly. Without set -e in this script a failed mount used to
+        # pass silently, podman fell back to the RAM-backed root, and the run
+        # died 15 minutes later with a confusing "no space left on device"
+        # despite a 30G disk sitting right there unmounted.
+        if ! findmnt -n /var/lib/containers >/dev/null; then
+          echo "${M_FAIL} scratch disk did not mount at /var/lib/containers"
+          lsblk; dmesg | tail -20
+          exit 1
+        fi
         df -h /var/lib/containers
 
         # Mounting /var/lib/containers is not enough on its own: the live ISO
