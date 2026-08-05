@@ -101,8 +101,51 @@ The trade is real and bounded — a container cannot assert on:
 - **the disk layout** — EROFS, dm-verity, Secure Boot, TPM/LUKS `/var`, and the
   A/B update path all need a real boot
 
-Those belong to the incus VM lane (phase 2, not yet built). The container lanes
-cover the large majority of what breaks, cheaply and fast.
+Those belong to the incus VM lane below. The container lanes cover the large
+majority of what breaks, cheaply and fast.
+
+---
+
+## The incus VM lane
+
+`run-incus-vm-tests` boots a published ISO in an incus VM with **UEFI Secure
+Boot and a vTPM**, then asserts on the serial console. It covers the one class
+of failure no container lane can see: if the shim/UKI signing chain is broken,
+OVMF refuses to boot the image and only this lane notices.
+
+**How a pod drives incus without SSH.** The host's `/usr/bin/incus` is a shell
+wrapper that sets `PATH` and `LD_LIBRARY_PATH` over `/usr/incus`. The workflow
+pod mounts that directory plus `/var/lib/incus/unix.socket` and runs the
+host's own client — version-matched by construction, with nothing to keep in
+sync and no shell on the host. `swtpm` comes from the same directory, so the
+vTPM needs no host package.
+
+```bash
+kubectl create -f argo/snosi-vm-boot-test.yaml
+```
+
+Guests are named after the workflow and deleted from an `EXIT` trap, so a
+failure mid-run cannot leak a VM holding host memory and vTPM state. Runs
+serialize on the `snosi-vm-qa` semaphore.
+
+ISOs are cached on the host at `/var/lib/snosi-lab/iso` and validated against
+the origin's ETag on every run — `snow-live-latest.iso` is a stable name whose
+bytes change, so caching on filename alone would pin the lane to a stale
+artifact.
+
+### What it does not do yet
+
+Boot validation only. The native A/B install path — `snosi-install
+--non-interactive --json-progress`, which the installer's GTK front end drives
+underneath — is not wired up, so these are not yet asserted:
+
+- dm-verity active over an EROFS root on a real install
+- `/var` LUKS unlocked by the TPM
+- the A/B slot switch and rollback
+
+The CLI installer's flags are the seam for that work; see
+`shared/native-installer/setup-gui/setup_gui/model.py` in the snosi repo for
+the exact argv the GUI assembles.
 
 ---
 
@@ -196,6 +239,11 @@ Setting up a cluster from scratch: [`docs/ops/bootstrap.md`](docs/ops/bootstrap.
 - **No result publication.** Bluefin's lab publishes per-suite results back into
   the repo and renders them with Astro. Results here live in the workflow's
   output parameters and the pod logs only.
-- **No VM lane.** See "Why the tests run in a container".
+- **No artifact storage.** Argo needs a configured artifact repository to save
+  output artifacts, and the lab has no object store. The VM lane's full serial
+  console therefore goes to the workflow log rather than an artifact — 400
+  lines on failure, 40 on success. Standing up an object store would let the
+  whole console and the behave `results.json` be retained per run.
+- **The VM lane validates boot only.** See "What it does not do yet" above.
 - **No registry pull-through cache.** Every lane pulls from ghcr.io directly.
   Fine at three lanes on a 3-hour poll; revisit if lane count grows.

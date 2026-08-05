@@ -145,12 +145,36 @@ spec:
           echo "Resolved to immutable object: ${ISO_NAME}" >&2
         fi
 
-        if [[ -s "${ISO_PATH}" ]]; then
-          echo "ISO already cached: ${ISO_PATH} ($(stat -c%s "${ISO_PATH}") bytes)" >&2
+        # Cache validity: basename alone is not enough. The native-installer
+        # `latest` URL redirects to an immutable versioned object, so its
+        # basename changes with every build — but snow-live-latest.iso does
+        # NOT redirect, and its name is stable forever. Caching on name alone
+        # would pin that lane to the first ISO ever downloaded and silently
+        # test a stale artifact, which is worse than having no lane.
+        #
+        # So validate against the origin's ETag, falling back to
+        # Last-Modified, then content-length. A stored fingerprint that still
+        # matches means the cached bytes are current.
+        remote_headers="$(curl -sSLI --max-time 60 "${RESOLVED}" | tr -d '\r')"
+        fingerprint="$(
+          awk 'BEGIN{IGNORECASE=1}
+               /^etag:/          {print "etag:" $2; found=1}
+               /^last-modified:/ {if(!found) print "lm:" $0}
+               /^content-length:/{if(!found) print "len:" $2}' <<<"${remote_headers}" | head -1
+        )"
+        : "${fingerprint:=unknown}"
+        echo "Origin fingerprint: ${fingerprint}" >&2
+
+        if [[ -s "${ISO_PATH}" && "$(cat "${ISO_PATH}.fingerprint" 2>/dev/null)" == "${fingerprint}" && "${fingerprint}" != "unknown" ]]; then
+          echo "ISO cache hit: ${ISO_PATH} ($(stat -c%s "${ISO_PATH}") bytes)" >&2
         else
+          if [[ -s "${ISO_PATH}" ]]; then
+            echo "ISO cache STALE (origin moved or fingerprint unavailable); re-downloading" >&2
+          fi
           echo "Downloading ${RESOLVED}..." >&2
-          curl -fSL --max-time 1800 -o "${ISO_PATH}.part" "${RESOLVED}"
+          curl -fSL --max-time 3600 -o "${ISO_PATH}.part" "${RESOLVED}"
           mv "${ISO_PATH}.part" "${ISO_PATH}"
+          printf '%s' "${fingerprint}" > "${ISO_PATH}.fingerprint"
           echo "Downloaded $(stat -c%s "${ISO_PATH}") bytes" >&2
         fi
 
