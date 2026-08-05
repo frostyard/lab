@@ -1,0 +1,36 @@
+# Submit file: boot the published native A/B disk image for a product.
+#
+#   kubectl create -f argo/snosi-disk-boot-test.yaml
+#
+# Defaults to cayo — the headless server image is the smallest artifact and the
+# fastest lane to iterate on. Override `product` for snow or snowfield.
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: snosi-disk-boot-
+  namespace: argo
+  labels:
+    app.kubernetes.io/part-of: lab
+    snosi.io/trigger: manual
+spec:
+  serviceAccountName: argo
+  entrypoint: main
+  activeDeadlineSeconds: 7200
+  arguments:
+    parameters:
+      - name: product
+        value: "cayo"
+  templates:
+    - name: main
+      dag:
+        tasks:
+          - name: boot
+            templateRef:
+              name: run-incus-disk-tests
+              template: run-incus-disk-tests
+            arguments:
+              parameters:
+                - name: product
+                  value: "{{workflow.parameters.product}}"
+                - name: secureboot
+                  value: "true"

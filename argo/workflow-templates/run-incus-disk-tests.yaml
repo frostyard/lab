@@ -1,0 +1,247 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: run-incus-disk-tests
+  namespace: argo
+  annotations:
+    description: |
+      Boots the published native A/B disk image for a product in an incus VM
+      with UEFI Secure Boot and a vTPM, and asserts on the serial console.
+
+      This tests the shipped artifact itself. snosi publishes a full bootable
+      GPT image — <product>-ab_<version>.disk.raw.xz — alongside the sysupdate
+      partition objects, so the lane needs no installer automation and never
+      touches the interactive MokManager path.
+
+      The signed SHA256SUMS index is the trust anchor: the index signature is
+      verified with the snosi release pubring before any filename from it is
+      used, and the downloaded image is checked against the digest in that
+      verified index. An unsigned or tampered index fails the lane rather than
+      downgrading to an unverified download.
+  labels:
+    app.kubernetes.io/component: vm-test-runner
+    app.kubernetes.io/part-of: snosi-test-suite
+spec:
+  templates:
+  - name: run-incus-disk-tests
+    nodeSelector:
+      node-role.kubernetes.io/control-plane: "true"
+    activeDeadlineSeconds: 5400
+    synchronization:
+      semaphores:
+      - configMapKeyRef:
+          name: workflow-semaphores
+          key: snosi-vm-qa
+    inputs:
+      parameters:
+      - name: product
+        value: "cayo"
+      - name: origin
+        value: "https://repository.frostyard.org"
+      # The release pubring that signs SHA256SUMS. Pinned to a ref rather than
+      # a moving branch would be stronger; main is acceptable while the lab and
+      # the key live in the same trust domain.
+      - name: pubring-url
+        value: "https://raw.githubusercontent.com/frostyard/snosi/main/shared/native-ab/keys/import-pubring.gpg"
+      - name: secureboot
+        value: "true"
+      - name: vm-cpus
+        value: "4"
+      - name: vm-memory
+        value: "4GiB"
+      - name: boot-timeout-seconds
+        value: "420"
+      - name: expect-console
+        value: "Reached target"
+    outputs:
+      parameters:
+      - name: result
+        valueFrom:
+          path: /tmp/results/result-summary.txt
+          default: "No results generated"
+      - name: image-version
+        valueFrom:
+          path: /tmp/results/image-version.txt
+          default: "unknown"
+    script:
+      image: docker.io/library/debian:trixie-slim
+      securityContext:
+        runAsUser: 0
+      resources:
+        requests:
+          cpu: "1"
+          memory: 1Gi
+        limits:
+          cpu: "4"
+          memory: 4Gi
+      env:
+      - name: PATH
+        value: "/usr/incus/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+      - name: LD_LIBRARY_PATH
+        value: "/usr/incus/lib"
+      - name: PRODUCT
+        value: "{{inputs.parameters.product}}"
+      - name: ORIGIN
+        value: "{{inputs.parameters.origin}}"
+      - name: PUBRING_URL
+        value: "{{inputs.parameters.pubring-url}}"
+      - name: SECUREBOOT
+        value: "{{inputs.parameters.secureboot}}"
+      - name: VM_CPUS
+        value: "{{inputs.parameters.vm-cpus}}"
+      - name: VM_MEMORY
+        value: "{{inputs.parameters.vm-memory}}"
+      - name: BOOT_TIMEOUT
+        value: "{{inputs.parameters.boot-timeout-seconds}}"
+      - name: EXPECT_CONSOLE
+        value: "{{inputs.parameters.expect-console}}"
+      - name: DEBIAN_FRONTEND
+        value: noninteractive
+      volumeMounts:
+      - { name: incus-bin, mountPath: /usr/incus, readOnly: true }
+      - { name: incus-sock, mountPath: /var/lib/incus/unix.socket }
+      - { name: disk-cache, mountPath: /var/lib/snosi-lab/disks }
+      - { name: results, mountPath: /tmp/results }
+      command: [bash]
+      source: |
+        set -euo pipefail
+        mkdir -p /tmp/results /var/lib/snosi-lab/disks
+
+        apt-get update -qq
+        apt-get install -y -qq --no-install-recommends \
+          ca-certificates curl xz-utils gpgv >/dev/null
+
+        VM="qa-$(echo '{{workflow.name}}' | tail -c 40 | tr -cd 'a-z0-9-' | sed 's/^-*//')"
+        WORK="$(mktemp -d)"
+
+        cleanup() {
+          rc=$?
+          echo "--- teardown ---" >&2
+          incus delete --force "${VM}" >/dev/null 2>&1 || true
+          # The per-run disk copy is multi-GB and lives on the shared host
+          # cache directory, so it must go even when the run fails.
+          rm -f "/var/lib/snosi-lab/disks/run-${VM}.raw" 2>/dev/null || true
+          rm -rf "${WORK}"
+          exit "${rc}"
+        }
+        trap cleanup EXIT
+
+        BASE="${ORIGIN}/os/native/v1/${PRODUCT}/x86-64"
+
+        # ── verify the index before trusting anything in it ───────────────────
+        echo "Fetching signed index from ${BASE}" >&2
+        curl -fsSL --max-time 60 "${BASE}/SHA256SUMS"     -o "${WORK}/SHA256SUMS"
+        curl -fsSL --max-time 60 "${BASE}/SHA256SUMS.gpg" -o "${WORK}/SHA256SUMS.gpg"
+        curl -fsSL --max-time 60 "${PUBRING_URL}"         -o "${WORK}/pubring.gpg"
+
+        # Every filename and digest used below comes out of this file, so the
+        # signature check gates the whole lane. Do not soften this to a warning.
+        if ! gpgv --keyring "${WORK}/pubring.gpg" "${WORK}/SHA256SUMS.gpg" "${WORK}/SHA256SUMS" 2>&1; then
+          printf '%s' "FAILED: SHA256SUMS signature verification failed for ${PRODUCT}" \
+            > /tmp/results/result-summary.txt
+          echo "Refusing to trust an unverified index" >&2
+          exit 1
+        fi
+        echo "Index signature OK" >&2
+
+        # ── resolve the disk image ───────────────────────────────────────────
+        DISK_XZ="$(awk '$2 ~ /\.disk\.raw\.xz$/ {print $2; exit}' "${WORK}/SHA256SUMS")"
+        DISK_SHA="$(awk -v f="${DISK_XZ}" '$2 == f {print $1; exit}' "${WORK}/SHA256SUMS")"
+        if [[ -z "${DISK_XZ}" || -z "${DISK_SHA}" ]]; then
+          printf '%s' "FAILED: no .disk.raw.xz entry in the verified index for ${PRODUCT}" \
+            > /tmp/results/result-summary.txt
+          exit 1
+        fi
+
+        # Filenames carry the build stamp: <product>-ab_<version>.disk.raw.xz
+        VERSION="$(sed -E 's/^.*_([0-9]{8,}).*$/\1/' <<<"${DISK_XZ}")"
+        printf '%s' "${VERSION}" > /tmp/results/image-version.txt
+        echo "Artifact: ${DISK_XZ} (version ${VERSION})" >&2
+
+        RAW="/var/lib/snosi-lab/disks/${DISK_XZ%.xz}"
+
+        # ── fetch and expand, cached by the immutable versioned filename ─────
+        # The name embeds the build stamp, so a cache hit is provably the same
+        # artifact — no ETag dance needed here, unlike the moving ISO URLs.
+        if [[ -s "${RAW}" ]]; then
+          echo "Disk cache hit: ${RAW} ($(stat -c%s "${RAW}") bytes)" >&2
+        else
+          echo "Downloading ${DISK_XZ}..." >&2
+          curl -fSL --max-time 3600 "${BASE}/${DISK_XZ}" -o "${WORK}/${DISK_XZ}"
+
+          echo "Verifying digest against the signed index..." >&2
+          echo "${DISK_SHA}  ${WORK}/${DISK_XZ}" | sha256sum -c - || {
+            printf '%s' "FAILED: ${DISK_XZ} digest does not match the signed index" \
+              > /tmp/results/result-summary.txt
+            exit 1
+          }
+
+          echo "Decompressing..." >&2
+          xz -d -T0 -c "${WORK}/${DISK_XZ}" > "${RAW}.part"
+          mv "${RAW}.part" "${RAW}"
+          echo "Expanded to $(stat -c%s "${RAW}") bytes" >&2
+        fi
+
+        # ── boot it ──────────────────────────────────────────────────────────
+        # The guest writes to its disk (A/B state, first-boot work), so give it
+        # a private copy. Reusing the cached image directly would let one run
+        # mutate the artifact every later run is supposed to test.
+        #
+        # This copy must live under the hostPath mount, not in the pod's own
+        # filesystem: the incus daemon runs on the host and resolves the disk
+        # source path in its own namespace, where the pod's /tmp does not exist.
+        RUN_DISK="/var/lib/snosi-lab/disks/run-${VM}.raw"
+        cp --reflink=auto "${RAW}" "${RUN_DISK}"
+
+        echo "Creating VM (secureboot=${SECUREBOOT})..." >&2
+        incus init "${VM}" --empty --vm \
+          -c "security.secureboot=${SECUREBOOT}" \
+          -c "limits.cpu=${VM_CPUS}" \
+          -c "limits.memory=${VM_MEMORY}"
+        incus config device add "${VM}" vtpm tpm
+        incus config device add "${VM}" abdisk disk \
+          source="${RUN_DISK}" boot.priority=10
+
+        echo "Starting VM..." >&2
+        incus start "${VM}"
+
+        deadline=$(( SECONDS + BOOT_TIMEOUT ))
+        booted=false
+        while (( SECONDS < deadline )); do
+          if incus console "${VM}" --show-log 2>/dev/null | grep -qaF "${EXPECT_CONSOLE}"; then
+            booted=true
+            break
+          fi
+          sleep 10
+        done
+
+        incus console "${VM}" --show-log > /tmp/results/console.log 2>/dev/null || true
+        state="$(incus list "${VM}" --format csv -c s 2>/dev/null || echo UNKNOWN)"
+
+        if [[ "${booted}" == true ]]; then
+          echo "--- console tail (last 40 lines) ---" >&2
+          tail -n 40 /tmp/results/console.log >&2 || true
+        else
+          echo "--- console tail (last 400 lines; guest did not reach the marker) ---" >&2
+          tail -n 400 /tmp/results/console.log >&2 || true
+        fi
+        echo "--- VM state: ${state} ---" >&2
+
+        if [[ "${booted}" != true ]]; then
+          printf '%s' "FAILED: ${PRODUCT}-ab ${VERSION} never reached '${EXPECT_CONSOLE}' in ${BOOT_TIMEOUT}s (state=${state})" \
+            > /tmp/results/result-summary.txt
+          exit 1
+        fi
+
+        printf '%s' "booted: ${PRODUCT}-ab ${VERSION} reached '${EXPECT_CONSOLE}' (secureboot=${SECUREBOOT}, signature verified)" \
+          > /tmp/results/result-summary.txt
+        cat /tmp/results/result-summary.txt >&2
+    volumes:
+    - name: incus-bin
+      hostPath: { path: /usr/incus, type: Directory }
+    - name: incus-sock
+      hostPath: { path: /var/lib/incus/unix.socket, type: Socket }
+    - name: disk-cache
+      hostPath: { path: /var/lib/snosi-lab/disks, type: DirectoryOrCreate }
+    - name: results
+      emptyDir: {}
