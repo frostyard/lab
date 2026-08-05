@@ -193,12 +193,21 @@ spec:
         mount "\${SCRATCH}" /var/lib/containers
         df -h /var/lib/containers
 
-        podman run --rm --privileged --pid=host \
+        # Mounting /var/lib/containers is not enough on its own: the live ISO
+        # configures podman's graphroot elsewhere (a RAM-backed path), so the
+        # pull still filled memory and died with "no space left on device"
+        # despite 28G free on the mount. Force the graphroot onto the scratch
+        # disk explicitly, and print where podman actually lands so a future
+        # failure names the filesystem that filled.
+        mkdir -p /var/lib/containers/storage
+        echo "podman default graphroot: \$(podman info --format '{{.Store.GraphRoot}}' 2>/dev/null || echo unknown)"
+
+        podman --root /var/lib/containers/storage run --rm --privileged --pid=host \
           --security-opt label=type:unconfined \
           -v /dev:/dev -v /var/lib/containers:/var/lib/containers \
           "${IMAGE}" \
           bootc install to-disk --wipe --generic-image "\${DISK}" \
-          && echo "${M_OK}" || { echo "${M_FAIL} rc=\$?"; exit 1; }
+          && echo "${M_OK}" || { rc=\$?; echo "df at failure:"; df -h; echo "${M_FAIL} rc=\${rc}"; exit 1; }
         SCRIPT
         )
         I_B64="$(printf '%s' "${INSTALL_SH}" | base64 -w0)"
