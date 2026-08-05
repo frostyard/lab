@@ -472,6 +472,41 @@ This is the prize: it unblocks snosi's own Task 9 harness, not just the lab.
 
       Whichever is chosen, the interesting part is that this drift existed
       silently until something actually ran the installer against real media.
+
+      **Decided 2026-08-05: option 2, applied per tool rather than uniformly.**
+      Implemented across three PRs:
+
+      | Repo | PR | Change |
+      |---|---|---|
+      | fisherman | [#14](https://github.com/frostyard/fisherman/pull/14) | per-tool policy, Debian version comparison, detected-version provenance |
+      | snosi | [#509](https://github.com/frostyard/snosi/pull/509) | normative contract text |
+      | dakota-iso | [#16](https://github.com/frostyard/dakota-iso/pull/16) | the SMBIOS QA-SSH transport that got us here |
+
+      - **bootc stays exact.** Its integration depends on observed,
+        non-upstream-stable behaviour of 1.16.3, so a newer release is the thing
+        most likely to break it silently. This was not relaxed.
+      - **systemd and cosign are floors**, with a validated set. Above the floor
+        but unvalidated installs and *warns* — on stderr and as a
+        `secure_install` progress event — rather than passing silently.
+      - Provenance now records **detected** versions, not the contract's declared
+        floors, which is what makes the policy auditable afterwards.
+
+      The argument that settled it: an exact pin on a routinely rebuilt medium
+      creates standing pressure to edit the pinned number instead of
+      revalidating, and a check maintainers are trained to defeat protects
+      nothing. The Task 9 harness proves directly — unattended TPM unlock across
+      a reboot — what a version string only proxies.
+
+- [ ] **D4d. Now blocked on a release chain, not on code.** The fix has to reach
+      the *live medium*, and dakota builds its ISO against a pinned fisherman
+      binary (`SECURE_FISHERMAN_URL` + sha256). So:
+
+      1. merge fisherman #14 and cut a release
+      2. bump the fisherman pin in bootc-installer
+      3. rebuild the secure Dakota ISO against it (nightly does this at 04:00Z)
+      4. re-run `run-secure-install-tests`
+
+      Nothing further to write until that lands.
 - [ ] **D5.** Then the negative and recovery runners, then the update runner.
 
 ### Phase E — the lab as self-hosted runner
