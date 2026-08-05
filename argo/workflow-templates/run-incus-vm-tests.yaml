@@ -63,12 +63,11 @@ spec:
         valueFrom:
           path: /tmp/results/result-summary.txt
           default: "No results generated"
-      artifacts:
-      - name: console-log
-        path: /tmp/results/console.log
-        optional: true
-        archive:
-          none: {}
+      # The full serial console is NOT declared as an output artifact: Argo
+      # requires a configured artifact repository for that, and the lab has no
+      # object store. Until one exists the console goes to the workflow log,
+      # which is the durable surface — generously on failure, briefly on
+      # success. See README "Known gaps".
     script:
       image: cgr.dev/chainguard/bash:latest
       securityContext:
@@ -190,13 +189,19 @@ spec:
           sleep 10
         done
 
-        # Capture the final console state either way — on failure this is the
-        # only evidence of what the guest was doing.
+        # Capture the final console state either way — with no artifact store,
+        # this log is the only evidence of what the guest was doing, so a
+        # failure gets a generous dump and a success gets a short confirmation.
         incus console "${VM}" --show-log > /tmp/results/console.log 2>/dev/null || true
-        echo "--- console tail ---" >&2
-        tail -n 60 /tmp/results/console.log >&2 || true
-
         state="$(incus list "${VM}" --format csv -c s 2>/dev/null || echo UNKNOWN)"
+
+        if [[ "${booted}" == true ]]; then
+          echo "--- console tail (last 40 lines) ---" >&2
+          tail -n 40 /tmp/results/console.log >&2 || true
+        else
+          echo "--- console tail (last 400 lines; guest did not reach the marker) ---" >&2
+          tail -n 400 /tmp/results/console.log >&2 || true
+        fi
         echo "--- VM state: ${state} ---" >&2
 
         if [[ "${booted}" != true ]]; then
