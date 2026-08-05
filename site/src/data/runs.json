@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-05T09:38:57Z",
+  "generated": "2026-08-05T09:47:51Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -89,10 +89,10 @@
       "label": "Registry digest poll",
       "kind": "poll",
       "latest": {
-        "name": "image-poll-cayo-latest-1785921600",
+        "name": "image-poll-snowfield-latest-1785922800",
         "phase": "Succeeded",
-        "started": "2026-08-05T09:20:00Z",
-        "finished": "2026-08-05T09:20:20Z",
+        "started": "2026-08-05T09:40:00Z",
+        "finished": "2026-08-05T09:40:20Z",
         "durationSeconds": 20,
         "template": "image-poller",
         "kind": "poll",
@@ -101,7 +101,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 8
+      "runs": 9
     },
     {
       "template": "run-incus-vm-tests",
@@ -127,11 +127,11 @@
       "label": "Published A/B disk artifact",
       "kind": "vm",
       "latest": {
-        "name": "snosi-disk-boot-n4hcg",
+        "name": "snosi-disk-boot-bhckq",
         "phase": "Failed",
-        "started": "2026-08-05T03:20:41Z",
-        "finished": "2026-08-05T03:28:56Z",
-        "durationSeconds": 495,
+        "started": "2026-08-05T09:39:18Z",
+        "finished": "2026-08-05T09:46:44Z",
+        "durationSeconds": 446,
         "template": "run-incus-disk-tests",
         "kind": "vm",
         "label": "Published A/B disk artifact",
@@ -139,10 +139,36 @@
         "result": "FAILED: cayo-ab 20260805002345 never reached 'Reached target' in 420s (state=RUNNING)",
         "checks": []
       },
-      "runs": 1
+      "runs": 2
     }
   ],
   "runs": [
+    {
+      "name": "image-poll-snowfield-latest-1785922800",
+      "phase": "Succeeded",
+      "started": "2026-08-05T09:40:00Z",
+      "finished": "2026-08-05T09:40:20Z",
+      "durationSeconds": 20,
+      "template": "image-poller",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "snosi-disk-boot-bhckq",
+      "phase": "Failed",
+      "started": "2026-08-05T09:39:18Z",
+      "finished": "2026-08-05T09:46:44Z",
+      "durationSeconds": 446,
+      "template": "run-incus-disk-tests",
+      "kind": "vm",
+      "label": "Published A/B disk artifact",
+      "trigger": "manual",
+      "result": "FAILED: cayo-ab 20260805002345 never reached 'Reached target' in 420s (state=RUNNING)",
+      "checks": []
+    },
     {
       "name": "image-poll-cayo-latest-1785921600",
       "phase": "Succeeded",

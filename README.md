@@ -138,7 +138,7 @@ artifact.
 | Template | Submit file | What it proves |
 |---|---|---|
 | `run-incus-vm-tests` | `snosi-vm-boot-test.yaml` | A published ISO boots under Secure Boot. The ISO is signed by a trusted chain, so this lane runs `secureboot=true`. |
-| `run-incus-disk-tests` | `snosi-disk-boot-test.yaml` | The published `*-ab.disk.raw.xz` artifact boots and runs, with its signed `SHA256SUMS` verified before use. |
+| `run-incus-disk-tests` | `snosi-disk-boot-test.yaml` | Fetches and signature-verifies the published `*-ab.disk.raw.xz`. **Its boot assertion is unproven — see below.** |
 | `run-incus-install-tests` | `snosi-install-test.yaml` | **The native A/B installer** — partitioning, EROFS + dm-verity root, LUKS `/var`, TPM enrollment. |
 | `run-incus-bootc-install-tests` | `snosi-bootc-install-test.yaml` | **The bootc install path** — `bootc install to-disk` from the live ISO, then a real bootc host. |
 
@@ -167,6 +167,23 @@ installed and verified: cayo-ab (verity+luks+erofs, secureboot=false, skip-mok=t
 `verity`, `luks`, and `rootfs=erofs` are the gating checks: each is created by
 `snosi-install` at install time and exists in no published image, so a lane
 that passes them has genuinely exercised the installer.
+
+### The disk-artifact lane's premise is probably wrong
+
+`run-incus-disk-tests` reliably fetches and signature-verifies the published
+`*-ab.disk.raw.xz`, but its boot assertion has never passed: the guest stays
+`RUNNING` without reaching a login target, with Secure Boot on **or** off.
+
+The likeliest explanation is not a defect but a category error on my part. A
+`*-ab` disk image is a *pre-install* artifact: `snosi-install` is what writes
+it to disk and then provisions the LUKS `/var` and seals it to the TPM. Booted
+standalone, that setup has never happened, so hanging is plausibly correct
+behaviour rather than a bug — which is why this is not filed as an issue.
+
+Deciding what this lane should assert needs a maintainer's answer to "is a bare
+`*-ab.disk.raw` supposed to boot on its own?". Until then, treat the
+fetch-and-verify half as the useful part: it does prove the published artifact
+is signed, intact, and decompresses. The boot timeout is noise.
 
 ### The bootc install lane is red, and the failure is real
 
