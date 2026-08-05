@@ -232,11 +232,22 @@ spec:
         export BOOTC_SECURE_NEGATIVE_COMMAND="${NEGATIVE}"
         export BOOTC_SECURE_RECOVERY_COMMAND="${RECOVERY}"
 
+        # Persist the harness log to the HOST, outside ${WORK} so the cleanup
+        # trap cannot take it. Pod logs are not a durable surface for this lane:
+        # the harness streams a full guest console plus podman's layer-by-layer
+        # pull output, and kubelet's rotation has now truncated the decisive
+        # error three separate times -- most recently leaving ten lines that
+        # named an exit code with none of the output explaining it.
+        LOGDIR=/var/lib/snosi-lab/secure/logs
+        mkdir -p "${LOGDIR}"
+        HLOG="${LOGDIR}/{{workflow.name}}.log"
+
         echo "--- running snosi test/bootc-secure-install-test.sh (live) ---" >&2
+        echo "--- full log persists at ${HLOG} on the lab host ---" >&2
         cd /src/snosi
         set +e
-        ./test/bootc-secure-install-test.sh 2>&1 | tee /tmp/results/harness.log
-        rc="${PIPESTATUS[0]}"
+        ./test/bootc-secure-install-test.sh > "${HLOG}" 2>&1
+        rc=$?
         set -e
         echo "--- harness exit ${rc} ---" >&2
 
@@ -244,12 +255,19 @@ spec:
         # failure. Distinguishing the two is the entire point of this lane —
         # reporting BLOCKED as a pass would be worse than reporting nothing.
         if [[ "${rc}" == "2" ]]; then
-          blocked="$(grep -m1 'BLOCKED:' /tmp/results/harness.log || echo 'BLOCKED (no reason line)')"
+          blocked="$(grep -m1 'BLOCKED:' "${HLOG}" || echo 'BLOCKED (no reason line)')"
           fail "BLOCKED: ${blocked}"
         fi
         if [[ "${rc}" != "0" ]]; then
-          tail -n 80 /tmp/results/harness.log >&2
-          fail "FAILED: secure install harness exited ${rc} for ${PROFILE}"
+          # Print an error-focused extract FIRST, then a short tail. Emitting
+          # less makes it likelier the useful part survives rotation; the
+          # complete log is on the host either way.
+          echo "--- error-relevant lines ---" >&2
+          grep -aiE "error|fatal|denied|refus|reject|no space|cannot|failed|exit status" "${HLOG}" \
+            | grep -avE "^\+ " | tail -n 40 >&2 || true
+          echo "--- last 40 lines ---" >&2
+          tail -n 40 "${HLOG}" >&2 || true
+          fail "FAILED: secure install harness exited ${rc} for ${PROFILE} (full log: ${HLOG})"
         fi
 
         printf '%s' "secure install verified: ${PROFILE} @ ${OCI_REF#*@} (Secure Boot enforced, MOK enrolled, TPM unlock)" \
