@@ -1,0 +1,77 @@
+---
+const { title = 'frostyard lab', description = 'QA pipeline status for snosi bootc images' } = Astro.props;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <style>
+      /* Both themes are styled: this page is read on a phone at 2am as often
+         as on a desktop, and a forced light page in a dark room is hostile. */
+      :root {
+        color-scheme: light dark;
+        --bg: #fbfcfd;
+        --panel: #ffffff;
+        --border: #e2e6ea;
+        --fg: #14181c;
+        --muted: #5a656e;
+        --accent: #2f6f9f;
+        --ok: #1a7f4b;
+        --ok-bg: #e8f6ee;
+        --bad: #b3261e;
+        --bad-bg: #fdeceb;
+        --warn: #8a6300;
+        --warn-bg: #fdf3dd;
+        --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0f1316;
+          --panel: #161b20;
+          --border: #262d34;
+          --fg: #e6ebf0;
+          --muted: #93a1ad;
+          --accent: #6bb2e2;
+          --ok: #5cc98d;
+          --ok-bg: #12291d;
+          --bad: #f2857d;
+          --bad-bg: #2c1614;
+          --warn: #e0b44a;
+          --warn-bg: #2a2213;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font: 15px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      }
+      .wrap { max-width: 68rem; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+      header { border-bottom: 1px solid var(--border); padding-bottom: 1.25rem; margin-bottom: 2rem; }
+      h1 { margin: 0 0 .35rem; font-size: 1.6rem; letter-spacing: -0.01em; }
+      h2 { font-size: 1.05rem; margin: 2.5rem 0 .85rem; letter-spacing: -0.005em; }
+      .sub { color: var(--muted); margin: 0; }
+      a { color: var(--accent); }
+      code, .mono { font-family: var(--mono); font-size: .875em; }
+      footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border); color: var(--muted); font-size: .85rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>frostyard lab</h1>
+        <p class="sub">Continuous QA for <a href="https://github.com/frostyard/snosi">snosi</a> bootc images — container suites, VM boot, and both install paths.</p>
+      </header>
+      <slot />
+      <footer>
+        Generated from the <code>selfie</code> cluster by
+        <a href="https://github.com/frostyard/lab">frostyard/lab</a>.
+        Cluster state is reconciled from git by Argo CD; this page is a read-only view.
+      </footer>
+    </div>
+  </body>
+</html>

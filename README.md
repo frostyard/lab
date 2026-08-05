@@ -332,6 +332,46 @@ Setting up a cluster from scratch: [`docs/ops/bootstrap.md`](docs/ops/bootstrap.
 
 ---
 
+## Reporting
+
+`site/` is an [Astro](https://astro.build) page published to GitHub Pages,
+showing per-lane status and recent run history:
+**<https://frostyard.github.io/lab/>**
+
+The data flow deliberately has no link between GitHub and the cluster in either
+direction:
+
+```
+publish-results CronWorkflow (in cluster)
+    │  reads the Argo API, regenerates site/src/data/runs.json
+    ▼
+git push main
+    │
+    ▼
+.github/workflows/pages.yml → builds site/ → GitHub Pages
+```
+
+The collector reads the Kubernetes API rather than being wired into each lane,
+so a lane added tomorrow appears with no reporting change. It skips the commit
+when only the generation timestamp moved, so an idle cluster does not push a
+commit every 30 minutes.
+
+`publish-results` ships **suspended** and needs a token that can push to this
+repo:
+
+```bash
+kubectl create secret generic github-token -n argo \
+  --from-literal=token=<PAT with contents:write on frostyard/lab>
+```
+
+Then set `spec.suspend: false` in `manifests/publish-results.yaml` and push.
+Until that exists the page renders from whatever `runs.json` is committed.
+
+Locally: `just collect` regenerates the data from the cluster, `just site-dev`
+serves the page.
+
+---
+
 ## Known gaps
 
 - **`display-manager.service` is not linked in the snow image.** `gdm.service`

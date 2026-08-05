@@ -72,3 +72,17 @@ validate:
         fi
     done
     exit $rc
+
+# ── reporting ────────────────────────────────────────────────────────────────
+
+# Regenerate the site's run data from the live cluster.
+collect:
+    python3 scripts/collect_runs.py site/src/data/runs.json
+
+# Build the reporting site locally.
+site-build:
+    cd site && npm install && npm run build
+
+# Serve the reporting site with live reload.
+site-dev:
+    cd site && npm install && npm run dev

@@ -1,0 +1,140 @@
+---
+import Layout from '../layouts/Layout.astro';
+import data from '../data/runs.json';
+
+const { generated, lanes = [], runs = [] } = data;
+
+// Argo phases collapse to three states worth colouring. Anything still moving
+// is "running" rather than a fourth colour nobody can interpret at a glance.
+function state(phase) {
+  if (phase === 'Succeeded') return 'ok';
+  if (phase === 'Failed' || phase === 'Error') return 'bad';
+  return 'warn';
+}
+
+function duration(seconds) {
+  if (seconds == null) return '—';
+  if (seconds < 90) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  return m < 90 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+function when(ts) {
+  if (!ts) return '—';
+  return ts.replace('T', ' ').replace('Z', ' UTC');
+}
+
+const KIND_ORDER = ['container', 'install', 'vm', 'poll', 'maintenance', 'other'];
+const KIND_LABEL = {
+  container: 'Container suites',
+  install: 'Installers',
+  vm: 'VM boot',
+  poll: 'Registry polling',
+  maintenance: 'Maintenance',
+  other: 'Other',
+};
+
+const grouped = KIND_ORDER
+  .map((kind) => ({ kind, label: KIND_LABEL[kind], lanes: lanes.filter((l) => l.kind === kind) }))
+  .filter((g) => g.lanes.length);
+
+const recent = runs.slice(0, 40);
+const empty = runs.length === 0;
+---
+<Layout>
+  {empty && (
+    <p class="empty">
+      No run data yet. The collector CronWorkflow publishes
+      <code>site/src/data/runs.json</code> once a GitHub token secret exists in the
+      cluster — see <a href="https://github.com/frostyard/lab#reporting">the README</a>.
+    </p>
+  )}
+
+  {!empty && (
+    <>
+      <h2>Lane status</h2>
+      {grouped.map((group) => (
+        <section class="group">
+          <h3>{group.label}</h3>
+          <div class="cards">
+            {group.lanes.map((lane) => (
+              <article class={`card ${state(lane.latest.phase)}`}>
+                <div class="card-head">
+                  <span class="name">{lane.label}</span>
+                  <span class="pill">{lane.latest.phase}</span>
+                </div>
+                {lane.latest.result && <p class="result">{lane.latest.result}</p>}
+                {lane.latest.checks?.length > 0 && (
+                  <ul class="checks">
+                    {lane.latest.checks.map((c) => {
+                      const [k, v] = c.split('=');
+                      return <li><span class="k">{k}</span><span class={`v ${v === 'ok' ? 'good' : ''}`}>{v}</span></li>;
+                    })}
+                  </ul>
+                )}
+                <p class="meta">
+                  {when(lane.latest.finished || lane.latest.started)} · {duration(lane.latest.durationSeconds)} · {lane.runs} run{lane.runs === 1 ? '' : 's'} retained
+                </p>
+              </article>
+            ))}
+          </div>
+        </section>
+      ))}
+
+      <h2>Recent runs</h2>
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr><th>Run</th><th>Lane</th><th>Phase</th><th>Started</th><th>Duration</th><th>Result</th></tr>
+          </thead>
+          <tbody>
+            {recent.map((run) => (
+              <tr>
+                <td class="mono nowrap">{run.name}</td>
+                <td>{run.label}</td>
+                <td><span class={`pill ${state(run.phase)}`}>{run.phase}</span></td>
+                <td class="nowrap">{when(run.started)}</td>
+                <td class="nowrap">{duration(run.durationSeconds)}</td>
+                <td class="result-cell">{run.result || '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  )}
+
+  <p class="stamp">Data generated {generated ? when(generated) : 'never'}.</p>
+</Layout>
+
+<style>
+  .empty { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; color: var(--muted); }
+  .group { margin-bottom: 1.75rem; }
+  h3 { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 .7rem; font-weight: 600; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr)); gap: .85rem; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-left-width: 3px; border-radius: 10px; padding: .95rem 1.05rem; }
+  .card.ok { border-left-color: var(--ok); }
+  .card.bad { border-left-color: var(--bad); }
+  .card.warn { border-left-color: var(--warn); }
+  .card-head { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+  .name { font-weight: 600; }
+  .pill { font-size: .72rem; font-weight: 600; padding: .12rem .5rem; border-radius: 999px; background: var(--warn-bg); color: var(--warn); white-space: nowrap; }
+  .card.ok .pill, .pill.ok { background: var(--ok-bg); color: var(--ok); }
+  .card.bad .pill, .pill.bad { background: var(--bad-bg); color: var(--bad); }
+  .pill.warn { background: var(--warn-bg); color: var(--warn); }
+  .result { margin: .6rem 0 .5rem; font-size: .875rem; }
+  .checks { list-style: none; margin: .5rem 0; padding: 0; display: flex; flex-wrap: wrap; gap: .35rem; }
+  .checks li { display: flex; gap: .3rem; font-family: var(--mono); font-size: .74rem; border: 1px solid var(--border); border-radius: 5px; padding: .1rem .4rem; }
+  .checks .k { color: var(--muted); }
+  .checks .v.good { color: var(--ok); }
+  .meta { margin: .5rem 0 0; font-size: .78rem; color: var(--muted); }
+  /* Wide content scrolls inside its own container so the page body never does. */
+  .tablewrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
+  table { border-collapse: collapse; width: 100%; font-size: .85rem; }
+  th, td { text-align: left; padding: .55rem .8rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { font-size: .74rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
+  tbody tr:last-child td { border-bottom: none; }
+  .nowrap { white-space: nowrap; }
+  .result-cell { max-width: 22rem; }
+  .stamp { margin-top: 1.75rem; font-size: .8rem; color: var(--muted); }
+</style>
