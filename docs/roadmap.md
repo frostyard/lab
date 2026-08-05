@@ -14,6 +14,91 @@ Nothing in this lab proves that yet. This is the path.
 
 ---
 
+## Status at a glance
+
+Updated 2026-08-05, end of day. If you read one section, read this one.
+
+| Lane | State |
+|---|---|
+| Container smoke suites (×3 products) | 🟢 |
+| Native A/B installer | 🟢 (Secure Boot off — Phase F) |
+| Published A/B disk artifact | 🟢 |
+| ISO boot, Secure Boot enforced | 🟢 |
+| bootc installer (mechanics) | 🟢 — first pass ever, today |
+| **bootc secure installer** | 🔴 **the one live front** |
+| Registry digest poll, orphan GC | 🟢 |
+
+**Seven of eight lanes green.** The eighth is the secure install path, and it is
+the only thing actively being worked.
+
+### The one live front
+
+`run-secure-install-tests` drives snosi's Task 9 harness against the real
+external installer. Each attempt has cleared one genuine defect and exposed the
+next — none of them findable without running against real media:
+
+| # | Blocker | Resolution |
+|---|---|---|
+| 1 | Harness reported `BLOCKED` forever | environment stood up; nothing to build — the runners already existed |
+| 2 | Live SSH could not connect | SMBIOS-injected unit ([dakota#16](https://github.com/frostyard/dakota-iso/pull/16)) |
+| 3 | `mokPasswordFile is required` | caller-owned file generated on the guest |
+| 4 | systemd `261.1-3` vs media `261.2-1` | version floors ([fisherman#14](https://github.com/frostyard/fisherman/pull/14), [snosi#509](https://github.com/frostyard/snosi/pull/509)) |
+| 5 | `podman pull` exit 125 | `--signature-policy` is a *pull* flag ([fisherman#15](https://github.com/frostyard/fisherman/pull/15)) |
+| 6 | OCI layout `rejected by policy` | scoped local-transport policy ([fisherman#17](https://github.com/frostyard/fisherman/pull/17)) |
+
+**Where it sits now:** fisherman **v0.2.5** is released and carries all of 4, 5
+and 6. The dakota pin is repointed at it and the secure ISO is rebuilding
+against it. Next action is to re-run the lane — blockers 5 and 6 have never been
+exercised together on real media, so the honest expectation is that it gets
+further and finds a seventh thing.
+
+### After that
+
+- **Phase F** — Secure Boot for the native A/B lanes. Independent of the above,
+  adopts snosi's existing `virt-fw-vars` pattern, could start any time.
+- **Phase E** — the lab as `bootc-secure` self-hosted runner. Approved; gated on
+  the secure lane being green so we are not automating something unproven.
+- **ext4 in the fisherman matrix.** All three entries are btrfs today. ext4
+  coverage was lost with the removed `dakota` entry — btrfs is correctly primary
+  (it is what most installs use and what the secure path produces), but ext4
+  should come back as a second filesystem once the secure path is green.
+
+---
+
+## What got touched, and why
+
+Four repos, because the blockers were genuinely distributed. Nothing here was a
+detour for its own sake — each one sat directly on the path to a green secure
+install.
+
+| PR | Repo | Why it was on the path |
+|---|---|---|
+| [#508](https://github.com/frostyard/snosi/pull/508) | snosi | publish mechanics images — the bootc lane had no legal target |
+| [#509](https://github.com/frostyard/snosi/pull/509) | snosi | version floors in the normative contract |
+| [#21](https://github.com/frostyard/bootc-installer/pull/21), [#22](https://github.com/frostyard/bootc-installer/pull/22) | bootc-installer | secure install flow; fisherman pin |
+| [#16](https://github.com/frostyard/dakota-iso/pull/16) | dakota-iso | SMBIOS QA-SSH transport |
+| [#14](https://github.com/frostyard/fisherman/pull/14) | fisherman | version floors, detected-version provenance |
+| [#15](https://github.com/frostyard/fisherman/pull/15) | fisherman | `--signature-policy` position |
+| [#16](https://github.com/frostyard/fisherman/pull/16) | fisherman | `workflow_dispatch` on release-publish |
+| [#17](https://github.com/frostyard/fisherman/pull/17) | fisherman | frostyard-only matrix; OCI-layout policy |
+
+Plus, in this repo: the `unproven` lane state, the pipefail audit, the secure
+lane itself, ETag cache validation, and host-persisted harness logs.
+
+**Two findings worth remembering even if everything else fades:**
+
+1. **A secure image is not derivable.** Its MOK-signed UKI pins `composefs=` to
+   the digest of the exact image it was assembled from, so any derived variant
+   is refused. That is the security property working. It is why the fisherman CI
+   matrix must use `:mechanics` images, and why the secure path can only be
+   tested by installing the unmodified signed image through real media.
+2. **Tests asserted two of these bugs.** The `--signature-policy` position had
+   two unit tests locking in a command line podman rejects outright. A test that
+   restates whatever the implementation emits proves only that it still emits
+   it.
+
+---
+
 ## What each lane actually tests
 
 The names on the dashboard are ambiguous. Concretely:
@@ -313,7 +398,121 @@ install path, and nothing more.
 - [x] **C3.** Fisherman pin `5cdcb5f` confirmed reachable from `origin/dev`, so
       the detached local HEAD was never at risk of loss.
 
-### Phase D — stand up the secure runner environment on selfie
+### Phase D — the secure install path
+
+The active front. Full blow-by-blow in
+[Appendix: how the secure path was unblocked](#appendix-how-the-secure-path-was-unblocked);
+the short version is the table in [Status at a glance](#status-at-a-glance).
+
+- [x] **D1.** Secure Dakota ISO — already published nightly and already cached.
+- [x] **D2.** `STATE_ROOT` and toolchain — containerised, host untouched.
+- [x] **D3.** Signed OCI fixtures — **not needed**; consecutive published
+      version tags are a valid N/N+1/N+2.
+- [x] **D4a.** `BLOCKED` cleared.
+- [x] **D4b–d.** Six blockers cleared, fisherman v0.2.5 released with the last
+      three.
+- [ ] **D5.** Re-run against the v0.2.5 media, then the negative and recovery
+      runners, then update.
+
+
+### Phase E — the lab as self-hosted runner
+
+Approved in principle; the cleanup gate is Phase A.
+
+snosi already declares the jobs. `test-bootc-secure.yml`:
+
+```yaml
+runs-on: [self-hosted, linux, x64, bootc-secure]
+```
+
+`live-full-window` and `snowfield-hardware` are waiting on a runner with exactly
+what selfie has. Registering it is strictly less work than reimplementing any of
+it in Argo — which is the argument for **not** building Phase D as Argo
+templates.
+
+- [ ] **E1.** Register selfie with the `bootc-secure` label.
+- [ ] **E2.** Decide the trust boundary: a self-hosted runner executes workflow
+      code from PRs. Restrict to protected branches / `workflow_dispatch`, never
+      `pull_request` from forks.
+- [ ] **E3.** Move Phase D invocations behind that runner.
+
+### Phase F — close the native A/B Secure Boot gap
+
+Independent of everything above; adopt snosi's existing pattern.
+
+- [ ] **F1.** `virt-fw-vars --add-mok` into each guest's `qemu.nvram` before
+      first boot, as `native-ab-secure-boot-test.sh` does.
+- [ ] **F2.** Install lane to `secureboot=true`, drop `--skip-mok`, assert the
+      installed system boots enforced and unattended.
+- [ ] **F3.** Negative proof — a wrongly-signed binary must be rejected by shim,
+      or the positive result proves nothing.
+- [ ] **F4.** Published-disk lane under enforced SB with the MOK pre-seeded.
+
+Note the two formats need *different* MOK handling: native pre-seeds host-side,
+while the secure bootc installer generates a one-time MokManager password and
+stages enrollment itself. Do not unify them.
+
+### Phase G — matrix, updates, gating
+
+- [ ] **G0.** Restore ext4 to the fisherman test matrix. All three entries are
+      btrfs today; ext4 coverage disappeared with the removed `dakota` entry,
+      which was the only ext4 filesystem in it. btrfs is correctly primary — it
+      is what most installs use and what the secure path produces — but ext4
+      should return as a second filesystem once the secure path is green.
+- [ ] **G1.** Both install lanes across `{cayo, snow, snowfield}`.
+- [ ] **G2.** Run the behave suite against installed VMs, not just console
+      assertions. This is where `snowfield`'s Surface kernel finally gets
+      covered — no container lane can assert on a kernel.
+- [ ] **G3.** A/B update → rollback → boot-count fallback.
+- [ ] **G4.** Pre-promotion gating, tiered:
+
+| Tier | Trigger | Runs | Gate? |
+|---|---|---|---|
+| 1 | PR | existing static/fixture gates — unchanged | blocking, already is |
+| 2 | post-build, pre-promotion | install-and-boot, both formats, SB enforced | **blocking — the new gate** |
+| 3 | nightly | full matrix + update/rollback | non-blocking |
+| 4 | continuous | published artifacts on digest change | non-blocking |
+
+Tier 4 is what the lab does today and stays valuable after gating exists: CI
+tests a candidate, the lab tests what is actually being served.
+
+---
+
+## Sequencing
+
+B and C–D are independent. B is days and yields a green mechanics lane; C–D is
+the real coverage. A gates both, and A4/A5 are small.
+
+```
+A (trust)  ──┬── B (mechanics publish) ──► mechanics lane green
+             │
+             └── C (merge branches) ── D (STATE_ROOT + runners) ──► Task 9 unblocked
+                                             │
+                                             └── E (self-hosted runner) ──► G4 gating
+F (native SB) runs in parallel throughout.
+```
+
+## Open questions
+
+1. **Mechanics tag naming and lifecycle.** `snow:mechanics-<version>` with no
+   moving alias is the safest shape. Do they get retention/GC, or accumulate?
+2. **Giving a mechanics job registry write.** Today `mechanics-build` is
+   secretless, which is a genuine security property. Publishing means changing
+   that. A separate main-only job is the narrower change.
+3. **Trust boundary for the self-hosted runner** (E2). selfie holds the incus
+   socket and the lab's cluster; a compromised workflow run there is not
+   contained. Restricting to protected branches and dispatch is the minimum.
+4. ~~Who owns the signed secure OCI fixtures~~ — **resolved**: none are needed.
+   See D3.
+
+---
+
+## Appendix: how the secure path was unblocked
+
+Preserved in full because each step was a real defect with a real diagnosis,
+and the reasoning is worth more than the conclusion.
+
+### The Phase D log
 
 This is the prize: it unblocks snosi's own Task 9 harness, not just the lab.
 
@@ -516,88 +715,3 @@ This is the prize: it unblocks snosi's own Task 9 harness, not just the lab.
       need that every time. Fix is one of: add `workflow_dispatch` to
       `release-publish.yml`, or have `release-cut` push the tag with a PAT.
 - [ ] **D5.** Then the negative and recovery runners, then the update runner.
-
-### Phase E — the lab as self-hosted runner
-
-Approved in principle; the cleanup gate is Phase A.
-
-snosi already declares the jobs. `test-bootc-secure.yml`:
-
-```yaml
-runs-on: [self-hosted, linux, x64, bootc-secure]
-```
-
-`live-full-window` and `snowfield-hardware` are waiting on a runner with exactly
-what selfie has. Registering it is strictly less work than reimplementing any of
-it in Argo — which is the argument for **not** building Phase D as Argo
-templates.
-
-- [ ] **E1.** Register selfie with the `bootc-secure` label.
-- [ ] **E2.** Decide the trust boundary: a self-hosted runner executes workflow
-      code from PRs. Restrict to protected branches / `workflow_dispatch`, never
-      `pull_request` from forks.
-- [ ] **E3.** Move Phase D invocations behind that runner.
-
-### Phase F — close the native A/B Secure Boot gap
-
-Independent of everything above; adopt snosi's existing pattern.
-
-- [ ] **F1.** `virt-fw-vars --add-mok` into each guest's `qemu.nvram` before
-      first boot, as `native-ab-secure-boot-test.sh` does.
-- [ ] **F2.** Install lane to `secureboot=true`, drop `--skip-mok`, assert the
-      installed system boots enforced and unattended.
-- [ ] **F3.** Negative proof — a wrongly-signed binary must be rejected by shim,
-      or the positive result proves nothing.
-- [ ] **F4.** Published-disk lane under enforced SB with the MOK pre-seeded.
-
-Note the two formats need *different* MOK handling: native pre-seeds host-side,
-while the secure bootc installer generates a one-time MokManager password and
-stages enrollment itself. Do not unify them.
-
-### Phase G — matrix, updates, gating
-
-- [ ] **G1.** Both install lanes across `{cayo, snow, snowfield}`.
-- [ ] **G2.** Run the behave suite against installed VMs, not just console
-      assertions. This is where `snowfield`'s Surface kernel finally gets
-      covered — no container lane can assert on a kernel.
-- [ ] **G3.** A/B update → rollback → boot-count fallback.
-- [ ] **G4.** Pre-promotion gating, tiered:
-
-| Tier | Trigger | Runs | Gate? |
-|---|---|---|---|
-| 1 | PR | existing static/fixture gates — unchanged | blocking, already is |
-| 2 | post-build, pre-promotion | install-and-boot, both formats, SB enforced | **blocking — the new gate** |
-| 3 | nightly | full matrix + update/rollback | non-blocking |
-| 4 | continuous | published artifacts on digest change | non-blocking |
-
-Tier 4 is what the lab does today and stays valuable after gating exists: CI
-tests a candidate, the lab tests what is actually being served.
-
----
-
-## Sequencing
-
-B and C–D are independent. B is days and yields a green mechanics lane; C–D is
-the real coverage. A gates both, and A4/A5 are small.
-
-```
-A (trust)  ──┬── B (mechanics publish) ──► mechanics lane green
-             │
-             └── C (merge branches) ── D (STATE_ROOT + runners) ──► Task 9 unblocked
-                                             │
-                                             └── E (self-hosted runner) ──► G4 gating
-F (native SB) runs in parallel throughout.
-```
-
-## Open questions
-
-1. **Mechanics tag naming and lifecycle.** `snow:mechanics-<version>` with no
-   moving alias is the safest shape. Do they get retention/GC, or accumulate?
-2. **Giving a mechanics job registry write.** Today `mechanics-build` is
-   secretless, which is a genuine security property. Publishing means changing
-   that. A separate main-only job is the narrower change.
-3. **Trust boundary for the self-hosted runner** (E2). selfie holds the incus
-   socket and the lab's cluster; a compromised workflow run there is not
-   contained. Restricting to protected branches and dispatch is the minimum.
-4. ~~Who owns the signed secure OCI fixtures~~ — **resolved**: none are needed.
-   See D3.
