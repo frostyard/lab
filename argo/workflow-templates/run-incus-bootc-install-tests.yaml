@@ -59,6 +59,10 @@ spec:
         value: "8GiB"
       - name: target-disk-size
         value: "40GiB"
+      # Scratch block device for podman storage in the guest. Must stay smaller
+      # than the target: the guest tells the two apart by size.
+      - name: scratch-disk-size
+        value: "30GiB"
       - name: iso-boot-timeout-seconds
         value: "600"
       - name: install-timeout-seconds
@@ -92,6 +96,7 @@ spec:
       - { name: VM_CPUS,   value: "{{inputs.parameters.vm-cpus}}" }
       - { name: VM_MEMORY, value: "{{inputs.parameters.vm-memory}}" }
       - { name: TARGET_DISK_SIZE, value: "{{inputs.parameters.target-disk-size}}" }
+      - { name: SCRATCH_DISK_SIZE, value: "{{inputs.parameters.scratch-disk-size}}" }
       - { name: ISO_BOOT_TIMEOUT, value: "{{inputs.parameters.iso-boot-timeout-seconds}}" }
       - { name: INSTALL_TIMEOUT,  value: "{{inputs.parameters.install-timeout-seconds}}" }
       - { name: INSTALLED_BOOT_TIMEOUT, value: "{{inputs.parameters.installed-boot-timeout-seconds}}" }
@@ -109,10 +114,14 @@ spec:
         apt-get install -y -qq --no-install-recommends ca-certificates curl >/dev/null
 
         VM="qa-$(echo '{{workflow.name}}' | tail -c 40 | tr -cd 'a-z0-9-' | sed 's/^-*//')"
+        SCRATCH_VOL="${VM}-scratch"
         cleanup() {
           rc=$?
           echo "--- teardown ---" >&2
           incus delete --force "${VM}" >/dev/null 2>&1 || true
+          # Custom volumes outlive the instance they were attached to, so this
+          # must be explicit or every run leaks its scratch disk.
+          incus storage volume delete lab "${SCRATCH_VOL}" >/dev/null 2>&1 || true
           exit "${rc}"
         }
         trap cleanup EXIT
@@ -164,11 +173,26 @@ spec:
         echo "${M_BEGIN}"
         set -x
         for i in \$(seq 1 30); do ip route get 1.1.1.1 >/dev/null 2>&1 && break; sleep 5; done
-        # Pick the largest disk that has no partitions yet — the ISO is a
-        # read-only optical device and never matches.
-        DISK=\$(lsblk -dnbo NAME,TYPE,SIZE | awk '\$2=="disk"{print \$3, "/dev/"\$1}' | sort -rn | head -1 | cut -d' ' -f2)
-        if [ -z "\${DISK}" ]; then echo "${M_FAIL} no target disk"; lsblk; exit 1; fi
+        # Two disks are attached, and neither is the ISO (type rom). The larger
+        # is the install target; the smaller is scratch for container storage.
+        mapfile -t DISKS < <(lsblk -dnbo NAME,TYPE,SIZE | awk '\$2=="disk"{print \$3" /dev/"\$1}' | sort -rn | cut -d' ' -f2)
+        DISK="\${DISKS[0]:-}"
+        SCRATCH="\${DISKS[1]:-}"
+        if [ -z "\${DISK}" ] || [ -z "\${SCRATCH}" ]; then
+          echo "${M_FAIL} expected two disks, saw: \${DISKS[*]:-none}"; lsblk; exit 1
+        fi
         echo "target disk: \${DISK}"
+        echo "scratch disk: \${SCRATCH}"
+
+        # The live ISO's /var/lib/containers is RAM-backed, so pulling a
+        # multi-GB bootc image there dies with "no space left on device" partway
+        # through writing a layer. Give podman real storage on the scratch disk.
+        # The target disk cannot serve: bootc install --wipe destroys it.
+        mkfs.ext4 -F -q "\${SCRATCH}"
+        mkdir -p /var/lib/containers
+        mount "\${SCRATCH}" /var/lib/containers
+        df -h /var/lib/containers
+
         podman run --rm --privileged --pid=host \
           --security-opt label=type:unconfined \
           -v /dev:/dev -v /var/lib/containers:/var/lib/containers \
@@ -202,6 +226,11 @@ spec:
         incus config device add "${VM}" vtpm tpm
         incus config device add "${VM}" installer disk \
           source="${ISO_PATH}" boot.priority=10 readonly=true
+
+        # Scratch block volume for podman storage inside the guest. Deliberately
+        # smaller than the target so the guest can tell them apart by size.
+        incus storage volume create lab "${SCRATCH_VOL}" --type=block size="${SCRATCH_DISK_SIZE}" >/dev/null
+        incus config device add "${VM}" scratch disk pool=lab source="${SCRATCH_VOL}"
         incus config set "${VM}" raw.qemu="-smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.snosi-qa-bootc.service=${U_B64} -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.multi-user.target=${D_B64}"
 
         incus start "${VM}"
