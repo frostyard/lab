@@ -115,13 +115,18 @@ spec:
           qemu-system-x86 qemu-utils ovmf swtpm swtpm-tools \
           cryptsetup-bin binutils sbsigntool openssh-client iproute2 \
           jq python3 python3-pip sshpass socat git skopeo curl ca-certificates \
+          gcc python3-dev libc6-dev \
           >/dev/null
 
         # virt-firmware is not packaged in trixie; it provides virt-fw-vars,
         # which the harness uses to simulate MokManager approval by writing the
         # MOK into the guest's own varstore.
-        pip install --quiet --break-system-packages virt-firmware >/dev/null 2>&1 \
-          || pip install --quiet --break-system-packages virt-firmware
+        #
+        # gcc/python3-dev above are not incidental: Python 3.13 dropped the
+        # `crypt` module, so pip resolves virt-firmware onto `crypt_r`, which
+        # ships no wheel and fails with "command 'x86_64-linux-gnu-gcc' failed"
+        # on a slim image.
+        pip install --quiet --break-system-packages virt-firmware
         command -v virt-fw-vars >/dev/null || fail "FAILED: virt-fw-vars unavailable after install"
 
         # ── sources ──────────────────────────────────────────────────────────
