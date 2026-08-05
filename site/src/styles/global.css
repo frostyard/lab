@@ -1,0 +1,12 @@
+/* Frostyard design system entry point. The token files are copied verbatim from
+   frostyard/design-system — edit them there and re-copy, never patch in place. */
+@import "./tokens/colors.css";
+@import "./tokens/typography.css";
+@import "./tokens/spacing.css";
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+body{margin:0;background-color:var(--ink);background-image:var(--gradient-page);background-attachment:fixed;color:var(--text-body);font-family:var(--font-sans);line-height:1.5}
+a{color:var(--link)}
+a:hover{color:var(--link-hover)}
