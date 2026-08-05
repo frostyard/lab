@@ -133,19 +133,66 @@ the origin's ETag on every run — `snow-live-latest.iso` is a stable name whose
 bytes change, so caching on filename alone would pin the lane to a stale
 artifact.
 
-### What it does not do yet
+### The three VM lanes
 
-Boot validation only. The native A/B install path — `snosi-install
---non-interactive --json-progress`, which the installer's GTK front end drives
-underneath — is not wired up, so these are not yet asserted:
+| Template | Submit file | What it proves |
+|---|---|---|
+| `run-incus-vm-tests` | `snosi-vm-boot-test.yaml` | A published ISO boots under Secure Boot. The ISO is signed by a trusted chain, so this lane runs `secureboot=true`. |
+| `run-incus-disk-tests` | `snosi-disk-boot-test.yaml` | The published `*-ab.disk.raw.xz` artifact boots and runs, with its signed `SHA256SUMS` verified before use. |
+| `run-incus-install-tests` | `snosi-install-test.yaml` | **The installer itself** — partitioning, EROFS + dm-verity root, LUKS `/var`, TPM enrollment. |
 
-- dm-verity active over an EROFS root on a real install
-- `/var` LUKS unlocked by the TPM
-- the A/B slot switch and rollback
+The install lane is the one that matters most. Booting an image tests an
+artifact; only running `snosi-install` tests the thing that *creates* the
+on-disk layout, and none of verity, LUKS, or the A/B slots exist in a shipped
+image at all.
 
-The CLI installer's flags are the seam for that work; see
-`shared/native-installer/setup-gui/setup_gui/model.py` in the snosi repo for
-the exact argv the GUI assembles.
+### Driving a guest with no agent and no SSH
+
+snosi images ship no incus guest agent, and a live ISO has no provisioned SSH
+key — so there is no obvious way to run a command inside a guest. systemd
+solves it: it reads credentials from **SMBIOS type 11**, and the well-known
+`systemd.extra-unit.<name>` credential defines an entire unit from thin air.
+
+The lane passes qemu two credentials via `raw.qemu` — the unit to run, and a
+`multi-user.target` drop-in that pulls it in — and the guest executes it at
+boot with no cooperation from the image:
+
+```
+systemd[1]: Received regular credentials: systemd.extra-unit.snosi-qa-install.service, ...
+systemd[1]: Acquired 2 regular credentials, 0 untrusted credentials.
+```
+
+Results come back on the serial console, which is the only channel that exists
+before a system is installed. The same mechanism carries the post-install
+assertions.
+
+### Secure Boot: a real gap, and it needs a decision
+
+Booting a published `*-ab` disk image with `secureboot=true` fails:
+
+```
+Verification failed: (0x1A) Security Violation
+```
+
+OVMF is right to refuse it. snosi signs its UKI with its own MOK, and nothing
+has enrolled that MOK into a fresh firmware's db. Enrollment is a step the
+**installer** performs — and `snosi-install` stages it as a one-time
+MokManager prompt at first boot, which no unattended run can answer.
+
+So the install lane currently runs `--skip-mok` with `secureboot=false`. That
+covers everything the installer builds, but leaves the signed boot chain
+uncovered end to end. Two ways to close it:
+
+1. **Lab-side.** Pre-seed the VM's OVMF variable store with the snosi MOK
+   before first boot (e.g. `virt-fw-vars` against the per-instance
+   `qemu.nvram`). No installer change; the lab simulates an operator who
+   already enrolled the key.
+2. **Installer-side.** An unattended enrollment path in `snosi-install` — for
+   example a flag that enrolls directly into db when the firmware permits it,
+   rather than staging a MokManager prompt.
+
+(1) is less invasive and testable today; (2) is closer to what a real user
+does. This is a decision for the snosi maintainer, not the lab.
 
 ---
 
