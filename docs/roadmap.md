@@ -48,6 +48,7 @@ next — none of them findable without running against real media:
 | 7 | composefs digest probe `exit status 1` | `--privileged` + store bind-mount ([fisherman#18](https://github.com/frostyard/fisherman/pull/18)) |
 | 8 | post-install validation reads `<target>/usr/...`, which composefs does not provide | split target/image roots ([fisherman#19](https://github.com/frostyard/fisherman/pull/19)) |
 | 9 | contract rejected: ESP floor `2 GiB` vs the normative `1 GiB` | corrected to the normative figure ([fisherman#20](https://github.com/frostyard/fisherman/pull/20)) |
+| 10 | `mmx64.efi` missing — nothing stages the Secure Boot chain onto the ESP | **open, and it is a feature gap rather than a bug** |
 
 **Where it sits now:** fisherman **v0.2.6** is released and carries 4 through 7.
 The dakota pin is repointed at it and the secure ISO rebuilt against it.
@@ -127,6 +128,61 @@ The three options as they stood:
 3. **Copy the artifacts to a known target path at install time**, and validate
    those. Simple, but it validates a copy the installer made — the weakest of
    the three.
+
+### Blocker 10 — open, and it needs building rather than fixing
+
+On v0.2.8 the install completes, the contract is read and validated, and it
+fails here:
+
+```
+fatal: installing verified secure ESP second stage: validating installed
+  mmx64.efi: stat <target>/boot/efi/EFI/BOOT/mmx64.efi: no such file or directory
+```
+
+**Nothing stages the Secure Boot chain onto the ESP.** `bootc install` with
+`--bootloader systemd` writes plain systemd-boot:
+
+```
+EFI/BOOT/BOOTX64.EFI            systemd-boot (158 KB)
+EFI/systemd/systemd-bootx64.efi
+EFI/Linux/bootc/bootc_composefs-<id>.efi
+```
+
+The secure design needs the shape the native A/B image already ships:
+
+```
+EFI/BOOT/BOOTX64.EFI            shim, Microsoft-signed (1.0 MB)
+EFI/BOOT/grubx64.EFI            MOK-signed systemd-boot, chainloaded by shim
+EFI/BOOT/mmx64.efi              MokManager
+EFI/Linux/<uki>.efi
+```
+
+The parts are all present in the image — `/usr/lib/shim/shimx64.efi`,
+`/usr/lib/shim/mmx64.efi`, and the MOK-signed second stage at
+`/usr/lib/snosi/bootc/systemd-bootx64.efi`. Nothing assembles them.
+
+The naming is the tell: `RepairESP` *repairs* a chain — it replaces the second
+stage on an ESP that already has shim, which is exactly what snosi's Task 7
+reconciler does at runtime ("Shim `BOOTX64.EFI` and MokManager `mmx64.efi` are
+never modified"). Both assume an install step that puts shim and MokManager
+there in the first place. On the native A/B path mkosi/repart does it. On the
+bootc path nobody does.
+
+**This is why I stopped.** Blockers 1–9 were corrections to existing code with a
+single right answer, and mostly provable in isolation. This one is new
+functionality on the Secure Boot chain — which binaries, under which names, in
+what order, verified how — and getting it wrong produces a system that either
+will not boot under Secure Boot or boots something unverified. It wants a
+deliberate design decision and a maintainer's eye, not a late-night patch from
+the end of a long autonomous run.
+
+Rough shape, for when it is picked up: stage `shimx64.efi` to
+`EFI/BOOT/BOOTX64.EFI` and `mmx64.efi` to `EFI/BOOT/mmx64.efi` from the image's
+`/usr/lib/shim/`, place the MOK-signed `systemd-bootx64.efi` as
+`EFI/BOOT/grubx64.EFI` (the name shim chainloads and the Task 7 reconciler
+later replaces), and verify each against the MOK certificate before it lands —
+`RepairESP` already has that verification logic and would then be doing what its
+name says.
 
 ### The tests are half the story
 
