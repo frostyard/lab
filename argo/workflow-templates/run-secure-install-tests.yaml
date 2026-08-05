@@ -148,15 +148,33 @@ spec:
         # ── ISO ──────────────────────────────────────────────────────────────
         # Shares the cache the incus lanes already populate. snow-live-latest
         # is a stable name whose bytes move, so validate against the origin.
+        # snow-live-latest.iso is a stable name whose bytes move on every nightly
+        # rebuild, so the cache must be validated against the origin, not just
+        # assumed. Prefer the ETag and fall back to Last-Modified, then size --
+        # matching run-incus-vm-tests. Size alone was the previous check and is
+        # the weakest of the three: two builds of the same ISO can land on the
+        # same byte count, and this lane would then keep testing an installer
+        # that had already been superseded, which is precisely the failure mode
+        # it exists to catch.
         ISO=/var/lib/snosi-lab/iso/snow-live-latest.iso
-        len="$(curl -sSLI --max-time 60 "${ISO_URL}" | tr -d '\r' | tr '[:upper:]' '[:lower:]' \
-               | grep -m1 '^content-length:' | sed 's/^content-length: *//' || true)"
-        if [[ -s "${ISO}" && -n "${len}" && "$(stat -c%s "${ISO}")" == "${len}" ]]; then
+        hdrs="$(curl -sSLI --max-time 60 "${ISO_URL}" | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
+        _etag="$(grep -m1 '^etag:'           <<<"${hdrs}" | sed 's/^etag: *//'           || true)"
+        _lm="$(  grep -m1 '^last-modified:'  <<<"${hdrs}" | sed 's/^last-modified: *//'  || true)"
+        _len="$( grep -m1 '^content-length:' <<<"${hdrs}" | sed 's/^content-length: *//' || true)"
+        if   [[ -n "${_etag}" ]]; then fp="etag:${_etag}"
+        elif [[ -n "${_lm}"   ]]; then fp="lm:${_lm}"
+        elif [[ -n "${_len}"  ]]; then fp="len:${_len}"
+        else                           fp="unknown"
+        fi
+        echo "origin fingerprint: ${fp}" >&2
+        if [[ -s "${ISO}" && "$(cat "${ISO}.fingerprint" 2>/dev/null)" == "${fp}" && "${fp}" != unknown ]]; then
           echo "ISO cache hit ($(stat -c%s "${ISO}") bytes)" >&2
         else
+          [[ -s "${ISO}" ]] && echo "ISO cache STALE; re-downloading" >&2
           echo "Downloading secure Dakota ISO..." >&2
           curl -fSL --max-time 3600 -o "${ISO}.part" "${ISO_URL}"
           mv "${ISO}.part" "${ISO}"
+          printf '%s' "${fp}" > "${ISO}.fingerprint"
         fi
 
         # ── inputs ───────────────────────────────────────────────────────────
