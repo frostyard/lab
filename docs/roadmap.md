@@ -317,12 +317,36 @@ install path, and nothing more.
 
 This is the prize: it unblocks snosi's own Task 9 harness, not just the lab.
 
-- [ ] **D1.** Build a secure Dakota ISO from the merged branch and cache it on
-      selfie beside the other artifacts.
-- [ ] **D2.** Prepare `STATE_ROOT`: `OVMF_CODE_4M.secboot.fd`, a per-run copy of
-      `OVMF_VARS_4M.ms.fd`, persistent swtpm state + control socket, an
-      ephemeral SSH keypair, and the MOK certificate and PCR public key from
-      snosi's committed public copies.
+- [x] **D1.** ~~Build a secure Dakota ISO~~ — **already done, and already on
+      selfie.** `dakota-iso`'s `build-iso-snow.yml` runs nightly at 04:00 UTC
+      with `SECURE_SNOSI: 1`, smoke-tests the media under Secure Boot, and
+      publishes it to R2 as `snow-live-latest.iso` — which is the *same ISO the
+      lab has been caching all along*. Verified inside the cached copy:
+
+      - `/usr/lib/snosi/fisherman` — the exact path the Task 9 runner invokes
+      - `/etc/bootc-installer/images.json` with `"secure_install": true` on all
+        three products (Snow, Snowfield, Cayo)
+      - `/etc/bootc-installer/cosign.pub` and `recipe.json`
+      - `/var/home/liveuser` and `sshd` — the account the runner logs in as
+
+      So the secure installer media is published, current, cached, and complete.
+      Nothing to build.
+- [ ] **D2.** Prepare `STATE_ROOT`. Readiness surveyed on selfie:
+
+      | Need | State |
+      |---|---|
+      | `qemu-system-x86_64`, `jq`, `python3`, `ssh`, `scp` | present |
+      | `/dev/kvm` | present |
+      | `OVMF_CODE_4M.secboot.fd`, `OVMF_VARS_4M.ms.fd` | present in `/usr/share/OVMF` — exactly what the runner wants |
+      | `swtpm` | not on `PATH`, but incus ships one at `/usr/incus/bin/swtpm` |
+      | `sshpass`, `socat` | **missing** |
+      | `virt-fw-vars` | missing (Phase F only, not needed here) |
+
+      **Decision: do not install packages on selfie.** Build a `secure-runner`
+      container image carrying qemu/swtpm/sshpass/socat, run it privileged with
+      `/dev/kvm` and the ISO cache mounted, and keep `STATE_ROOT` on a host
+      path. The host stays untouched, and the image is exactly what Phase E's
+      runner needs anyway — so it is built once, not twice.
 - [x] **D3.** ~~Produce signed secure OCI fixtures~~ — **not needed, decided
       2026-08-05.** The harness wants immutable N/N+1/N+2 digests with distinct
       14-digit versions sharing one tracking tag. `build-images.yml` already
