@@ -228,10 +228,14 @@ spec:
         # for every layer: a 6.5G image across 129 layers filled a 30G disk to
         # 100% and failed with "no space left on device". overlay shares layers
         # and needs roughly the image size.
-        echo "storage driver: \$(podman --root /mnt/qa-scratch/storage --storage-driver overlay info --format '{{.Store.GraphDriverName}}' 2>/dev/null || echo unknown)"
+        # Every podman invocation against this store must pass the SAME
+        # root/runroot/driver triple. This probe originally omitted --runroot,
+        # which recorded the default in the storage database and made the real
+        # run fail with "database configuration mismatch".
+        PODMAN_STORE=(--root /mnt/qa-scratch/storage --runroot /mnt/qa-scratch/runroot --storage-driver overlay)
+        echo "storage driver: \$(podman "\${PODMAN_STORE[@]}" info --format '{{.Store.GraphDriverName}}' 2>/dev/null || echo unknown)"
 
-        podman --root /mnt/qa-scratch/storage --runroot /mnt/qa-scratch/runroot \
-          --storage-driver overlay \
+        podman "\${PODMAN_STORE[@]}" \
           run --rm --privileged --pid=host \
           --security-opt label=type:unconfined \
           -v /dev:/dev \
