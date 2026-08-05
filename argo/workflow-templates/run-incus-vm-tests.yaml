@@ -155,12 +155,16 @@ spec:
         # So validate against the origin's ETag, falling back to
         # Last-Modified, then content-length. A stored fingerprint that still
         # matches means the cached bytes are current.
-        remote_headers="$(curl -sSLI --max-time 60 "${RESOLVED}" | tr -d '\r')"
+        # Lowercase the headers rather than relying on a case-insensitive match:
+        # awk's IGNORECASE is a gawk extension, and this image's awk silently
+        # ignores it — which made every ETag miss and fall through to
+        # content-length, a far weaker staleness signal.
+        remote_headers="$(curl -sSLI --max-time 60 "${RESOLVED}" | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
         fingerprint="$(
-          awk 'BEGIN{IGNORECASE=1}
-               /^etag:/          {print "etag:" $2; found=1}
-               /^last-modified:/ {if(!found) print "lm:" $0}
-               /^content-length:/{if(!found) print "len:" $2}' <<<"${remote_headers}" | head -1
+          { grep -m1 '^etag:'           <<<"${remote_headers}" | sed 's/^etag: *//;s/^/etag:/'
+            grep -m1 '^last-modified:'  <<<"${remote_headers}" | sed 's/^last-modified: *//;s/^/lm:/'
+            grep -m1 '^content-length:' <<<"${remote_headers}" | sed 's/^content-length: *//;s/^/len:/'
+          } 2>/dev/null | head -1
         )"
         : "${fingerprint:=unknown}"
         echo "Origin fingerprint: ${fingerprint}" >&2
