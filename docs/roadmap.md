@@ -416,6 +416,62 @@ This is the prize: it unblocks snosi's own Task 9 harness, not just the lab.
 
       Option 3 also removes `sshpass` from the dependency list, which is a small
       win on its own.
+
+      **Resolved 2026-08-05 — better than option 3.** No media change was needed
+      at all: `sshd`, `ssh.service` and `ssh.socket` are *already installed* on
+      the media, merely not enabled. So the harness injects a one-shot enabling
+      unit as a systemd credential over SMBIOS type 11 — the mechanism this lab
+      already uses for agentless guests. Nothing is enabled unless the caller
+      controls the VM definition, which is a stronger gate than a kernel
+      argument, no password exists anywhere, and the published media is
+      untouched. Landed as [dakota-iso#16](https://github.com/frostyard/dakota-iso/pull/16).
+
+      Four defects surfaced getting that first real run through, none of which
+      unit tests could have caught:
+
+      1. `-smbios` and its value were emitted as one argv element; QEMU rejected
+         the whole string as `invalid option`.
+      2. The keypair was generated inside `mapfile < <(...)` — a subshell — so
+         the exported key path never reached the parent, and `live_ssh`
+         dereferenced an unset variable under `set -u`.
+      3. `fisherman` rejected the recipe: `secureInstall.mokPasswordFile is
+         required`. bootc-installer's own docs say that file is *caller-owned*
+         for an external autoinstall recipe; the runner never generated one.
+      4. `wait_live_ssh` allowed 300s and dumped no guest evidence on timeout.
+         The same media passed once and timed out twice. Now 600s, and it tails
+         the serial console before dying.
+
+- [ ] **D4c. Blocked on a real contract drift.** With all of the above fixed the
+      chain runs end to end — live ISO boots under enforced Secure Boot, the
+      harness SSHes in, delivers a schema-1 recipe, and invokes the real
+      installer — and stops at:
+
+      ```
+      fisherman: fatal: secure installer prerequisites:
+                 secure install requires dpkg-query version 261.1-3
+      ```
+
+      The published secure Dakota media ships **systemd 261.2-1**
+      (`systemd`, `libsystemd0`, `systemd-boot`, `udev` all 261.2-1).
+      fisherman pins **exactly 261.1-3** — the version snosi's Task 4 validated.
+      The media moved forward; the pin did not.
+
+      **This needs a maintainer decision and I deliberately did not just bump
+      it.** snosi's own notes are explicit that the secure assembly is not
+      upstream-stable and that the build/root check must be repeated "when
+      either the Frostyard debs or the selected systemd family changes".
+      Editing the pin to match whatever the media happens to ship would defeat
+      exactly the check it exists to perform. The options:
+
+      1. **Re-validate on 261.2-1 and bump the pin.** Correct if 261.2-1 is the
+         intended family — but it means re-running Task 4's build/root check.
+      2. **Make the check a minimum** (`>= 261.1-3`) rather than exact equality.
+         Removes the drift class permanently, at the cost of the guarantee that
+         only a validated family is used.
+      3. **Pin the media** to 261.1-3 so it matches what was validated.
+
+      Whichever is chosen, the interesting part is that this drift existed
+      silently until something actually ran the installer against real media.
 - [ ] **D5.** Then the negative and recovery runners, then the update runner.
 
 ### Phase E — the lab as self-hosted runner
