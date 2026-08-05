@@ -241,7 +241,8 @@ spec:
           -v /dev:/dev \
           -v /var/lib/containers:/var/lib/containers \
           "${IMAGE}" \
-          bootc install to-disk --wipe --generic-image "\${DISK}" \
+          bootc install to-disk --wipe --generic-image \
+            --filesystem ext4 "\${DISK}" \
           && echo "${M_OK}" || { rc=\$?; echo "df at failure:"; df -h; findmnt -n /var/lib/containers || echo "scratch UNMOUNTED at failure"; echo "${M_FAIL} rc=\${rc}"; exit 1; }
         SCRIPT
         )
