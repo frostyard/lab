@@ -46,6 +46,7 @@ next — none of them findable without running against real media:
 | 5 | `podman pull` exit 125 | `--signature-policy` is a *pull* flag ([fisherman#15](https://github.com/frostyard/fisherman/pull/15)) |
 | 6 | OCI layout `rejected by policy` | scoped local-transport policy ([fisherman#17](https://github.com/frostyard/fisherman/pull/17)) |
 | 7 | composefs digest probe `exit status 1` | `--privileged` + store bind-mount ([fisherman#18](https://github.com/frostyard/fisherman/pull/18)) |
+| 8 | post-install validation reads `<target>/usr/...`, which composefs does not provide | **open — needs a decision, see below** |
 
 **Where it sits now:** fisherman **v0.2.6** is released and carries 4 through 7.
 The dakota pin is repointed at it and the secure ISO rebuilt against it.
@@ -61,6 +62,60 @@ A note on how this gets diagnosed now: fisherman's `DefaultOutput` used to drop
 `ExitError.Stderr`, so every failed command surfaced as a command line plus
 `exit status N`. Blocker 7 needed a hand-built reproduction to diagnose for that
 reason alone. #18 propagates stderr, so the next one should explain itself.
+
+### Blocker 8 — open, and it is structural rather than a typo
+
+On v0.2.6 media the install itself now completes. It fails afterwards:
+
+```
+fisherman: fatal: validating deployed secure contract: reading installed
+  secure contract: open /mnt/fisherman-target/usr/lib/snosi/bootc-secure.json:
+  no such file or directory
+```
+
+The image is not at fault — `ghcr.io/frostyard/cayo:latest` ships
+`/usr/lib/snosi/bootc-secure.json` (verified directly, alongside `cosign.pub`,
+`mok.crt` and `pcr-signing.pub`). The problem is *where fisherman looks*.
+
+A composefs deployment does not present a merged root under the target mount.
+Its writable `/etc` lives at `state/deploy/<hash>/etc` — fisherman's own
+`post.DefaultComposeFsDeployEtcDir` documents exactly this — and `/usr` comes
+from the composefs image, which is not a directory tree on the target at all.
+
+**This is not one bad path.** Every `usr/...` read in the secure post-install
+validation makes the same assumption:
+
+| Reads from `<target>/usr/...` | Purpose |
+|---|---|
+| `usr/lib/snosi/bootc-secure.json` | the contract itself |
+| `contract.PCRPublicKey` → `usr/lib/snosi/pcr-signing.pub` | PCR identity |
+| `contract.MOKCertificate` → `usr/lib/snosi/mok.crt` | MOK identity |
+| `usr/lib/snosi/bootc/systemd-bootx64.efi` | ESP second-stage repair source |
+
+The `boot/efi/...` and `var/...` reads are fine — those really are on the
+target. So the secure post-install validation was written against a merged-root
+layout, while the secure install is composefs **by contract** (schema-1 mandates
+the composefs backend). The two have never met before now because nothing had
+run a secure install to completion.
+
+**Three ways out, and this is a maintainer's call because it changes what the
+validation means:**
+
+1. **Read those artifacts from the source image.** The composefs digest is
+   computed and verified immediately beforehand, and bootc pins the deployment
+   to it, so source and deployment are identical *by construction* rather than
+   by assumption. Cheapest, and arguably validates the same fact.
+2. **Mount the composefs deployment read-only and validate through the mount.**
+   Validates the deployed bytes literally, at the cost of mounting during
+   install.
+3. **Copy the artifacts to a known target path at install time**, and validate
+   those. Simple, but it validates a copy the installer made — the weakest of
+   the three.
+
+I did not pick one. Option 1 changes "validate what was deployed" into "validate
+what was deployed, given the digest proves they are the same" — sound, but a
+security-semantics decision that should be made deliberately rather than
+inferred from a stack trace at the end of a long day.
 
 ### After that
 
