@@ -38,8 +38,12 @@ spec:
       parameters:
       - name: iso-url
         value: "https://repository.frostyard.org/isos/native/v1/snosi-native-installer-latest-x86-64.iso"
+      # The installer's own product vocabulary, which carries the -ab suffix:
+      # cayo-ab | snow-ab | snowfield-ab. Note this differs from the R2
+      # publication path, which uses the bare product name (os/native/v1/cayo/).
+      # run-incus-disk-tests takes the bare form; do not conflate them.
       - name: product
-        value: "cayo"
+        value: "cayo-ab"
       # Secure Boot defaults OFF, and that is a deliberate, documented gap
       # rather than an oversight. snosi signs its UKI with its own MOK, which a
       # fresh OVMF does not trust; enrolling it is an interactive MokManager

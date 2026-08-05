@@ -20,8 +20,9 @@ spec:
   activeDeadlineSeconds: 9000
   arguments:
     parameters:
+      # Installer vocabulary: cayo-ab | snow-ab | snowfield-ab
       - name: product
-        value: "cayo"
+        value: "cayo-ab"
   templates:
     - name: main
       dag:
