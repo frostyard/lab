@@ -1,0 +1,39 @@
+# Submit file: install a published snosi bootc image to disk from the live ISO,
+# then boot and verify it is a bootc host.
+#
+#   kubectl create -f argo/snosi-bootc-install-test.yaml
+#
+# snosi ships two install paths and both need coverage. This is the bootc one;
+# argo/snosi-install-test.yaml covers the native A/B installer.
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: snosi-bootc-install-
+  namespace: argo
+  labels:
+    app.kubernetes.io/part-of: lab
+    snosi.io/trigger: manual
+spec:
+  serviceAccountName: argo
+  entrypoint: main
+  activeDeadlineSeconds: 9000
+  arguments:
+    parameters:
+      - name: image
+        value: "ghcr.io/frostyard/snow:latest"
+      - name: variant
+        value: "snow"
+  templates:
+    - name: main
+      dag:
+        tasks:
+          - name: install
+            templateRef:
+              name: run-incus-bootc-install-tests
+              template: run-incus-bootc-install-tests
+            arguments:
+              parameters:
+                - name: image
+                  value: "{{workflow.parameters.image}}"
+                - name: variant
+                  value: "{{workflow.parameters.variant}}"

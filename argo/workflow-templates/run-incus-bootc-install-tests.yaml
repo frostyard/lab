@@ -1,0 +1,275 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: run-incus-bootc-install-tests
+  namespace: argo
+  annotations:
+    description: |
+      Installs a published snosi bootc image to disk with `bootc install
+      to-disk`, from the bootc live ISO, then boots the result and asserts it
+      came up as a bootc host.
+
+      snosi ships two install paths and both need coverage: the native A/B
+      installer (run-incus-install-tests) and this one. They fail differently —
+      native A/B is a signed sysupdate image with dm-verity, while bootc
+      installs the OCI image itself and owns its own deployment layout — so
+      neither lane substitutes for the other.
+
+      Like the native lane, the guest is driven entirely through systemd
+      credentials over SMBIOS type 11: the live ISO has no incus agent and no
+      provisioned SSH key.
+  labels:
+    app.kubernetes.io/component: vm-test-runner
+    app.kubernetes.io/part-of: snosi-test-suite
+spec:
+  templates:
+  - name: run-incus-bootc-install-tests
+    nodeSelector:
+      node-role.kubernetes.io/control-plane: "true"
+    activeDeadlineSeconds: 7200
+    synchronization:
+      semaphores:
+      - configMapKeyRef:
+          name: workflow-semaphores
+          key: snosi-vm-qa
+    inputs:
+      parameters:
+      - name: iso-url
+        value: "https://repository.frostyard.org/isos/snow-live-latest.iso"
+      # The OCI image to install. This is the same artifact the container
+      # smoke lanes test, so a green container lane plus a green bootc install
+      # lane covers both "is the image sane" and "can it become a system".
+      - name: image
+        value: "ghcr.io/frostyard/snow:latest"
+      - name: variant
+        value: "snow"
+      # bootc installs the OCI image's own signed UKI/kernel; the same MOK
+      # enrollment gap as the native lane applies, so Secure Boot is off here
+      # too. See the README section on Secure Boot.
+      - name: secureboot
+        value: "false"
+      - name: vm-cpus
+        value: "4"
+      - name: vm-memory
+        value: "6GiB"
+      - name: target-disk-size
+        value: "40GiB"
+      - name: iso-boot-timeout-seconds
+        value: "600"
+      - name: install-timeout-seconds
+        value: "2400"
+      - name: installed-boot-timeout-seconds
+        value: "600"
+    outputs:
+      parameters:
+      - name: result
+        valueFrom:
+          path: /tmp/results/result-summary.txt
+          default: "No results generated"
+      - name: checks
+        valueFrom:
+          path: /tmp/results/checks.txt
+          default: "no checks recorded"
+    script:
+      image: docker.io/library/debian:trixie-slim
+      securityContext:
+        runAsUser: 0
+      resources:
+        requests: { cpu: "1", memory: 1Gi }
+        limits: { cpu: "4", memory: 4Gi }
+      env:
+      - { name: PATH, value: "/usr/incus/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" }
+      - { name: LD_LIBRARY_PATH, value: "/usr/incus/lib" }
+      - { name: ISO_URL,   value: "{{inputs.parameters.iso-url}}" }
+      - { name: IMAGE,     value: "{{inputs.parameters.image}}" }
+      - { name: VARIANT,   value: "{{inputs.parameters.variant}}" }
+      - { name: SECUREBOOT, value: "{{inputs.parameters.secureboot}}" }
+      - { name: VM_CPUS,   value: "{{inputs.parameters.vm-cpus}}" }
+      - { name: VM_MEMORY, value: "{{inputs.parameters.vm-memory}}" }
+      - { name: TARGET_DISK_SIZE, value: "{{inputs.parameters.target-disk-size}}" }
+      - { name: ISO_BOOT_TIMEOUT, value: "{{inputs.parameters.iso-boot-timeout-seconds}}" }
+      - { name: INSTALL_TIMEOUT,  value: "{{inputs.parameters.install-timeout-seconds}}" }
+      - { name: INSTALLED_BOOT_TIMEOUT, value: "{{inputs.parameters.installed-boot-timeout-seconds}}" }
+      - { name: DEBIAN_FRONTEND, value: noninteractive }
+      volumeMounts:
+      - { name: incus-bin,  mountPath: /usr/incus, readOnly: true }
+      - { name: incus-sock, mountPath: /var/lib/incus/unix.socket }
+      - { name: iso-cache,  mountPath: /var/lib/snosi-lab/iso }
+      - { name: results,    mountPath: /tmp/results }
+      command: [bash]
+      source: |
+        set -euo pipefail
+        mkdir -p /tmp/results /var/lib/snosi-lab/iso
+        apt-get update -qq
+        apt-get install -y -qq --no-install-recommends ca-certificates curl >/dev/null
+
+        VM="qa-$(echo '{{workflow.name}}' | tail -c 40 | tr -cd 'a-z0-9-' | sed 's/^-*//')"
+        cleanup() {
+          rc=$?
+          echo "--- teardown ---" >&2
+          incus delete --force "${VM}" >/dev/null 2>&1 || true
+          exit "${rc}"
+        }
+        trap cleanup EXIT
+
+        M_BEGIN="SNOSI_QA__BOOTC_BEGIN"
+        M_OK="SNOSI_QA__BOOTC_OK"
+        M_FAIL="SNOSI_QA__BOOTC_FAIL"
+        M_CHECK="SNOSI_QA__CHECK"
+        M_DONE="SNOSI_QA__CHECKS_DONE"
+
+        console_log() { incus console "${VM}" --show-log 2>/dev/null || true; }
+        wait_for() {  # marker budget label [failmarker]
+          local marker="$1" budget="$2" label="$3" deadline=$(( SECONDS + $2 ))
+          while (( SECONDS < deadline )); do
+            console_log | grep -qaF "${marker}" && { echo "  [${label}] saw ${marker}" >&2; return 0; }
+            if [[ -n "${4:-}" ]] && console_log | grep -qaF "$4"; then
+              echo "  [${label}] saw failure marker $4" >&2; return 1
+            fi
+            sleep 10
+          done
+          echo "  [${label}] timed out after ${budget}s waiting for ${marker}" >&2
+          return 1
+        }
+
+        # ── ISO (moving name, so validate against the origin fingerprint) ────
+        RESOLVED="$(curl -sSLI -o /dev/null -w '%{url_effective}' --max-time 60 "${ISO_URL}")"
+        ISO_NAME="$(basename "${RESOLVED%%\?*}")"
+        ISO_PATH="/var/lib/snosi-lab/iso/${ISO_NAME}"
+        hdrs="$(curl -sSLI --max-time 60 "${RESOLVED}" | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
+        _etag="$(grep -m1 '^etag:' <<<"${hdrs}" | sed 's/^etag: *//' || true)"
+        _len="$(grep -m1 '^content-length:' <<<"${hdrs}" | sed 's/^content-length: *//' || true)"
+        if [[ -n "${_etag}" ]]; then fp="etag:${_etag}"; elif [[ -n "${_len}" ]]; then fp="len:${_len}"; else fp="unknown"; fi
+        if [[ -s "${ISO_PATH}" && "$(cat "${ISO_PATH}.fingerprint" 2>/dev/null)" == "${fp}" && "${fp}" != unknown ]]; then
+          echo "ISO cache hit: ${ISO_NAME}" >&2
+        else
+          echo "Downloading ${ISO_NAME}..." >&2
+          curl -fSL --max-time 3600 -o "${ISO_PATH}.part" "${RESOLVED}"
+          mv "${ISO_PATH}.part" "${ISO_PATH}"
+          printf '%s' "${fp}" > "${ISO_PATH}.fingerprint"
+        fi
+
+        # ── the install unit ─────────────────────────────────────────────────
+        # `bootc install to-disk` is run from a privileged container of the
+        # image being installed — that is bootc's own documented flow, and it
+        # means the image installs itself rather than the ISO installing it.
+        INSTALL_SH=$(cat <<SCRIPT
+        #!/bin/bash
+        exec > >(tee /dev/console) 2>&1
+        echo "${M_BEGIN}"
+        set -x
+        for i in \$(seq 1 30); do ip route get 1.1.1.1 >/dev/null 2>&1 && break; sleep 5; done
+        # Pick the largest disk that has no partitions yet — the ISO is a
+        # read-only optical device and never matches.
+        DISK=\$(lsblk -dnbo NAME,TYPE,SIZE | awk '\$2=="disk"{print \$3, "/dev/"\$1}' | sort -rn | head -1 | cut -d' ' -f2)
+        if [ -z "\${DISK}" ]; then echo "${M_FAIL} no target disk"; lsblk; exit 1; fi
+        echo "target disk: \${DISK}"
+        podman run --rm --privileged --pid=host \
+          --security-opt label=type:unconfined \
+          -v /dev:/dev -v /var/lib/containers:/var/lib/containers \
+          "${IMAGE}" \
+          bootc install to-disk --wipe --generic-image "\${DISK}" \
+          && echo "${M_OK}" || { echo "${M_FAIL} rc=\$?"; exit 1; }
+        SCRIPT
+        )
+        I_B64="$(printf '%s' "${INSTALL_SH}" | base64 -w0)"
+        UNIT="[Unit]
+        Description=snosi QA bootc install
+        After=network-online.target
+        Wants=network-online.target
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        TimeoutStartSec=0
+        StandardOutput=journal+console
+        StandardError=journal+console
+        ExecStart=/bin/bash -c 'echo ${I_B64} | base64 -d > /run/qa-bootc.sh; chmod +x /run/qa-bootc.sh; /run/qa-bootc.sh'"
+        DROPIN="[Unit]
+        Wants=snosi-qa-bootc.service"
+        U_B64="$(printf '%s' "${UNIT}"   | base64 -w0)"
+        D_B64="$(printf '%s' "${DROPIN}" | base64 -w0)"
+
+        echo "Creating VM (secureboot=${SECUREBOOT}, target ${TARGET_DISK_SIZE})..." >&2
+        incus init "${VM}" --empty --vm \
+          -c "security.secureboot=${SECUREBOOT}" \
+          -c "limits.cpu=${VM_CPUS}" -c "limits.memory=${VM_MEMORY}" \
+          -d "root,size=${TARGET_DISK_SIZE}"
+        incus config device add "${VM}" vtpm tpm
+        incus config device add "${VM}" installer disk \
+          source="${ISO_PATH}" boot.priority=10 readonly=true
+        incus config set "${VM}" raw.qemu="-smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.snosi-qa-bootc.service=${U_B64} -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.multi-user.target=${D_B64}"
+
+        incus start "${VM}"
+        if ! wait_for "${M_BEGIN}" "${ISO_BOOT_TIMEOUT}" "iso-boot"; then
+          console_log | tail -n 400 >&2
+          printf '%s' "FAILED: bootc install never started from the live ISO" > /tmp/results/result-summary.txt
+          exit 1
+        fi
+        if ! wait_for "${M_OK}" "${INSTALL_TIMEOUT}" "bootc-install" "${M_FAIL}"; then
+          console_log | tail -n 400 >&2
+          printf '%s' "FAILED: bootc install to-disk did not complete for ${IMAGE}" > /tmp/results/result-summary.txt
+          exit 1
+        fi
+
+        # ── boot the installed system and assert it is a bootc host ──────────
+        incus stop "${VM}" --force
+        incus config device remove "${VM}" installer
+
+        CHECK_SH=$(cat <<'SCRIPT'
+        #!/bin/bash
+        exec > >(tee /dev/console) 2>&1
+        emit() { echo "SNOSI_QA__CHECK $1=$2"; }
+        # A real bootc host reports a non-null booted deployment. On the live
+        # ISO this same field is null, so it is what distinguishes an installed
+        # system from the installer environment.
+        if bootc status --json 2>/dev/null | grep -q '"booted"[[:space:]]*:[[:space:]]*{'; then
+          emit booted ok; else emit booted MISSING; fi
+        emit image "$(bootc status --json 2>/dev/null | tr ',' '\n' | grep -m1 -o 'ghcr.io/[^"]*' || echo unknown)"
+        emit rootfs "$(findmnt -no FSTYPE / 2>/dev/null || echo unknown)"
+        emit composefs "$( [ -d /sysroot/ostree ] && echo ok || echo MISSING )"
+        emit osrelease "$(. /etc/os-release; echo "${IMAGE_ID:-?}-${IMAGE_VERSION:-?}")"
+        echo "SNOSI_QA__CHECKS_DONE"
+        SCRIPT
+        )
+        C_B64="$(printf '%s' "${CHECK_SH}" | base64 -w0)"
+        CUNIT="[Unit]
+        Description=snosi QA post-install checks
+        After=multi-user.target
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        StandardOutput=journal+console
+        StandardError=journal+console
+        ExecStart=/bin/bash -c 'echo ${C_B64} | base64 -d > /run/qa-check.sh; chmod +x /run/qa-check.sh; /run/qa-check.sh'"
+        CD="[Unit]
+        Wants=snosi-qa-check.service"
+        CU_B64="$(printf '%s' "${CUNIT}" | base64 -w0)"
+        CD_B64="$(printf '%s' "${CD}"    | base64 -w0)"
+        incus config set "${VM}" raw.qemu="-smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.snosi-qa-check.service=${CU_B64} -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.multi-user.target=${CD_B64}"
+
+        incus start "${VM}"
+        if ! wait_for "${M_DONE}" "${INSTALLED_BOOT_TIMEOUT}" "installed-boot"; then
+          console_log | tail -n 400 >&2
+          printf '%s' "FAILED: bootc-installed ${VARIANT} did not boot or report checks" > /tmp/results/result-summary.txt
+          exit 1
+        fi
+
+        console_log | grep -aoE "${M_CHECK} [a-z]+=[^[:space:]]+" | sed "s/${M_CHECK} //" | sort -u \
+          > /tmp/results/checks.txt
+        echo "--- post-install checks ---" >&2
+        cat /tmp/results/checks.txt >&2
+
+        grep -q '^booted=ok$' /tmp/results/checks.txt || {
+          printf '%s' "FAILED: installed system does not report a booted bootc deployment" \
+            > /tmp/results/result-summary.txt
+          exit 1
+        }
+
+        printf '%s' "bootc installed and verified: ${IMAGE} (secureboot=${SECUREBOOT})" \
+          > /tmp/results/result-summary.txt
+        cat /tmp/results/result-summary.txt >&2
+    volumes:
+    - { name: incus-bin,  hostPath: { path: /usr/incus, type: Directory } }
+    - { name: incus-sock, hostPath: { path: /var/lib/incus/unix.socket, type: Socket } }
+    - { name: iso-cache,  hostPath: { path: /var/lib/snosi-lab/iso, type: DirectoryOrCreate } }
+    - { name: results,    emptyDir: {} }
