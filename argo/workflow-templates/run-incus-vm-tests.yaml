@@ -160,13 +160,21 @@ spec:
         # ignores it — which made every ETag miss and fall through to
         # content-length, a far weaker staleness signal.
         remote_headers="$(curl -sSLI --max-time 60 "${RESOLVED}" | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
-        fingerprint="$(
-          { grep -m1 '^etag:'           <<<"${remote_headers}" | sed 's/^etag: *//;s/^/etag:/'
-            grep -m1 '^last-modified:'  <<<"${remote_headers}" | sed 's/^last-modified: *//;s/^/lm:/'
-            grep -m1 '^content-length:' <<<"${remote_headers}" | sed 's/^content-length: *//;s/^/len:/'
-          } 2>/dev/null | head -1
-        )"
-        : "${fingerprint:=unknown}"
+
+        # Extract each candidate separately and pick by explicit precedence.
+        # Piping a command group into `head -1` looks tidier but closes the
+        # pipe early, and the resulting SIGPIPE kills the whole script under
+        # `set -o pipefail`. `grep -m1` finding nothing is also a non-zero exit,
+        # hence the `|| true` on each assignment.
+        _etag="$(grep -m1 '^etag:'           <<<"${remote_headers}" | sed 's/^etag: *//'           || true)"
+        _lm="$(  grep -m1 '^last-modified:'  <<<"${remote_headers}" | sed 's/^last-modified: *//'  || true)"
+        _len="$( grep -m1 '^content-length:' <<<"${remote_headers}" | sed 's/^content-length: *//' || true)"
+
+        if   [[ -n "${_etag}" ]]; then fingerprint="etag:${_etag}"
+        elif [[ -n "${_lm}"   ]]; then fingerprint="lm:${_lm}"
+        elif [[ -n "${_len}"  ]]; then fingerprint="len:${_len}"
+        else                           fingerprint="unknown"
+        fi
         echo "Origin fingerprint: ${fingerprint}" >&2
 
         if [[ -s "${ISO_PATH}" && "$(cat "${ISO_PATH}.fingerprint" 2>/dev/null)" == "${fingerprint}" && "${fingerprint}" != "unknown" ]]; then
