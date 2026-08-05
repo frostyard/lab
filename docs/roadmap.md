@@ -46,7 +46,7 @@ next — none of them findable without running against real media:
 | 5 | `podman pull` exit 125 | `--signature-policy` is a *pull* flag ([fisherman#15](https://github.com/frostyard/fisherman/pull/15)) |
 | 6 | OCI layout `rejected by policy` | scoped local-transport policy ([fisherman#17](https://github.com/frostyard/fisherman/pull/17)) |
 | 7 | composefs digest probe `exit status 1` | `--privileged` + store bind-mount ([fisherman#18](https://github.com/frostyard/fisherman/pull/18)) |
-| 8 | post-install validation reads `<target>/usr/...`, which composefs does not provide | **open — needs a decision, see below** |
+| 8 | post-install validation reads `<target>/usr/...`, which composefs does not provide | split target/image roots ([fisherman#19](https://github.com/frostyard/fisherman/pull/19)) |
 
 **Where it sits now:** fisherman **v0.2.6** is released and carries 4 through 7.
 The dakota pin is repointed at it and the secure ISO rebuilt against it.
@@ -98,8 +98,23 @@ layout, while the secure install is composefs **by contract** (schema-1 mandates
 the composefs backend). The two have never met before now because nothing had
 run a secure install to completion.
 
-**Three ways out, and this is a maintainer's call because it changes what the
-validation means:**
+**Resolved: option 1**, in
+[fisherman#19](https://github.com/frostyard/fisherman/pull/19). The roots are
+now split by where each artifact actually lives — `boot/efi` and `var` on the
+installed target, everything under `usr/` from the image's `usr/lib/snosi`
+subtree, extracted during install. Released as **v0.2.7**.
+
+The soundness argument *and its expiry condition* are recorded at the extractor:
+source and deployment are identical by construction because the composefs digest
+is verified immediately beforehand and bootc pins the deployment to it — if that
+digest check is ever removed, this becomes an assumption and needs revisiting.
+
+`secure-restage-mok` and `secure-repair-esp` still read from the target root and
+carry the same limitation, annotated in place. They run against an
+already-installed system where no source image exists, so they need a different
+approach and a real installed system to test against.
+
+The three options as they stood:
 
 1. **Read those artifacts from the source image.** The composefs digest is
    computed and verified immediately beforehand, and bootc pins the deployment
@@ -112,10 +127,11 @@ validation means:**
    those. Simple, but it validates a copy the installer made — the weakest of
    the three.
 
-I did not pick one. Option 1 changes "validate what was deployed" into "validate
-what was deployed, given the digest proves they are the same" — sound, but a
-security-semantics decision that should be made deliberately rather than
-inferred from a stack trace at the end of a long day.
+Blocker 8 is qualitatively different from 1–7. Those were wrong flags, wrong
+paths, wrong namespaces — mistakes. This one is an architectural mismatch:
+post-install validation written for one deployment layout, against an install
+path that mandates another. That it surfaced only after seven other fixes
+cleared the way to it is the whole argument for the lane existing.
 
 ### After that
 
