@@ -74,6 +74,14 @@ spec:
       # multi-user, and 600s was marginal.
       - name: installed-boot-timeout-seconds
         value: "900"
+      # Leave the guest running when the lane fails, instead of deleting it.
+      # Pod logs are not a reliable diagnostic surface here: a failing run emits
+      # a full kernel console plus a `set -x` install trace, and kubelet's log
+      # rotation has already truncated the failure dump mid-write more than
+      # once. A surviving guest can be attached to directly. Off by default so
+      # scheduled runs cannot strand VMs holding host memory.
+      - name: keep-on-failure
+        value: "false"
     outputs:
       parameters:
       - name: result
@@ -105,6 +113,7 @@ spec:
       - { name: ISO_BOOT_TIMEOUT, value: "{{inputs.parameters.iso-boot-timeout-seconds}}" }
       - { name: INSTALL_TIMEOUT,  value: "{{inputs.parameters.install-timeout-seconds}}" }
       - { name: INSTALLED_BOOT_TIMEOUT, value: "{{inputs.parameters.installed-boot-timeout-seconds}}" }
+      - { name: KEEP_ON_FAILURE, value: "{{inputs.parameters.keep-on-failure}}" }
       - { name: DEBIAN_FRONTEND, value: noninteractive }
       volumeMounts:
       - { name: incus-bin,  mountPath: /usr/incus, readOnly: true }
@@ -123,6 +132,13 @@ spec:
         cleanup() {
           rc=$?
           echo "--- teardown ---" >&2
+          if [[ "${rc}" -ne 0 && "${KEEP_ON_FAILURE}" == "true" ]]; then
+            echo "KEEP_ON_FAILURE: leaving guest ${VM} for inspection." >&2
+            echo "  incus console ${VM} --show-log" >&2
+            echo "  incus exec ${VM} -- bash" >&2
+            echo "Delete it when done: incus delete --force ${VM} && incus storage volume delete lab ${SCRATCH_VOL}" >&2
+            exit "${rc}"
+          fi
           incus delete --force "${VM}" >/dev/null 2>&1 || true
           # Custom volumes outlive the instance they were attached to, so this
           # must be explicit or every run leaks its scratch disk.
