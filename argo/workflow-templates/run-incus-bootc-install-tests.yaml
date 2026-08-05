@@ -177,11 +177,17 @@ spec:
         for i in \$(seq 1 30); do ip route get 1.1.1.1 >/dev/null 2>&1 && break; sleep 5; done
         # Two disks are attached, and neither is the ISO (type rom). The larger
         # is the install target; the smaller is scratch for container storage.
-        mapfile -t DISKS < <(lsblk -dnbo NAME,TYPE,SIZE | awk '\$2=="disk"{print \$3" /dev/"\$1}' | sort -rn | cut -d' ' -f2)
-        DISK="\${DISKS[0]:-}"
-        SCRATCH="\${DISKS[1]:-}"
-        if [ -z "\${DISK}" ] || [ -z "\${SCRATCH}" ]; then
-          echo "${M_FAIL} expected two disks, saw: \${DISKS[*]:-none}"; lsblk; exit 1
+        # Identify disks by the incus device name embedded in their serial, not
+        # by size. The size heuristic silently inverted target and scratch —
+        # the run wiped the scratch disk and pointed podman at the install
+        # target — because the root disk did not end up the larger of the two.
+        ls -l /dev/disk/by-id/ || true
+        DISK="\$(readlink -f /dev/disk/by-id/*incus_root* 2>/dev/null | head -1)"
+        SCRATCH="\$(readlink -f /dev/disk/by-id/*incus_scratch* 2>/dev/null | head -1)"
+        if [ -z "\${DISK}" ] || [ -z "\${SCRATCH}" ] || [ "\${DISK}" = "\${SCRATCH}" ]; then
+          echo "${M_FAIL} could not identify disks by id (root=\${DISK:-none} scratch=\${SCRATCH:-none})"
+          lsblk -o NAME,TYPE,SIZE,SERIAL; ls -l /dev/disk/by-id/ 2>/dev/null
+          exit 1
         fi
         echo "target disk: \${DISK}"
         echo "scratch disk: \${SCRATCH}"
