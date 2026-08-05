@@ -135,6 +135,7 @@ def main() -> int:
         key = run["template"] or run["label"]
         if key in lanes:
             lanes[key]["runs"] += 1
+            lanes[key]["everGreen"] |= run["phase"] == "Succeeded"
             continue
         lanes[key] = {
             "template": key,
@@ -142,6 +143,12 @@ def main() -> int:
             "kind": run["kind"],
             "latest": run,
             "runs": 1,
+            # A lane that has never once succeeded is not reporting a finding
+            # about the thing under test — it is reporting that nobody has shown
+            # the lane can pass. Two false bug reports against snosi came from
+            # reading a never-green lane's red as evidence (see docs/roadmap.md).
+            # The site renders this as `unproven` rather than `Failed`.
+            "everGreen": run["phase"] == "Succeeded",
         }
 
     payload = {

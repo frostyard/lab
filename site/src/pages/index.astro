@@ -13,6 +13,20 @@ function state(phase) {
   return 'warn';
 }
 
+// A lane that has never once succeeded is a different claim from a lane that
+// went red. It is not evidence about the thing under test — it is evidence that
+// nobody has shown the lane can pass. Two false bug reports against snosi came
+// from reading a never-green lane's red as a finding, so the distinction earns
+// its own state rather than living in a comment. See docs/roadmap.md.
+function laneState(lane) {
+  if (lane.everGreen === false && state(lane.latest.phase) === 'danger') return 'unproven';
+  return state(lane.latest.phase);
+}
+
+function laneLabel(lane) {
+  return laneState(lane) === 'unproven' ? 'unproven' : lane.latest.phase;
+}
+
 function duration(seconds) {
   if (seconds == null) return '—';
   if (seconds < 90) return `${seconds}s`;
@@ -48,9 +62,10 @@ const grouped = KIND_ORDER
 const recent = runs.slice(0, 40);
 const empty = runs.length === 0;
 
-const passing = lanes.filter((l) => state(l.latest.phase) === 'ok').length;
-const failing = lanes.filter((l) => state(l.latest.phase) === 'danger').length;
-const moving = lanes.filter((l) => state(l.latest.phase) === 'warn').length;
+const passing = lanes.filter((l) => laneState(l) === 'ok').length;
+const failing = lanes.filter((l) => laneState(l) === 'danger').length;
+const moving = lanes.filter((l) => laneState(l) === 'warn').length;
+const unproven = lanes.filter((l) => laneState(l) === 'unproven').length;
 const retained = lanes.reduce((n, l) => n + (l.runs || 0), 0);
 ---
 <Layout stamp={stampOf(generated)}>
@@ -91,6 +106,11 @@ const retained = lanes.reduce((n, l) => n + (l.runs || 0), 0);
           <small>{moving > 0 ? `${moving} still moving` : 'latest run failed'}</small>
         </div>
         <div class="stat">
+          <span>Unproven</span>
+          <strong>{unproven}</strong>
+          <small>never passed once</small>
+        </div>
+        <div class="stat">
           <span>Runs</span>
           <strong>{retained}</strong>
           <small>retained in cluster</small>
@@ -107,11 +127,14 @@ const retained = lanes.reduce((n, l) => n + (l.runs || 0), 0);
           </div>
           <div class="cards">
             {group.lanes.map((lane) => (
-              <article class={`card ${state(lane.latest.phase)}`}>
+              <article class={`card ${laneState(lane)}`}>
                 <div class="card-head">
                   <strong class="name">{lane.label}</strong>
-                  <span class={`badge ${state(lane.latest.phase)}`}>{lane.latest.phase}</span>
+                  <span class={`badge ${laneState(lane)}`}>{laneLabel(lane)}</span>
                 </div>
+                {laneState(lane) === 'unproven' && (
+                  <p class="unproven-note">This lane has never passed. Treat its red as a question about the lane, not a finding about the image.</p>
+                )}
                 {lane.latest.result && <p class="result">{lane.latest.result}</p>}
                 {lane.latest.checks?.length > 0 && (
                   <ul class="checks">
@@ -273,6 +296,12 @@ const retained = lanes.reduce((n, l) => n + (l.runs || 0), 0);
   .badge.ok { border-color: #47b8ef4d; color: var(--state-ok); }
   .badge.warn { border-color: #e0b15c55; color: var(--state-warn); }
   .badge.danger { border-color: #e07a7255; color: var(--state-danger); }
+  /* Deliberately muted, not alarming: unproven is an absence of evidence,
+     not a failure, and colouring it like one recreates the problem it exists
+     to solve. */
+  .badge.unproven { border-color: var(--line-strong); color: var(--text-dim); }
+  .card.unproven { border-left-color: var(--line-strong); }
+  .unproven-note { margin: .55rem 0 0; font-size: .8rem; color: var(--text-dim); line-height: 1.5; }
 
   .result { font-size: 11.5px; line-height: 1.6; margin: .6rem 0 0; }
   .checks { display: flex; flex-wrap: wrap; gap: 5px; list-style: none; margin: .6rem 0 0; padding: 0; }

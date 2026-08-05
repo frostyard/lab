@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-05T15:10:19Z",
+  "generated": "2026-08-05T15:53:07Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -18,7 +18,8 @@
         "result": "14 passed, 6 skipped",
         "checks": []
       },
-      "runs": 7
+      "runs": 7,
+      "everGreen": true
     },
     {
       "template": "run-incus-install-tests",
@@ -44,7 +45,8 @@
           "verity=ok"
         ]
       },
-      "runs": 4
+      "runs": 4,
+      "everGreen": true
     },
     {
       "template": "run-incus-bootc-install-tests",
@@ -63,7 +65,8 @@
         "result": "NOT APPLICABLE: ghcr.io/frostyard/snow:latest is secureboot-capable=true. bootc install to-disk is the mechanics tier and requires secureboot-capable=false; this image needs the external secure installer. See docs/roadmap.md.",
         "checks": []
       },
-      "runs": 17
+      "runs": 17,
+      "everGreen": false
     },
     {
       "template": "orphan-pod-gc",
@@ -82,26 +85,28 @@
         "result": null,
         "checks": []
       },
-      "runs": 2
+      "runs": 2,
+      "everGreen": true
     },
     {
       "template": "image-poller",
       "label": "Registry digest poll",
       "kind": "poll",
       "latest": {
-        "name": "image-poll-snow-latest-1785942000",
+        "name": "image-poll-snowfield-latest-1785944400",
         "phase": "Succeeded",
-        "started": "2026-08-05T15:00:00Z",
-        "finished": "2026-08-05T15:01:34Z",
-        "durationSeconds": 94,
+        "started": "2026-08-05T15:40:00Z",
+        "finished": "2026-08-05T15:40:20Z",
+        "durationSeconds": 20,
         "template": "image-poller",
         "kind": "poll",
         "label": "Registry digest poll",
         "trigger": "scheduled",
-        "result": "20 passed",
+        "result": null,
         "checks": []
       },
-      "runs": 9
+      "runs": 9,
+      "everGreen": true
     },
     {
       "template": "run-incus-vm-tests",
@@ -120,7 +125,8 @@
         "result": "booted: console reached 'Reached target' (secureboot=true, state=RUNNING)",
         "checks": []
       },
-      "runs": 6
+      "runs": 6,
+      "everGreen": true
     },
     {
       "template": "run-incus-disk-tests",
@@ -139,10 +145,37 @@
         "result": "booted: cayo-ab 20260805095840 reached 'Reached target' (secureboot=false, signature verified)",
         "checks": []
       },
-      "runs": 4
+      "runs": 4,
+      "everGreen": true
     }
   ],
   "runs": [
+    {
+      "name": "image-poll-snowfield-latest-1785944400",
+      "phase": "Succeeded",
+      "started": "2026-08-05T15:40:00Z",
+      "finished": "2026-08-05T15:40:20Z",
+      "durationSeconds": 20,
+      "template": "image-poller",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "image-poll-cayo-latest-1785943200",
+      "phase": "Succeeded",
+      "started": "2026-08-05T15:20:00Z",
+      "finished": "2026-08-05T15:20:20Z",
+      "durationSeconds": 20,
+      "template": "image-poller",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
     {
       "name": "snosi-bootc-install-t5lt2",
       "phase": "Failed",
@@ -352,19 +385,6 @@
       "checks": []
     },
     {
-      "name": "image-poll-snowfield-latest-1785912000",
-      "phase": "Succeeded",
-      "started": "2026-08-05T06:40:00Z",
-      "finished": "2026-08-05T06:40:20Z",
-      "durationSeconds": 20,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "snosi-bootc-install-k7gxh",
       "phase": "Failed",
       "started": "2026-08-05T06:39:33Z",
@@ -401,19 +421,6 @@
       "label": "bootc installer",
       "trigger": "manual",
       "result": "FAILED: bootc install to-disk did not complete for ghcr.io/frostyard/snow:latest",
-      "checks": []
-    },
-    {
-      "name": "image-poll-cayo-latest-1785910800",
-      "phase": "Succeeded",
-      "started": "2026-08-05T06:20:00Z",
-      "finished": "2026-08-05T06:20:20Z",
-      "durationSeconds": 20,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
