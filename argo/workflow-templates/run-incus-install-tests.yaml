@@ -172,7 +172,7 @@ spec:
         # refusal}. A null refusal is what "installable" means here — there is
         # no boolean flag. jq ships in the installer ISO (the installer itself
         # uses it), so no extra tooling is needed in the guest.
-        snosi-install --list-disks-json --product ${PRODUCT} > /run/qa-disks.json 2>/run/qa-disks.err || {
+        /usr/libexec/snosi-install --list-disks-json --product ${PRODUCT} > /run/qa-disks.json 2>/run/qa-disks.err || {
           echo "${M_FAIL} list-disks-json failed:"; cat /run/qa-disks.err; exit 1; }
         cat /run/qa-disks.json
         DISK=\$(jq -r 'map(select(.refusal == null)) | .[0].path // ""' /run/qa-disks.json)
@@ -182,7 +182,7 @@ spec:
           exit 1
         fi
         echo "target disk: \${DISK}"
-        if snosi-install --non-interactive --json-progress \
+        if /usr/libexec/snosi-install --non-interactive --json-progress \
              --product ${PRODUCT} \
              --disk "\${DISK}" --confirm "\${DISK}" \
              --encrypt-var \
