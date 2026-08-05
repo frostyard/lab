@@ -223,9 +223,12 @@ spec:
           exit 1
         fi
 
-        echo "Nested systemd host is up. Recording boot state..." >&2
+        echo "Nested systemd host is up. Boot state:" >&2
+        # Echo as well as save. The pod's /tmp/results does not outlive the pod,
+        # so anything only written there is unavailable for triage after the
+        # fact — the workflow log is the durable surface.
         podman exec "${TARGET_NAME}" systemctl list-units --failed --no-pager \
-          > /tmp/results/failed-units.txt 2>&1 || true
+          2>&1 | tee /tmp/results/failed-units.txt || true
 
         # Install the test harness inside the target.
         #
@@ -252,8 +255,8 @@ spec:
           --env SNOSI_IMAGE="${TARGET_IMAGE}" \
           "${TARGET_NAME}" \
           python3 -m behave "/workspace/testsuite/tests/${SUITE}/features/" \
-            --format json.pretty \
-            --outfile /tmp/results/results.json \
+            --format pretty --outfile /dev/stdout \
+            --format json.pretty --outfile /tmp/results/results.json \
             --no-capture \
             --tags "${BEHAVE_TAGS:-~@wip}" || BEHAVE_RC=$?
 
