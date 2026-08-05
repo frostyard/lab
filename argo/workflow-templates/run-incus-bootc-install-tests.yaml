@@ -237,13 +237,40 @@ spec:
         PODMAN_STORE=(--root /var/lib/containers/storage --runroot /var/lib/containers/runroot --storage-driver overlay)
         echo "storage driver: \$(podman "\${PODMAN_STORE[@]}" info --format '{{.Store.GraphDriverName}}' 2>/dev/null || echo unknown)"
 
+        # Flags mirror snosi's own reference invocation in test/lib/vm.sh
+        # (install_to_disk), which is the only supported shape for these images.
+        # Deviating from it produces a system that installs cleanly and then
+        # fails to boot, which reads like an image defect but is not one:
+        #
+        #   --composefs-backend  snosi's bootc images are composefs deployments.
+        #                        Without this bootc lays down an ostree-style
+        #                        deployment the image's own UKI cannot mount, and
+        #                        the guest lands in emergency mode with no
+        #                        /dev/gpt-auto-root. This single flag is what an
+        #                        earlier version of this lane was missing.
+        #   --filesystem btrfs   what snosi installs and validates against; the
+        #                        composefs backend is exercised on btrfs only.
+        #   --generic-image      no host-specific kargs/firmware assumptions,
+        #                        correct for a VM target.
+        #   --karg console=ttyS0 the installed system has no agent and no SSH, so
+        #                        the serial console is the only channel the
+        #                        post-install assertions can report over.
+        #
+        # --via-loopback is deliberately NOT passed: snosi's harness installs to
+        # a raw *file* and needs it, this lane installs to a real block device.
         podman "\${PODMAN_STORE[@]}" \
           run --rm --privileged --pid=host \
-          --security-opt label=type:unconfined \
+          --security-opt label=type:unconfined_t \
           -v /dev:/dev \
           -v /var/lib/containers:/var/lib/containers \
           "${IMAGE}" \
-          bootc install to-disk --wipe --filesystem ext4 "\${DISK}" \
+          bootc install to-disk \
+            --wipe \
+            --generic-image \
+            --composefs-backend \
+            --filesystem btrfs \
+            --karg console=ttyS0 \
+            "\${DISK}" \
           && echo "${M_OK}" || { rc=\$?; echo "df at failure:"; df -h; findmnt -n /var/lib/containers || echo "scratch UNMOUNTED at failure"; echo "${M_FAIL} rc=\${rc}"; exit 1; }
         SCRIPT
         )
@@ -306,7 +333,13 @@ spec:
           emit booted ok; else emit booted MISSING; fi
         emit image "$(bootc status --json 2>/dev/null | tr ',' '\n' | grep -m1 -o 'ghcr.io/[^"]*' || echo unknown)"
         emit rootfs "$(findmnt -no FSTYPE / 2>/dev/null || echo unknown)"
-        emit composefs "$( [ -d /sysroot/ostree ] && echo ok || echo MISSING )"
+        # A composefs-backend install has no /sysroot/ostree. Its state lives at
+        # state/os/default on the root filesystem — the path snosi's own harness
+        # writes into to seed SSH keys (test/lib/vm.sh). Accept either so this
+        # reports the backend rather than failing the run on layout alone.
+        if   [ -d /sysroot/state/os/default ] || [ -d /state/os/default ]; then emit backend composefs
+        elif [ -d /sysroot/ostree ];                                       then emit backend ostree
+        else                                                                    emit backend MISSING; fi
         emit osrelease "$(. /etc/os-release; echo "${IMAGE_ID:-?}-${IMAGE_VERSION:-?}")"
         echo "SNOSI_QA__CHECKS_DONE"
         SCRIPT
