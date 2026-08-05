@@ -75,39 +75,69 @@ Before this was found, the README carried a confident theory that a
 standalone, and that the lane's premise was a category error. That theory was
 wrong, and it pointed at snosi instead of at this repo.
 
-### 2. The bootc install lane used an unsupported invocation
+### 2. The bootc install lane was installing a secure image by the mechanics path
 
-The lane ran:
+This one took three rounds to pin down, and each round produced a plausible
+wrong answer.
+
+**Round 1** — the lane ran `bootc install to-disk --wipe --filesystem ext4`,
+missing `--composefs-backend`. snosi's images are composefs deployments, so this
+looked like the whole story. It was not: with the corrected flags the install
+still produced an emergency-mode boot, byte for byte the same failure.
+
+**Round 2** — `--karg console=ttyS0`, which snosi's own `test/lib/vm.sh` passes,
+is rejected outright against these images:
 
 ```
-bootc install to-disk --wipe --filesystem ext4 <disk>
+Setting up UKI boot: Cannot use externally specified kernel arguments with UKI
 ```
 
-snosi's own reference invocation, in `test/lib/vm.sh` (`install_to_disk`), is:
+snosi's Task 2 notes record the same constraint. Dropping it let the install
+complete — and the installed system *still* went to emergency mode.
+
+**Round 3, the actual answer.** `ghcr.io/frostyard/snow:latest` is labelled
+`io.snosi.bootc.secureboot-capable: "true"`. `bootc install to-disk` is snosi's
+**legacy mechanics tier**, and snosi's own CI refuses to point it at a secure
+image — `.github/workflows/test-install.yml` hard-fails unless the label reads
+`false`:
+
+```bash
+[[ $capability == false ]] || {
+  echo "::error::legacy mechanics workflow requires secureboot-capable=false" >&2
+  exit 1; }
+```
+
+A `secureboot-capable=true` image is installed by the **external secure
+installer** (Dakota ISO + bootc-installer, driven by a recipe), never by
+`bootc install to-disk`. The lane was doing precisely what snosi's own CI exists
+to prevent.
+
+The failure is a coherent consequence of that. Inspecting the installed disk
+directly: the root partition carries the correct DPS type GUID
+(`4F68BCE3-E8CD-4DB1-96E7-FBCAF984B709`) on the same disk as the ESP, the
+bootloader is systemd-boot, and the deployment's UKI cmdline is exactly:
 
 ```
-bootc install to-disk --generic-image --via-loopback \
-  --composefs-backend --filesystem btrfs --karg console=ttyS0 <disk>
+rw composefs=?7284737ba131387625d6c296…
 ```
 
-The missing flag is `--composefs-backend`. snosi's bootc images are composefs
-deployments; without it, bootc lays down an ostree-style deployment that the
-image's own UKI cannot mount — which is exactly the emergency-mode boot with no
-`/dev/gpt-auto-root` this lane was reporting.
+No `root=`, so root discovery falls to `gpt-auto` — which never produces
+`/dev/gpt-auto-root`, so `sysroot.mount` and `bootc-root-setup.service` both
+fail and the guest lands in `emergency.target`. That is what the mechanics
+installer produces from a secure image; it is not a defect in the image.
 
-**Consequence:** [frostyard/snosi#504][504] and [frostyard/snosi#505][505] were
-filed on that premise and are very likely invalid. #505 in particular argued
-that the images should ship `/usr/lib/bootc/install/*.toml`; snosi instead
-passes `--filesystem` explicitly at the call site, so the absence of that config
-is a deliberate choice rather than a gap. Both need correcting on the issue
-tracker once the corrected lane reports.
+**Consequence:** [frostyard/snosi#504][504] and [frostyard/snosi#505][505] are
+both invalid and should be closed. The lane now carries the same capability
+guard as snosi's CI, so it fails in seconds with the real reason instead of
+twenty minutes later in emergency mode.
 
 [504]: https://github.com/frostyard/snosi/issues/504
 [505]: https://github.com/frostyard/snosi/issues/505
 
 **The transferable lesson:** a lane that has never once been green is evidence
-about the lane, not about the thing under test. Both of these produced
-plausible narratives that survived because the red was assumed to be a finding.
+about the lane, not about the thing under test. Every round above produced a
+narrative that explained the symptom and was still wrong, because the red was
+assumed to be a finding rather than a question about the harness.
 
 ---
 
@@ -135,16 +165,21 @@ test suite but not continuously, and not against published artifacts.
 |---|---|---|
 | ISO | snow-live ISO boots under **enforced SB** | 🟢 lab |
 | Image | container smoke suites (20 desktop / 14 server) | 🟢 lab ×3 products |
-| Installer | `bootc install to-disk` completes | 🟢 lab |
-| OS | installed system boots | 🟡 **re-testing** with corrected flags |
+| Installer | `bootc install to-disk` (mechanics tier) | ⚪ **not applicable** to `:latest`, which is `secureboot-capable=true`; lane now refuses it, as snosi's CI does |
+| OS | installed system boots | ⚪ blocked behind the row above |
 | OS | secure install path (external Dakota / bootc-installer / Fisherman) | 🔴 not covered anywhere — snosi's own live harness is `BLOCKED` for lack of a prepared runner |
 | OS | update / rollback | 🔴 not covered |
 
-The single largest genuine gap is the last bootc row. Per snosi's own notes, the
-supported secure bootc install path is an **external installer driven by a
-recipe**, not `bootc install to-disk` — which is explicitly the "legacy
-mechanics tier that provides no security evidence". This lab currently tests
-only the mechanics tier and should stop implying otherwise.
+**There is currently no way for this lab to test bootc installation at all.**
+The mechanics path is refused for `secureboot-capable=true` images, and no
+mechanics image is published — snosi's PR `mechanics-build` job is
+non-publishing by design, so `:latest` is always the secure build. The secure
+path needs the external installer, which snosi's own harness is blocked on.
+
+So the bootc install gap is **structural, not a bug to fix in a lane**. Closing
+it requires one of: a published mechanics image to point the existing lane at,
+or access to the external secure installer. That is question 2 below, and it is
+the single most valuable thing a maintainer could unblock.
 
 ---
 
@@ -180,8 +215,10 @@ Nothing downstream is worth building on a harness that produced two false
 findings in one week.
 
 - [x] **A1.** Fix the disk lane's SIGPIPE/pipefail inversion.
-- [ ] **A2.** Re-run the bootc lane with snosi's reference invocation. *(in flight)*
-- [ ] **A3.** Correct or close #504 and #505 with what the corrected run shows.
+- [x] **A2.** Re-run the bootc lane with snosi's reference invocation — done;
+      established that the lane's target is the wrong image tier entirely, and
+      added the capability guard snosi's own CI uses.
+- [ ] **A3.** Close #504 and #505 as invalid, with the evidence above.
 - [ ] **A4.** Add a *first-green requirement*: a lane that has never once
       reported success is marked `unproven` on the dashboard rather than
       `Failed`. A lane's first green is what licenses reading its red as a
@@ -271,13 +308,15 @@ enforced. Phase B is what would let that tier assert the real posture.
 
 ## Open questions for the maintainer
 
-1. **Should the lab test the bootc mechanics tier at all?** `bootc install
-   to-disk` is explicitly labelled as providing no security evidence, and the
-   supported secure path is the external installer. Testing mechanics is
-   defensible, but the dashboard should say "mechanics" rather than "bootc
-   installer".
+1. **Should a mechanics image be published so the existing lane has a target?**
+   Today `:latest` is always `secureboot-capable=true` and `mechanics-build`
+   never publishes, so the mechanics lane has nothing it is allowed to install.
+   Publishing mechanics images under a distinct tag would make the lane useful
+   immediately — at the cost of publishing an image that carries no security
+   evidence, which may not be a trade worth making.
 2. **Is the external bootc installer (Dakota / bootc-installer / Fisherman)
-   available for the lab to drive?** It is the single biggest coverage gap, and
-   snosi's own harness is blocked on the same thing.
+   available for the lab to drive?** This is the single biggest coverage gap.
+   snosi's own harness is blocked on exactly the same thing, so unblocking it
+   would unblock both at once.
 3. **Should the lab become the `bootc-secure` self-hosted runner?** That is a
    trust-boundary decision — it means a GitHub workflow can execute on selfie.

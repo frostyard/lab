@@ -125,7 +125,32 @@ spec:
         set -euo pipefail
         mkdir -p /tmp/results /var/lib/snosi-lab/iso
         apt-get update -qq
-        apt-get install -y -qq --no-install-recommends ca-certificates curl >/dev/null
+        apt-get install -y -qq --no-install-recommends ca-certificates curl skopeo >/dev/null
+
+        # ── image tier guard ─────────────────────────────────────────────────
+        # `bootc install to-disk` is snosi's LEGACY MECHANICS tier. snosi's own
+        # CI refuses to run it against a secure-assembly image — see
+        # .github/workflows/test-install.yml, which hard-fails unless
+        # io.snosi.bootc.secureboot-capable == false.
+        #
+        # A secureboot-capable=true image is installed by the EXTERNAL secure
+        # installer (Dakota ISO + bootc-installer, driven by a recipe), never by
+        # this command. Installing one this way "succeeds" and then boots to
+        # emergency mode. Verified directly: the resulting deployment's UKI
+        # carries only `rw composefs=?<digest>`, so root discovery falls through
+        # to gpt-auto, which never produces /dev/gpt-auto-root, so sysroot.mount
+        # and bootc-root-setup.service both fail.
+        #
+        # Without this guard the lane burns ~20 minutes reaching that failure and
+        # then reports it as a defect in snosi. It is not one — it is the wrong
+        # install path for this image tier.
+        CAPABILITY="$(skopeo inspect "docker://${IMAGE}" --format '{{ index .Labels "io.snosi.bootc.secureboot-capable" }}' 2>/dev/null || echo unknown)"
+        echo "io.snosi.bootc.secureboot-capable=${CAPABILITY} for ${IMAGE}" >&2
+        if [[ "${CAPABILITY}" != "false" ]]; then
+          printf '%s' "NOT APPLICABLE: ${IMAGE} is secureboot-capable=${CAPABILITY}. bootc install to-disk is the mechanics tier and requires secureboot-capable=false; this image needs the external secure installer. See docs/roadmap.md." > /tmp/results/result-summary.txt
+          cat /tmp/results/result-summary.txt >&2
+          exit 1
+        fi
 
         VM="qa-$(echo '{{workflow.name}}' | tail -c 40 | tr -cd 'a-z0-9-' | sed 's/^-*//')"
         SCRATCH_VOL="${VM}-scratch"
