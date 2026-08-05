@@ -61,8 +61,11 @@ spec:
         value: "40GiB"
       # Scratch block device for podman storage in the guest. Must stay smaller
       # than the target: the guest tells the two apart by size.
+      # 60GiB of headroom. Sizes no longer discriminate target from scratch —
+      # those are identified by incus device name — so this can be generous,
+      # and the pool is sparse so it costs only what is used.
       - name: scratch-disk-size
-        value: "30GiB"
+        value: "60GiB"
       - name: iso-boot-timeout-seconds
         value: "600"
       - name: install-timeout-seconds
@@ -220,7 +223,15 @@ spec:
         # instead of surfacing as a space error minutes later.
         findmnt -n /mnt/qa-scratch || { echo "${M_FAIL} scratch vanished before pull"; df -h; exit 1; }
 
+        # --storage-driver overlay is load-bearing. Left to itself podman picked
+        # vfs in this environment, which materializes a full copy of the tree
+        # for every layer: a 6.5G image across 129 layers filled a 30G disk to
+        # 100% and failed with "no space left on device". overlay shares layers
+        # and needs roughly the image size.
+        echo "storage driver: \$(podman --root /mnt/qa-scratch/storage --storage-driver overlay info --format '{{.Store.GraphDriverName}}' 2>/dev/null || echo unknown)"
+
         podman --root /mnt/qa-scratch/storage --runroot /mnt/qa-scratch/runroot \
+          --storage-driver overlay \
           run --rm --privileged --pid=host \
           --security-opt label=type:unconfined \
           -v /dev:/dev \
