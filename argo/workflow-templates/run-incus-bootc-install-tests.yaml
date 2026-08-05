@@ -199,29 +199,29 @@ spec:
         # multi-GB bootc image there dies with "no space left on device" partway
         # through writing a layer. Give podman real storage on the scratch disk.
         # The target disk cannot serve: bootc install --wipe destroys it.
-        # Mount the scratch disk at a neutral path, NOT /var/lib/containers.
-        # Mounting it there appeared to work — df showed 28G free — but by the
-        # time podman pulled, the mount was gone and writes landed on the 3.9G
-        # LiveOS_rootfs, failing at ~3.8G with a misleading "no space left on
-        # device". Something on the live ISO reclaims that path. A neutral
-        # mountpoint plus an explicit --root avoids the whole interaction.
+        # Mount the scratch disk AT /var/lib/containers, the same path bootc's
+        # documented invocation binds into the container. The storage database
+        # records absolute paths, so the store must appear at an identical path
+        # inside and outside or nested podman fails with "database
+        # configuration mismatch" (exit 125, surfacing as bootc's opaque
+        # ExitStatus(32000) while "gathering source info").
+        #
+        # An earlier attempt moved this to a neutral path after the mount
+        # appeared to vanish mid-run. That vanishing was a different bug: disk
+        # selection had inverted target and scratch, so `bootc install --wipe`
+        # was destroying the very disk holding the mount. With disks now
+        # identified by incus device name, mounting here is correct.
         mkfs.ext4 -F -q "\${SCRATCH}"
-        mkdir -p /mnt/qa-scratch
-        mount "\${SCRATCH}" /mnt/qa-scratch
-        findmnt -n /mnt/qa-scratch || { echo "${M_FAIL} scratch did not mount"; lsblk; exit 1; }
-        mkdir -p /mnt/qa-scratch/storage /mnt/qa-scratch/runroot
-        df -h /mnt/qa-scratch
+        mkdir -p /var/lib/containers
+        mount "\${SCRATCH}" /var/lib/containers
+        findmnt -n /var/lib/containers || { echo "${M_FAIL} scratch did not mount"; lsblk; exit 1; }
+        mkdir -p /var/lib/containers/storage /var/lib/containers/runroot
+        df -h /var/lib/containers
 
-        # Mounting /var/lib/containers is not enough on its own: the live ISO
-        # configures podman's graphroot elsewhere (a RAM-backed path), so the
-        # pull still filled memory and died with "no space left on device"
-        # despite 28G free on the mount. Force the graphroot onto the scratch
-        # disk explicitly, and print where podman actually lands so a future
-        # failure names the filesystem that filled.
         # Re-verify immediately before the pull: this is the exact window where
         # the mount was disappearing, so a failure here names the real cause
         # instead of surfacing as a space error minutes later.
-        findmnt -n /mnt/qa-scratch || { echo "${M_FAIL} scratch vanished before pull"; df -h; exit 1; }
+        findmnt -n /var/lib/containers || { echo "${M_FAIL} scratch vanished before pull"; df -h; exit 1; }
 
         # --storage-driver overlay is load-bearing. Left to itself podman picked
         # vfs in this environment, which materializes a full copy of the tree
@@ -232,17 +232,17 @@ spec:
         # root/runroot/driver triple. This probe originally omitted --runroot,
         # which recorded the default in the storage database and made the real
         # run fail with "database configuration mismatch".
-        PODMAN_STORE=(--root /mnt/qa-scratch/storage --runroot /mnt/qa-scratch/runroot --storage-driver overlay)
+        PODMAN_STORE=(--root /var/lib/containers/storage --runroot /var/lib/containers/runroot --storage-driver overlay)
         echo "storage driver: \$(podman "\${PODMAN_STORE[@]}" info --format '{{.Store.GraphDriverName}}' 2>/dev/null || echo unknown)"
 
         podman "\${PODMAN_STORE[@]}" \
           run --rm --privileged --pid=host \
           --security-opt label=type:unconfined \
           -v /dev:/dev \
-          -v /mnt/qa-scratch:/var/lib/containers \
+          -v /var/lib/containers:/var/lib/containers \
           "${IMAGE}" \
           bootc install to-disk --wipe --generic-image "\${DISK}" \
-          && echo "${M_OK}" || { rc=\$?; echo "df at failure:"; df -h; findmnt -n /mnt/qa-scratch || echo "scratch UNMOUNTED at failure"; echo "${M_FAIL} rc=\${rc}"; exit 1; }
+          && echo "${M_OK}" || { rc=\$?; echo "df at failure:"; df -h; findmnt -n /var/lib/containers || echo "scratch UNMOUNTED at failure"; echo "${M_FAIL} rc=\${rc}"; exit 1; }
         SCRIPT
         )
         I_B64="$(printf '%s' "${INSTALL_SH}" | base64 -w0)"
