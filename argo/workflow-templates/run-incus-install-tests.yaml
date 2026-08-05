@@ -60,8 +60,13 @@ spec:
         value: "true"
       - name: vm-cpus
         value: "4"
+      # 8GiB, not 4. The installer stages a UKI copy under /var/tmp, which on
+      # the live ISO is a tmpfs sized from guest RAM — at 4GiB the install dies
+      # with "objcopy: ...[.initrd]: No space left on device" partway through.
+      # Worth knowing outside the lab too: the same failure would hit a real
+      # user installing on a low-memory machine.
       - name: vm-memory
-        value: "4GiB"
+        value: "8GiB"
       - name: target-disk-size
         value: "40GiB"
       - name: iso-boot-timeout-seconds
