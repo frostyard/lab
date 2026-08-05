@@ -264,9 +264,19 @@ spec:
         #                        composefs backend is exercised on btrfs only.
         #   --generic-image      no host-specific kargs/firmware assumptions,
         #                        correct for a VM target.
-        #   --karg console=ttyS0 the installed system has no agent and no SSH, so
-        #                        the serial console is the only channel the
-        #                        post-install assertions can report over.
+        #
+        # --karg is deliberately NOT passed, even though snosi's reference
+        # invocation carries `--karg console=ttyS0`. These images boot a
+        # Type #2 UKI, whose kernel command line is baked in and signed, and
+        # bootc refuses the combination outright:
+        #
+        #   Setting up UKI boot: Cannot use externally specified kernel
+        #   arguments with UKI
+        #
+        # snosi's own Task 2 notes record the same constraint — "requires no
+        # CLI kargs for a Type #2 UKI". Dropping it costs the serial console
+        # on the installed system, so the post-install checks come back over
+        # the incus agent rather than by scraping the console.
         #
         # --via-loopback is deliberately NOT passed: snosi's harness installs to
         # a raw *file* and needs it, this lane installs to a real block device.
@@ -281,7 +291,6 @@ spec:
             --generic-image \
             --composefs-backend \
             --filesystem btrfs \
-            --karg console=ttyS0 \
             "${DISK}" \
           && echo "${M_OK}" || { rc=$?; echo "df at failure:"; df -h; findmnt -n /var/lib/containers || echo "scratch UNMOUNTED at failure"; echo "${M_FAIL} rc=${rc}"; exit 1; }
         SCRIPT
@@ -373,14 +382,54 @@ spec:
         incus config set "${VM}" raw.qemu="-smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.snosi-qa-check.service=${CU_B64} -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.multi-user.target=${CD_B64}"
 
         incus start "${VM}"
-        if ! wait_for "${M_DONE}" "${INSTALLED_BOOT_TIMEOUT}" "installed-boot"; then
+
+        # Two channels, because the serial one may not exist. Dropping --karg
+        # (see above) means the installed system's /dev/console is whatever the
+        # baked-in UKI cmdline says, and for a bootc image that is not ttyS0 —
+        # so the console scraping the native lane relies on can come back empty
+        # through no fault of the guest. The incus agent is the channel that
+        # does not depend on kernel arguments, and these images ship
+        # enable-incus-agent.service, so prefer it and keep the console as a
+        # fallback for the case where the agent never comes up.
+        agent_ok=false
+        deadline=$(( SECONDS + INSTALLED_BOOT_TIMEOUT ))
+        while (( SECONDS < deadline )); do
+          if incus exec "${VM}" -- true >/dev/null 2>&1; then agent_ok=true; break; fi
+          # Console markers still count: if the guest managed to report through
+          # the SMBIOS unit, that is a complete answer and there is no reason to
+          # keep waiting on the agent.
+          if console_log | grep -qaF "${M_DONE}"; then break; fi
+          sleep 10
+        done
+
+        if [[ "${agent_ok}" == true ]]; then
+          echo "  [installed-boot] incus agent responded" >&2
+          incus exec "${VM}" -- bash -s <<'PROBE' > /tmp/results/agent-checks.txt 2>/dev/null || true
+        emit() { echo "$1=$2"; }
+        if bootc status --json 2>/dev/null | grep -q '"booted"[[:space:]]*:[[:space:]]*{'; then
+          emit booted ok; else emit booted MISSING; fi
+        emit image "$(bootc status --json 2>/dev/null | tr ',' '\n' | grep -m1 -o 'ghcr.io/[^"]*' || echo unknown)"
+        emit rootfs "$(findmnt -no FSTYPE / 2>/dev/null || echo unknown)"
+        if   [ -d /sysroot/state/os/default ] || [ -d /state/os/default ]; then emit backend composefs
+        elif [ -d /sysroot/ostree ];                                       then emit backend ostree
+        else                                                                    emit backend MISSING; fi
+        emit osrelease "$(. /etc/os-release; echo "${IMAGE_ID:-?}-${IMAGE_VERSION:-?}")"
+        emit failedunits "$(systemctl list-units --state=failed --no-legend --plain 2>/dev/null | wc -l)"
+        PROBE
+        fi
+
+        # Union both channels. Whichever answered, the downstream assertions
+        # read one file.
+        { cat /tmp/results/agent-checks.txt 2>/dev/null || true
+          console_log | grep -aoE "${M_CHECK} [a-z]+=[^[:space:]]+" | sed "s/${M_CHECK} //" || true
+        } | grep -E '^[a-z]+=' | sort -u > /tmp/results/checks.txt
+
+        if [[ ! -s /tmp/results/checks.txt ]]; then
+          echo "--- neither the agent nor the console reported; console tail ---" >&2
           console_log | tail -n 400 >&2
           printf '%s' "FAILED: bootc-installed ${VARIANT} did not boot or report checks" > /tmp/results/result-summary.txt
           exit 1
         fi
-
-        console_log | grep -aoE "${M_CHECK} [a-z]+=[^[:space:]]+" | sed "s/${M_CHECK} //" | sort -u \
-          > /tmp/results/checks.txt
         echo "--- post-install checks ---" >&2
         cat /tmp/results/checks.txt >&2
 
