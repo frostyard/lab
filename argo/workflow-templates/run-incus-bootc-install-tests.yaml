@@ -70,8 +70,10 @@ spec:
         value: "600"
       - name: install-timeout-seconds
         value: "2400"
+      # 900s: a bootc first boot does deployment finalization before reaching
+      # multi-user, and 600s was marginal.
       - name: installed-boot-timeout-seconds
-        value: "600"
+        value: "900"
     outputs:
       parameters:
       - name: result
@@ -241,8 +243,7 @@ spec:
           -v /dev:/dev \
           -v /var/lib/containers:/var/lib/containers \
           "${IMAGE}" \
-          bootc install to-disk --wipe --generic-image \
-            --filesystem ext4 "\${DISK}" \
+          bootc install to-disk --wipe --filesystem ext4 "\${DISK}" \
           && echo "${M_OK}" || { rc=\$?; echo "df at failure:"; df -h; findmnt -n /var/lib/containers || echo "scratch UNMOUNTED at failure"; echo "${M_FAIL} rc=\${rc}"; exit 1; }
         SCRIPT
         )
