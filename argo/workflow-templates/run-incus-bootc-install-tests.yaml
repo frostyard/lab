@@ -190,25 +190,18 @@ spec:
         # multi-GB bootc image there dies with "no space left on device" partway
         # through writing a layer. Give podman real storage on the scratch disk.
         # The target disk cannot serve: bootc install --wipe destroys it.
-        # Stop anything already holding /var/lib/containers, or the mount below
-        # fails with EBUSY. The live ISO may have podman services running.
-        systemctl stop podman.socket podman.service 2>/dev/null || true
-        pkill -9 podman 2>/dev/null || true
-
+        # Mount the scratch disk at a neutral path, NOT /var/lib/containers.
+        # Mounting it there appeared to work — df showed 28G free — but by the
+        # time podman pulled, the mount was gone and writes landed on the 3.9G
+        # LiveOS_rootfs, failing at ~3.8G with a misleading "no space left on
+        # device". Something on the live ISO reclaims that path. A neutral
+        # mountpoint plus an explicit --root avoids the whole interaction.
         mkfs.ext4 -F -q "\${SCRATCH}"
-        mkdir -p /var/lib/containers
-        mount "\${SCRATCH}" /var/lib/containers
-
-        # Verify, loudly. Without set -e in this script a failed mount used to
-        # pass silently, podman fell back to the RAM-backed root, and the run
-        # died 15 minutes later with a confusing "no space left on device"
-        # despite a 30G disk sitting right there unmounted.
-        if ! findmnt -n /var/lib/containers >/dev/null; then
-          echo "${M_FAIL} scratch disk did not mount at /var/lib/containers"
-          lsblk; dmesg | tail -20
-          exit 1
-        fi
-        df -h /var/lib/containers
+        mkdir -p /mnt/qa-scratch
+        mount "\${SCRATCH}" /mnt/qa-scratch
+        findmnt -n /mnt/qa-scratch || { echo "${M_FAIL} scratch did not mount"; lsblk; exit 1; }
+        mkdir -p /mnt/qa-scratch/storage /mnt/qa-scratch/runroot
+        df -h /mnt/qa-scratch
 
         # Mounting /var/lib/containers is not enough on its own: the live ISO
         # configures podman's graphroot elsewhere (a RAM-backed path), so the
@@ -216,15 +209,18 @@ spec:
         # despite 28G free on the mount. Force the graphroot onto the scratch
         # disk explicitly, and print where podman actually lands so a future
         # failure names the filesystem that filled.
-        mkdir -p /var/lib/containers/storage
-        echo "podman default graphroot: \$(podman info --format '{{.Store.GraphRoot}}' 2>/dev/null || echo unknown)"
+        # Re-verify immediately before the pull: this is the exact window where
+        # the mount was disappearing, so a failure here names the real cause
+        # instead of surfacing as a space error minutes later.
+        findmnt -n /mnt/qa-scratch || { echo "${M_FAIL} scratch vanished before pull"; df -h; exit 1; }
 
-        podman --root /var/lib/containers/storage run --rm --privileged --pid=host \
+        podman --root /mnt/qa-scratch/storage --runroot /mnt/qa-scratch/runroot \
+          run --rm --privileged --pid=host \
           --security-opt label=type:unconfined \
-          -v /dev:/dev -v /var/lib/containers:/var/lib/containers \
+          -v /dev:/dev \
           "${IMAGE}" \
           bootc install to-disk --wipe --generic-image "\${DISK}" \
-          && echo "${M_OK}" || { rc=\$?; echo "df at failure:"; df -h; echo "${M_FAIL} rc=\${rc}"; exit 1; }
+          && echo "${M_OK}" || { rc=\$?; echo "df at failure:"; df -h; findmnt -n /mnt/qa-scratch || echo "scratch UNMOUNTED at failure"; echo "${M_FAIL} rc=\${rc}"; exit 1; }
         SCRIPT
         )
         I_B64="$(printf '%s' "${INSTALL_SH}" | base64 -w0)"
