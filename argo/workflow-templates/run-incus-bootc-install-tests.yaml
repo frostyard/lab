@@ -324,6 +324,27 @@ spec:
         #
         # --via-loopback is deliberately NOT passed: snosi's harness installs to
         # a raw *file* and needs it, this lane installs to a real block device.
+        # Pull under a QA-scoped permissive policy, then run the local image.
+        #
+        # The live ISO ships /etc/containers/policy.json with a global `reject`
+        # and a sigstoreSigned rule whose matchRepository scope covers all of
+        # ghcr.io/frostyard/snow. Mechanics images live in that same repository
+        # and are deliberately unsigned -- snosi's mechanics publisher is
+        # secretless and holds no cosign key -- so the guest's podman refuses
+        # the pull and bootc never runs (exit 125).
+        #
+        # Relaxing the policy for this one pull is the same thing snosi's own
+        # test/lib/vm.sh does for fixture images. What it gives up is coverage
+        # of the signature-policy path -- which is exactly what the secure lane
+        # (run-secure-install-tests) exists to prove, and which the mechanics
+        # tier explicitly does not claim. The host's own policy file is never
+        # modified.
+        cat > /run/qa-policy.json <<'POLICY'
+        {"default":[{"type":"insecureAcceptAnything"}]}
+        POLICY
+        echo "pulling ${IMAGE} under a QA-scoped permissive policy" 
+        podman "${PODMAN_STORE[@]}" pull --signature-policy /run/qa-policy.json "${IMAGE}"
+
         podman "${PODMAN_STORE[@]}" \
           run --rm --privileged --pid=host \
           --security-opt label=type:unconfined_t \
