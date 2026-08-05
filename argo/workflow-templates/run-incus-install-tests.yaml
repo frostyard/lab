@@ -306,8 +306,13 @@ spec:
           exit 1
         fi
 
+        # `|| true` is load-bearing: if the guest printed CHECKS_DONE but no
+        # CHECK lines, grep matches nothing and exits 1, pipefail fails the
+        # pipeline, and set -e kills the script before the per-check
+        # diagnostics below can say which check was missing. Same shape that
+        # made the disk lane report red on success. See docs/roadmap.md A5.
         console_log | grep -aoE "${M_CHECK} [a-z]+=[^[:space:]]+" | sed "s/${M_CHECK} //" | sort -u \
-          > /tmp/results/checks.txt
+          > /tmp/results/checks.txt || true
         echo "--- post-install checks ---" >&2
         cat /tmp/results/checks.txt >&2
 

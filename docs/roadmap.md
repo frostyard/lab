@@ -266,8 +266,17 @@ produced two false findings in a week.
 - [ ] **A4.** *First-green requirement*: a lane that has never once succeeded
       reports `unproven`, not `Failed`. This is the control that would have
       caught both bugs, and it is cheap.
-- [ ] **A5.** Audit every lane for the `pipefail` shape and for assertions that
-      can only ever fail. Three instances found so far.
+- [x] **A5.** Audited every lane for the `pipefail` shape and for assertions
+      that can only ever fail. **Four instances total**, all fixed:
+      the disk lane's SIGPIPE inversion, the bootc lane's union pipeline, the
+      bootc lane's `/sysroot/ostree` assertion (a path a composefs-backend
+      install does not have), and a fourth found by the sweep —
+      `run-incus-install-tests` built `checks.txt` through
+      `console_log | grep | sed | sort` with no `|| true`. That one is masked
+      today because the lane is green, but it would have killed the script
+      exactly when the per-check diagnostics beneath it were needed.
+      No `| head -` SIGPIPE instances remain. All nine templates `bash -n`
+      clean.
 
 ### Phase B — publish mechanics images (cheap, unblocks the existing lane)
 
