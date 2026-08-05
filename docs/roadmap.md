@@ -365,10 +365,57 @@ This is the prize: it unblocks snosi's own Task 9 harness, not just the lab.
       The one case that would still need a purpose-built artifact is **key
       rotation** (a dual-signed transition UKI). That needs the key ceremony and
       stays on GitHub. It is not on the critical path.
-- [ ] **D4.** Run `test/bootc-secure-install-test.sh` in live mode with
-      `BOOTC_SECURE_INSTALLER` pointed at the dakota runner. **Turning that
-      first `BLOCKED` into a pass is the milestone this whole roadmap is
-      pointed at.**
+- [x] **D4a. `BLOCKED` is cleared.** The harness passed `require_live_inputs`
+      for the first time on 2026-08-05: it validated the profile, the immutable
+      `OCI_REF`, the MOK and PCR identities, the mode-0600 recovery credential,
+      the 40 GiB blank target, all three dakota runners, the tracking ref, the
+      full tool list, and the Microsoft-enrolled OVMF — then built a schema-1
+      recipe, generated its SSH keypair, and handed off to dakota's installer
+      runner. The environment gap is closed.
+
+- [ ] **D4b. The runners have never been executed against real media, and it
+      shows.** The run now fails inside dakota's runner with:
+
+      ```
+      ERROR: Dakota live SSH did not become ready
+      ```
+
+      `bootc-secure-runner-lib.sh` drives the live ISO over SSH as
+      `liveuser@127.0.0.1` with password `live`
+      (`SNOSI_TASK9_LIVE_USER`/`SNOSI_TASK9_LIVE_PASSWORD`). Neither half of
+      that assumption holds against the published secure ISO. Inspected
+      directly:
+
+      - **sshd is not enabled.** The only unit wanted by `multi-user.target`
+        is `live-ready.service`.
+      - **`liveuser` has an empty password hash** (`/etc/shadow` field length
+        0), and `sshd` refuses empty passwords by default.
+
+      So this is not a timeout or a networking problem — the channel the runner
+      depends on does not exist on the media. This is precisely what snosi's
+      "no prepared runner/artifact set is currently supplied" was concealing:
+      the runners were written, unit-tested, and never once run against a real
+      ISO.
+
+      **Three ways to close it, and the choice matters because this ISO is what
+      users boot:**
+
+      1. *Enable sshd and set a live password on the published media.* Simplest,
+         and **the wrong answer** — it ships user-facing install media with an
+         SSH daemon and a known password.
+      2. *Drop SSH from the runner* and drive the guest over the serial console
+         or systemd credentials, as this lab's other VM lanes already do via
+         SMBIOS type 11. Safe, but a large rewrite of a runner that otherwise
+         works.
+      3. **Recommended — gate it.** Ship a QA-only unit on the media that
+         enables sshd *and* installs an authorized key only when a kernel
+         argument (say `snosi.qa-ssh=1`) is present, with the key delivered as
+         a systemd credential over SMBIOS. Off for every real user by
+         construction, no password anywhere, and the runner changes by a few
+         lines: add the karg, pass the credential, swap `sshpass` for key auth.
+
+      Option 3 also removes `sshpass` from the dependency list, which is a small
+      win on its own.
 - [ ] **D5.** Then the negative and recovery runners, then the update runner.
 
 ### Phase E — the lab as self-hosted runner
