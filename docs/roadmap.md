@@ -497,16 +497,24 @@ This is the prize: it unblocks snosi's own Task 9 harness, not just the lab.
       nothing. The Task 9 harness proves directly — unattended TPM unlock across
       a reboot — what a version string only proxies.
 
-- [ ] **D4d. Now blocked on a release chain, not on code.** The fix has to reach
-      the *live medium*, and dakota builds its ISO against a pinned fisherman
-      binary (`SECURE_FISHERMAN_URL` + sha256). So:
+- [ ] **D4d. The release chain, executed 2026-08-05.**
 
-      1. merge fisherman #14 and cut a release
-      2. bump the fisherman pin in bootc-installer
-      3. rebuild the secure Dakota ISO against it (nightly does this at 04:00Z)
-      4. re-run `run-secure-install-tests`
+      1. [x] fisherman **v0.2.3** cut and published; verified the released
+             binary carries the change and its digest matches `checksums.txt`.
+      2. [x] dakota's `SNOW_SECURE_FISHERMAN_URL` / `_SHA256` repointed at it.
+      3. [x] fisherman submodule bumped to `v0.2.3` in bootc-installer
+             ([#22](https://github.com/frostyard/bootc-installer/pull/22)).
+      4. [ ] secure Dakota ISO rebuilt against it — dispatched.
+      5. [ ] re-run `run-secure-install-tests`.
 
-      Nothing further to write until that lands.
+      **A release-process defect worth fixing.** `release-cut.yml` pushes the
+      version tag using `GITHUB_TOKEN`, and GitHub deliberately does not fire
+      workflows from that token. `release-publish.yml` triggers only on
+      `push: tags` and has no `workflow_dispatch`, so **cutting a release
+      silently produces a tag and no release**. It needed a manual
+      delete-and-re-push under a user credential to publish v0.2.3, and it will
+      need that every time. Fix is one of: add `workflow_dispatch` to
+      `release-publish.yml`, or have `release-cut` push the tag with a PAT.
 - [ ] **D5.** Then the negative and recovery runners, then the update runner.
 
 ### Phase E — the lab as self-hosted runner
