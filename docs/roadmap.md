@@ -276,9 +276,10 @@ because `:latest` is always `secureboot-capable=true` and `mechanics-build` is
 non-publishing by design.
 
 - [ ] **B1.** Publish mechanics images to a **distinct tag that `latest` never
-      points at** — e.g. `ghcr.io/frostyard/snow:mechanics-<version>`. Requires
-      giving a main-branch mechanics job registry write, which is the one real
-      cost: today's `mechanics-build` is deliberately secretless.
+      points at** — `ghcr.io/frostyard/<product>:mechanics-<version>`. Approved,
+      including the registry write for a main-only job. No retention work:
+      GHCR's own GC (~90 days) is the intended lifecycle, and these are not worth
+      accumulating or protecting.
 - [ ] **B2.** Guardrails so this is never mistaken for an install target: keep
       `io.snosi.bootc.secureboot-capable=false`, add an explicit
       "QA-only, not for installation" annotation, never reference it in install
@@ -291,15 +292,17 @@ Worth being clear about what B buys: it validates *installation mechanics only*
 and carries no security evidence. It is a real regression signal for the
 install path, and nothing more.
 
-### Phase C — land the in-flight branches
+### Phase C — land the in-flight branches ✅ done 2026-08-05
 
-- [ ] **C1.** `dakota-iso` `feat/secure-snow-media` → review and merge. Carries
-      the secure media, `secure_install: true`, and the Task 9 runners.
-- [ ] **C2.** `bootc-installer` `feat/live-image-selection` → commit the dangling
-      fisherman submodule bump (working tree is at `5cdcb5f`, HEAD records
-      `4a41b8d`), then review and merge.
-- [ ] **C3.** Confirm the fisherman pin is a real branch commit, not a detached
-      HEAD that can be lost. It is currently detached at `5cdcb5f`.
+- [x] **C1.** `dakota-iso` `feat/secure-snow-media` — **was already merged**;
+      `main` is ahead of it and carries all the Task 9 runners. Only the local
+      checkout was stale.
+- [x] **C2.** `bootc-installer` `feat/live-image-selection` — dangling fisherman
+      bump committed and merged as
+      [#21](https://github.com/frostyard/bootc-installer/pull/21), all checks
+      green.
+- [x] **C3.** Fisherman pin `5cdcb5f` confirmed reachable from `origin/dev`, so
+      the detached local HEAD was never at risk of loss.
 
 ### Phase D — stand up the secure runner environment on selfie
 
@@ -311,9 +314,24 @@ This is the prize: it unblocks snosi's own Task 9 harness, not just the lab.
       `OVMF_VARS_4M.ms.fd`, persistent swtpm state + control socket, an
       ephemeral SSH keypair, and the MOK certificate and PCR public key from
       snosi's committed public copies.
-- [ ] **D3.** Produce the signed secure OCI fixtures the harness requires —
-      immutable N, N+1, N+2 digests with distinct 14-digit image versions
-      sharing one tracking tag.
+- [x] **D3.** ~~Produce signed secure OCI fixtures~~ — **not needed, decided
+      2026-08-05.** The harness wants immutable N/N+1/N+2 digests with distinct
+      14-digit versions sharing one tracking tag. `build-images.yml` already
+      publishes exactly that on every main push: each build gets its own
+      immutable `ghcr.io/frostyard/<product>:<14-digit>` tag alongside `latest`.
+      Verified — `snow:20260805124239` is `secureboot-capable=true` and is the
+      same digest `latest` points at, with `…002447`, `…005926`, `…133112` and
+      more behind it. **Three consecutive published version tags are a valid
+      N/N+1/N+2.** They are tagged, not dangling, so GHCR GC will not reap them.
+
+      This is the answer to "build fixtures on GitHub, or install mkosi on
+      selfie?" — **neither**. No new CI, no mkosi on the lab host, and no
+      signing key ever leaves the `native-build` environment. Strictly the best
+      outcome for home-lab safety.
+
+      The one case that would still need a purpose-built artifact is **key
+      rotation** (a dual-signed transition UKI). That needs the key ceremony and
+      stays on GitHub. It is not on the critical path.
 - [ ] **D4.** Run `test/bootc-secure-install-test.sh` in live mode with
       `BOOTC_SECURE_INSTALLER` pointed at the dakota runner. **Turning that
       first `BLOCKED` into a pass is the milestone this whole roadmap is
@@ -402,5 +420,5 @@ F (native SB) runs in parallel throughout.
 3. **Trust boundary for the self-hosted runner** (E2). selfie holds the incus
    socket and the lab's cluster; a compromised workflow run there is not
    contained. Restricting to protected branches and dispatch is the minimum.
-4. **Who owns the signed secure OCI fixtures** (D3) — they need real signing
-   keys, so this may not be something the lab can self-serve.
+4. ~~Who owns the signed secure OCI fixtures~~ — **resolved**: none are needed.
+   See D3.
