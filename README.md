@@ -404,6 +404,14 @@ so a lane added tomorrow appears with no reporting change. It skips the commit
 when only the generation timestamp moved, so an idle cluster does not push a
 commit every 30 minutes.
 
+The page is styled with the [frostyard design
+system](https://github.com/frostyard/design-system), following its Pilothouse
+dashboard language: ink surfaces, hairline separation, square corners, cold
+ice/sky accents, mono kickers. `site/src/styles/tokens/` is copied **verbatim**
+from that repo — change tokens there and re-copy rather than patching them here,
+or the next copy silently reverts the edit. Because those tokens define no light
+palette, the page is dark-only by design.
+
 `publish-results` ships **suspended** and needs a token that can push to this
 repo:
 

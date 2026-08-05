@@ -1,5 +1,16 @@
 ---
-const { title = 'frostyard lab', description = 'QA pipeline status for snosi bootc images' } = Astro.props;
+import '../styles/global.css';
+
+const {
+  title = 'frostyard lab',
+  description = 'QA pipeline status for snosi bootc images',
+  eyebrow = 'continuous QA · snosi bootc images',
+  heading = 'Pipeline status',
+  stamp = null,
+} = Astro.props;
+
+// BASE_URL carries a trailing slash from Astro's `base`, so join without doubling.
+const asset = (p) => `${import.meta.env.BASE_URL.replace(/\/$/, '')}/${p}`;
 ---
 <!doctype html>
 <html lang="en">
@@ -8,70 +19,164 @@ const { title = 'frostyard lab', description = 'QA pipeline status for snosi boo
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     <meta name="description" content={description} />
-    <style>
-      /* Both themes are styled: this page is read on a phone at 2am as often
-         as on a desktop, and a forced light page in a dark room is hostile. */
-      :root {
-        color-scheme: light dark;
-        --bg: #fbfcfd;
-        --panel: #ffffff;
-        --border: #e2e6ea;
-        --fg: #14181c;
-        --muted: #5a656e;
-        --accent: #2f6f9f;
-        --ok: #1a7f4b;
-        --ok-bg: #e8f6ee;
-        --bad: #b3261e;
-        --bad-bg: #fdeceb;
-        --warn: #8a6300;
-        --warn-bg: #fdf3dd;
-        --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-      }
-      @media (prefers-color-scheme: dark) {
-        :root {
-          --bg: #0f1316;
-          --panel: #161b20;
-          --border: #262d34;
-          --fg: #e6ebf0;
-          --muted: #93a1ad;
-          --accent: #6bb2e2;
-          --ok: #5cc98d;
-          --ok-bg: #12291d;
-          --bad: #f2857d;
-          --bad-bg: #2c1614;
-          --warn: #e0b44a;
-          --warn-bg: #2a2213;
-        }
-      }
-      * { box-sizing: border-box; }
-      body {
-        margin: 0;
-        background: var(--bg);
-        color: var(--fg);
-        font: 15px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-      }
-      .wrap { max-width: 68rem; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
-      header { border-bottom: 1px solid var(--border); padding-bottom: 1.25rem; margin-bottom: 2rem; }
-      h1 { margin: 0 0 .35rem; font-size: 1.6rem; letter-spacing: -0.01em; }
-      h2 { font-size: 1.05rem; margin: 2.5rem 0 .85rem; letter-spacing: -0.005em; }
-      .sub { color: var(--muted); margin: 0; }
-      a { color: var(--accent); }
-      code, .mono { font-family: var(--mono); font-size: .875em; }
-      footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border); color: var(--muted); font-size: .85rem; }
-    </style>
+    <link rel="icon" type="image/svg+xml" href={asset('favicon.svg')} />
   </head>
   <body>
-    <div class="wrap">
-      <header>
-        <h1>frostyard lab</h1>
-        <p class="sub">Continuous QA for <a href="https://github.com/frostyard/snosi">snosi</a> bootc images — container suites, VM boot, and both install paths.</p>
-      </header>
-      <slot />
-      <footer>
-        Generated from the <code>selfie</code> cluster by
+    <div class="shell">
+      <nav class="nav">
+        <a class="brand" href={import.meta.env.BASE_URL}>
+          <span class="flake">❄</span>
+          <span><strong>frostyard</strong><small>lab</small></span>
+        </a>
+        <a class="source" href="https://github.com/frostyard/lab">Source ↗</a>
+      </nav>
+
+      <main class="main">
+        <div class="topbar">
+          <div>
+            <div class="eyebrow"><i></i>{eyebrow}</div>
+            <h1>{heading}</h1>
+          </div>
+          {stamp && (
+            <div class="topbar-actions">
+              <div class="live"><span></span>Data · {stamp}</div>
+            </div>
+          )}
+        </div>
+        <slot />
+      </main>
+
+      <footer class="foot">
+        Generated from the <span class="mono">selfie</span> cluster by
         <a href="https://github.com/frostyard/lab">frostyard/lab</a>.
         Cluster state is reconciled from git by Argo CD; this page is a read-only view.
       </footer>
     </div>
   </body>
 </html>
+
+<style>
+  .shell {
+    max-width: var(--container-max);
+    margin: 0 auto;
+    padding: 0 var(--container-pad) 3rem;
+  }
+
+  /* Nav — brand wordmark left, the one pill the system allows on the right. */
+  .nav {
+    align-items: center;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    min-height: 64px;
+  }
+  .brand {
+    align-items: center;
+    color: var(--text-body);
+    display: flex;
+    gap: 9px;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .brand .flake { color: var(--ice); font-size: 1.45rem; }
+  .brand strong {
+    display: block;
+    font-size: var(--brand-size);
+    font-weight: var(--brand-weight);
+    letter-spacing: var(--brand-ls);
+    line-height: 1.15;
+  }
+  .brand small {
+    color: var(--text-eyebrow);
+    display: block;
+    font: 400 10px var(--font-mono);
+    letter-spacing: .14em;
+    text-transform: uppercase;
+  }
+  .brand:hover strong { color: var(--ice); }
+  .source {
+    border: 1px solid var(--line);
+    border-radius: var(--radius-pill);
+    color: var(--tag-text);
+    font-size: var(--text-caption-size);
+    font-weight: 600;
+    padding: 6px 14px;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .source:hover { border-color: #8fdffb66; color: var(--ice); }
+
+  /* Topbar — eyebrow dash + kicker above the page heading. */
+  .topbar {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: space-between;
+    padding: 1.75rem 0 1.5rem;
+  }
+  .eyebrow {
+    color: var(--text-eyebrow);
+    font-size: var(--text-eyebrow-size);
+    font-weight: var(--text-eyebrow-weight);
+    letter-spacing: var(--text-eyebrow-ls);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+  }
+  .eyebrow i {
+    background: var(--sky);
+    display: inline-block;
+    height: 1px;
+    margin-right: .6rem;
+    vertical-align: middle;
+    width: var(--eyebrow-dash-w);
+  }
+  h1 {
+    font-size: clamp(1.9rem, 3.4vw, 2.6rem);
+    font-weight: 700;
+    letter-spacing: -.055em;
+    line-height: 1;
+    margin: 0;
+  }
+  .topbar-actions { align-items: center; display: flex; gap: 10px; }
+  .live {
+    align-items: center;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-pill);
+    color: var(--text-mono-accent);
+    display: flex;
+    font: 700 9.5px var(--font-mono);
+    gap: 7px;
+    letter-spacing: .1em;
+    padding: 6px 11px;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .live > * { flex-shrink: 0; }
+  .live span:empty {
+    animation: pulse 2s infinite;
+    background: var(--sky);
+    border-radius: 50%;
+    height: 6px;
+    width: 6px;
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(71, 184, 239, .4); }
+    50% { box-shadow: 0 0 0 5px rgba(71, 184, 239, 0); }
+  }
+  @media (prefers-reduced-motion: reduce) { .live span:empty { animation: none; } }
+
+  .foot {
+    border-top: 1px solid var(--line);
+    color: var(--text-footer);
+    font-size: var(--text-caption-size);
+    margin-top: 3.5rem;
+    padding-top: 1.25rem;
+  }
+  .mono { color: var(--text-mono-accent); font-family: var(--font-mono); font-size: .9em; }
+
+  @media (max-width: 640px) {
+    .shell { padding: 0 var(--container-pad-mobile) 2.5rem; }
+  }
+</style>
