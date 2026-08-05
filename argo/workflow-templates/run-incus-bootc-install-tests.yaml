@@ -50,8 +50,13 @@ spec:
         value: "false"
       - name: vm-cpus
         value: "4"
+      # 8GiB. The bootc live ISO boots a full GNOME session — gnome-remote-desktop,
+      # flatpak-portal, xdg-desktop-portal — and `bootc install` pulls a multi-GB
+      # image alongside it. At 6GiB the guest OOM-killed session processes mid-pull.
+      # The install survived, but a machine that tight is one unlucky allocation
+      # from losing the install itself.
       - name: vm-memory
-        value: "6GiB"
+        value: "8GiB"
       - name: target-disk-size
         value: "40GiB"
       - name: iso-boot-timeout-seconds
