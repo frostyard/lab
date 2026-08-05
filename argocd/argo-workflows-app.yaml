@@ -1,0 +1,63 @@
+# Argo CD Application — installs the Argo Workflows controller from the
+# upstream Helm chart.
+#
+# Deliberate choices:
+#   crds.install: false     CRDs are a bootstrap prerequisite (see
+#                           docs/ops/bootstrap.md). Helm-managed CRDs would be
+#                           deleted by `prune: true` if this App were ever
+#                           removed, taking every Workflow object with them.
+#   server.enabled: false   No Argo UI. The cluster has no public surface and
+#                           the CLI plus `kubectl` cover operator needs.
+#   singleNamespace: true   The controller only watches `argo`. Nothing else in
+#                           the cluster should be submitting workflows.
+#   serviceAccount.create   The `argo` SA and its RBAC are owned by
+#     : false               manifests/argo-rbac.yaml so both Applications do not
+#                           fight over the same object.
+#   configMap.create: false Controller config is owned by
+#                           manifests/workflow-controller-configmap.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-workflows
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: lab
+spec:
+  project: default
+  source:
+    repoURL: https://argoproj.github.io/argo-helm
+    chart: argo-workflows
+    targetRevision: 1.0.23
+    helm:
+      values: |
+        crds:
+          install: false
+        server:
+          enabled: false
+        singleNamespace: true
+        workflow:
+          serviceAccount:
+            create: false
+            name: argo
+        controller:
+          rbac:
+            create: true
+          configMap:
+            create: false
+            name: workflow-controller-configmap
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argo
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false

@@ -1,0 +1,275 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: image-poller
+  namespace: argo
+  annotations:
+    description: |
+      Digest-triggered QA. Compare the live registry digest for an image:tag
+      against the digest stored in the image-polling-digests ConfigMap; when it
+      changed, run the snosi QA pipeline against that exact digest, and persist
+      the new digest only after QA succeeds.
+
+      Persisting last is what makes a failed run retry on the next poll instead
+      of being silently recorded as seen.
+  labels:
+    app.kubernetes.io/component: image-poller
+    app.kubernetes.io/part-of: snosi-test-suite
+spec:
+  serviceAccountName: argo
+  activeDeadlineSeconds: 14400
+  # Serialize polls for the same state key across CronWorkflow instances, so the
+  # compare/QA/persist sequence is single-flight. A queued poll re-reads the
+  # ConfigMap after the first one persists, rather than racing it.
+  synchronization:
+    mutexes:
+      - name: "image-poll-{{workflow.parameters.state-key}}"
+  entrypoint: check-and-trigger
+  arguments:
+    parameters:
+      - name: image
+      - name: image-tag
+      # Declared so Argo can validate the templateRef to the QA pipeline, which
+      # expects this parameter. Resolved at runtime from the poll step.
+      - name: image-digest
+        value: ""
+      - name: state-key
+      - name: run-qa
+        value: "true"
+      - name: suites
+        value: "smoke"
+      - name: variant
+        value: "snow"
+      - name: testsuite-repo
+        value: "https://github.com/frostyard/testsuite"
+      - name: testsuite-branch
+        value: "main"
+
+  templates:
+    - name: check-and-trigger
+      dag:
+        tasks:
+          - name: check-digest
+            template: poll-digest
+            arguments:
+              parameters:
+                - name: image
+                  value: "{{workflow.parameters.image}}"
+                - name: image-tag
+                  value: "{{workflow.parameters.image-tag}}"
+                - name: state-key
+                  value: "{{workflow.parameters.state-key}}"
+
+          - name: run-pipeline
+            depends: "check-digest.Succeeded"
+            when: "{{tasks.check-digest.outputs.parameters.changed}} == true && {{workflow.parameters.run-qa}} == true"
+            templateRef:
+              name: snosi-qa-pipeline
+              template: pipeline
+            arguments:
+              parameters:
+                - name: image
+                  value: "{{workflow.parameters.image}}"
+                - name: image-tag
+                  value: "{{workflow.parameters.image-tag}}"
+                # Hand the QA pipeline the digest we just resolved, not the tag.
+                - name: image-digest
+                  value: "{{tasks.check-digest.outputs.parameters.remote-digest}}"
+                - name: suites
+                  value: "{{workflow.parameters.suites}}"
+                - name: variant
+                  value: "{{workflow.parameters.variant}}"
+                - name: testsuite-repo
+                  value: "{{workflow.parameters.testsuite-repo}}"
+                - name: testsuite-branch
+                  value: "{{workflow.parameters.testsuite-branch}}"
+
+          - name: update-digest
+            depends: "check-digest.Succeeded && (run-pipeline.Succeeded || run-pipeline.Skipped)"
+            when: "{{tasks.check-digest.outputs.parameters.changed}} == true"
+            template: update-local
+            arguments:
+              parameters:
+                - name: state-key
+                  value: "{{workflow.parameters.state-key}}"
+                - name: remote-digest
+                  value: "{{tasks.check-digest.outputs.parameters.remote-digest}}"
+                - name: expected-digest
+                  value: "{{tasks.check-digest.outputs.parameters.stored-digest}}"
+
+    - name: poll-digest
+      inputs:
+        parameters:
+          - name: image
+          - name: image-tag
+          - name: state-key
+      outputs:
+        parameters:
+          - name: changed
+            valueFrom:
+              parameter: "{{tasks.compare.outputs.parameters.changed}}"
+          - name: remote-digest
+            valueFrom:
+              parameter: "{{tasks.fetch.outputs.parameters.digest}}"
+          - name: stored-digest
+            valueFrom:
+              parameter: "{{tasks.compare.outputs.parameters.stored-digest}}"
+      dag:
+        tasks:
+          - name: fetch
+            template: fetch-remote
+            arguments:
+              parameters:
+                - name: image
+                  value: "{{inputs.parameters.image}}"
+                - name: image-tag
+                  value: "{{inputs.parameters.image-tag}}"
+          - name: compare
+            depends: "fetch.Succeeded"
+            template: compare-local
+            arguments:
+              parameters:
+                - name: state-key
+                  value: "{{inputs.parameters.state-key}}"
+                - name: remote-digest
+                  value: "{{tasks.fetch.outputs.parameters.digest}}"
+
+    - name: fetch-remote
+      inputs:
+        parameters:
+          - name: image
+          - name: image-tag
+      outputs:
+        parameters:
+          - name: digest
+            valueFrom:
+              path: /tmp/digest
+      metadata:
+        labels:
+          app.kubernetes.io/part-of: snosi-test-suite
+          snosi.io/step: fetch-digest
+      script:
+        image: quay.io/skopeo/stable:latest
+        command: [sh]
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        source: |
+          set -eu
+          IMAGE_REF="{{inputs.parameters.image}}:{{inputs.parameters.image-tag}}"
+          REMOTE=""
+          for i in 1 2 3; do
+            REMOTE=$(timeout 60s skopeo inspect --no-tags \
+              --format '{{.Digest}}' "docker://${IMAGE_REF}" 2>/dev/null || true)
+            [ -n "${REMOTE}" ] && break
+            echo "skopeo attempt ${i}/3 failed for ${IMAGE_REF}; retrying in $(( i * 15 ))s" >&2
+            sleep $(( i * 15 ))
+          done
+
+          # A transient registry failure must not read as "digest changed" and
+          # kick off a pointless QA run. Emit the sentinel and let compare-local
+          # treat it as no-change.
+          if [ -z "${REMOTE}" ]; then
+            echo "Failed to resolve digest for ${IMAGE_REF}" >&2
+            echo "none" > /tmp/digest
+          else
+            echo "${REMOTE}" > /tmp/digest
+          fi
+
+    - name: compare-local
+      inputs:
+        parameters:
+          - name: state-key
+          - name: remote-digest
+      outputs:
+        parameters:
+          - name: changed
+            valueFrom:
+              path: /tmp/changed
+          - name: stored-digest
+            valueFrom:
+              path: /tmp/stored-digest
+      metadata:
+        labels:
+          app.kubernetes.io/part-of: snosi-test-suite
+          snosi.io/step: compare-digest
+      script:
+        image: cgr.dev/chainguard/kubectl:latest-dev
+        command: [bash]
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        source: |
+          set -euo pipefail
+          KEY="{{inputs.parameters.state-key}}"
+          REMOTE="{{inputs.parameters.remote-digest}}"
+          STORED=$(kubectl get configmap image-polling-digests -n argo \
+            -o jsonpath="{.data.${KEY}}" 2>/dev/null || true)
+
+          printf '%s' "${STORED}" > /tmp/stored-digest
+
+          if [[ "${REMOTE}" == "none" ]]; then
+            echo "No remote digest resolved; treating as unchanged." >&2
+            echo "false" > /tmp/changed
+            exit 0
+          fi
+
+          echo "Remote: ${REMOTE}" >&2
+          echo "Stored: ${STORED:-<none>}" >&2
+
+          if [[ "${REMOTE}" == "${STORED}" ]]; then
+            echo "No change." >&2
+            echo "false" > /tmp/changed
+          else
+            echo "Digest changed." >&2
+            echo "true" > /tmp/changed
+          fi
+
+    - name: update-local
+      inputs:
+        parameters:
+          - name: state-key
+          - name: remote-digest
+          - name: expected-digest
+      metadata:
+        labels:
+          app.kubernetes.io/part-of: snosi-test-suite
+          snosi.io/step: update-digest
+      script:
+        image: cgr.dev/chainguard/kubectl:latest-dev
+        command: [bash]
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        source: |
+          set -euo pipefail
+          KEY="{{inputs.parameters.state-key}}"
+          REMOTE="{{inputs.parameters.remote-digest}}"
+          EXPECTED="{{inputs.parameters.expected-digest}}"
+          STORED=$(kubectl get configmap image-polling-digests -n argo \
+            -o jsonpath="{.data.${KEY}}" 2>/dev/null || true)
+
+          # Compare-and-swap. The mutex makes this near-impossible, but writing
+          # a digest we never actually tested is the one unrecoverable failure
+          # here: it marks a broken image as validated and suppresses retries.
+          if [[ "${STORED}" != "${EXPECTED}" ]]; then
+            echo "State moved since check (expected '${EXPECTED}', found '${STORED}'); skipping stale write." >&2
+            exit 0
+          fi
+
+          echo "Persisting new digest for ${KEY}: ${REMOTE}" >&2
+          kubectl patch configmap image-polling-digests \
+            -n argo --type merge \
+            -p "{\"data\":{\"${KEY}\":\"${REMOTE}\"}}"

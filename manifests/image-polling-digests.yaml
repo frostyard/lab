@@ -1,0 +1,21 @@
+# Digest state for the image-poll CronWorkflows.
+#
+# Each key holds the last OCI digest that COMPLETED a QA run for that lane.
+# image-poller compares the live registry digest against the stored value and
+# only persists the new one after QA succeeds, so a failed run is retried on
+# the next poll rather than being silently marked as seen.
+#
+# ArgoCD must not revert the values written by running workflows, so this
+# ConfigMap's `data` is listed under ignoreDifferences in the lab-infra
+# Application. Git holds the key set; the cluster holds the values.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: image-polling-digests
+  namespace: argo
+  labels:
+    app.kubernetes.io/part-of: lab
+data:
+  digest-snow-latest: ""
+  digest-cayo-latest: ""
+  digest-snowfield-latest: ""

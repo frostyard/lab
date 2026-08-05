@@ -1,0 +1,32 @@
+# Submit file: one-off snosi smoke run against the current snow:latest.
+#
+#   kubectl create -f argo/snosi-smoke-test.yaml
+#
+# Uses generateName, so it can be submitted repeatedly. Leaves image-digest
+# empty to test whatever the tag currently points at — the scheduled lanes pin a
+# digest instead. Use this for manual verification after changing a template or
+# a test suite.
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: snosi-smoke-
+  namespace: argo
+  labels:
+    app.kubernetes.io/part-of: lab
+    snosi.io/trigger: manual
+spec:
+  serviceAccountName: argo
+  workflowTemplateRef:
+    name: snosi-qa-pipeline
+  arguments:
+    parameters:
+      - name: image
+        value: "ghcr.io/frostyard/snow"
+      - name: image-tag
+        value: "latest"
+      - name: image-digest
+        value: ""
+      - name: suites
+        value: "smoke"
+      - name: variant
+        value: "snow"

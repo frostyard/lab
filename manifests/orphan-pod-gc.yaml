@@ -1,0 +1,61 @@
+# CronWorkflow: reap workflow pods left behind by workflows that no longer exist.
+#
+# podGC and ttlStrategy cover the normal paths. This catches the rest: a
+# controller restart mid-workflow, a workflow deleted while pods were running,
+# or a pod stuck Terminating past its grace period. Those pods hold node
+# resources indefinitely and are invisible to Argo, which no longer tracks them.
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: orphan-pod-gc
+  namespace: argo
+  labels:
+    app.kubernetes.io/part-of: lab
+spec:
+  suspend: false
+  schedules:
+    - "17 */6 * * *"
+  timezone: "UTC"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  workflowSpec:
+    serviceAccountName: argo
+    entrypoint: gc
+    podGC:
+      strategy: OnPodCompletion
+    ttlStrategy:
+      secondsAfterCompletion: 86400
+    templates:
+      - name: gc
+        script:
+          image: cgr.dev/chainguard/kubectl:latest-dev
+          command: [bash]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          source: |
+            set -euo pipefail
+
+            # Every Argo workflow pod carries the name of its owning workflow.
+            # A pod whose workflow is gone is by definition an orphan.
+            live=$(kubectl get workflows -n argo -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+
+            reaped=0
+            while read -r pod wf; do
+              [[ -n "${pod}" ]] || continue
+              # Never touch this GC run's own pod.
+              [[ "${wf}" == "{{workflow.name}}" ]] && continue
+              if ! grep -qw -- "${wf}" <<<"${live}"; then
+                echo "Reaping orphan pod ${pod} (workflow ${wf} no longer exists)"
+                kubectl delete pod "${pod}" -n argo --ignore-not-found --wait=false
+                reaped=$(( reaped + 1 ))
+              fi
+            done < <(kubectl get pods -n argo \
+                       -l workflows.argoproj.io/workflow \
+                       -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.metadata.labels.workflows\.argoproj\.io/workflow}{"\n"}{end}')
+
+            echo "Reaped ${reaped} orphan pod(s)."

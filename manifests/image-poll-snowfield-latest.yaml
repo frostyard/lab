@@ -1,0 +1,46 @@
+# CronWorkflow: poll ghcr.io/frostyard/snowfield:latest.
+#
+# snowfield is snow with the linux-surface kernel. The container lanes cannot
+# exercise that kernel — a nested container runs the host's — so this lane
+# validates userspace parity with snow only. Kernel-specific validation needs
+# the phase-2 VM lane.
+#
+# Staggered 40 minutes off the snow lane.
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: image-poll-snowfield-latest
+  namespace: argo
+  labels:
+    app.kubernetes.io/part-of: lab
+    snosi.io/trigger: digest-poll
+spec:
+  suspend: true
+  schedules:
+    - "40 */3 * * *"
+  timezone: "UTC"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  workflowSpec:
+    serviceAccountName: argo
+    podGC:
+      strategy: OnWorkflowSuccess
+    ttlStrategy:
+      secondsAfterSuccess: 604800
+      secondsAfterFailure: 2592000
+    workflowTemplateRef:
+      name: image-poller
+    arguments:
+      parameters:
+        - name: image
+          value: "ghcr.io/frostyard/snowfield"
+        - name: image-tag
+          value: "latest"
+        - name: image-digest
+          value: ""
+        - name: state-key
+          value: "digest-snowfield-latest"
+        - name: suites
+          value: "smoke"
+        - name: variant
+          value: "snowfield"

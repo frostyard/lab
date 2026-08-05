@@ -1,0 +1,314 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: run-container-tests
+  namespace: argo
+  annotations:
+    description: |
+      Runs a snosi BDD suite inside a nested, systemd-booted target OCI
+      container. The privileged Podman host stays Kubernetes-native — no
+      hypervisor, no VM, no SSH. The bootc image under test is pulled by
+      digest, booted with /sbin/init, and behave runs against the live systemd
+      instance.
+
+      This template covers the non-graphical suites (smoke, system, sysext).
+      The graphical `desktop` lane needs a GDM session plus AT-SPI and is
+      tracked separately — Debian ships no gnome-ponytail-daemon, so the
+      upstream Bluefin qecore path does not port directly.
+  labels:
+    app.kubernetes.io/component: test-runner
+    app.kubernetes.io/part-of: snosi-test-suite
+spec:
+  templates:
+  - name: run-container-tests
+    activeDeadlineSeconds: 3600
+    # Cross-workflow backpressure. Every QA pipeline reaches this template via
+    # templateRef, and a template-level semaphore is the only lock that binds
+    # across separate Workflow objects. Caps total concurrent image pulls,
+    # which is the real contended resource (registry egress), not node memory.
+    synchronization:
+      semaphores:
+      - configMapKeyRef:
+          name: workflow-semaphores
+          key: selfie-container-qa
+    inputs:
+      parameters:
+      - name: image
+        value: "ghcr.io/frostyard/snow"
+      - name: image-tag
+        value: "latest"
+      # When the caller resolved a digest (the poller always does), the runner
+      # pulls that exact digest. This guarantees the image tested is the image
+      # whose digest gets recorded — a tag can move mid-pipeline.
+      - name: image-digest
+        value: ""
+      - name: suite
+        value: "smoke"
+      - name: variant
+        value: "snow"
+        # testsuite-repo: canonical test repo. Override only for forks.
+      - name: testsuite-repo
+        value: "https://github.com/frostyard/testsuite"
+        # testsuite-branch: 'main' for scheduled runs; a PR branch for
+        # end-to-end validation of test changes before merge.
+      - name: testsuite-branch
+        value: "main"
+      - name: behave-tags
+        value: ""
+    outputs:
+      parameters:
+      - name: result
+        valueFrom:
+          path: /tmp/results/result-summary.txt
+          default: "No results generated"
+      - name: failed-scenarios
+        valueFrom:
+          path: /tmp/results/failed-scenarios.json
+          default: "[]"
+    initContainers:
+    - name: git-sync
+      image: cgr.dev/chainguard/git:latest
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+      volumeMounts:
+      - mountPath: /workspace
+        name: workspace
+      command: [sh, -c]
+      args:
+      - |
+        set -eu
+        # A missing branch must fail hard. Silently falling back to main would
+        # report a result from unrelated test code.
+        git clone --depth 1 \
+          --branch "{{inputs.parameters.testsuite-branch}}" \
+          "{{inputs.parameters.testsuite-repo}}" /workspace/testsuite
+        echo "Cloned testsuite @ {{inputs.parameters.testsuite-branch}}"
+    script:
+      image: quay.io/podman/stable:latest
+      imagePullPolicy: IfNotPresent
+      securityContext:
+        # Booting systemd in the nested target needs a writable cgroup
+        # hierarchy and full device access.
+        privileged: true
+        runAsUser: 0
+        allowPrivilegeEscalation: true
+      resources:
+        requests:
+          cpu: "2"
+          memory: 4Gi
+          ephemeral-storage: 16Gi
+        limits:
+          cpu: "8"
+          memory: 8Gi
+          ephemeral-storage: 40Gi
+      env:
+      - name: IMAGE_REPO
+        value: "{{inputs.parameters.image}}"
+      - name: IMAGE_TAG
+        value: "{{inputs.parameters.image-tag}}"
+      - name: IMAGE_DIGEST
+        value: "{{inputs.parameters.image-digest}}"
+      - name: SUITE
+        value: "{{inputs.parameters.suite}}"
+      - name: VARIANT
+        value: "{{inputs.parameters.variant}}"
+      - name: BEHAVE_TAGS
+        value: "{{inputs.parameters.behave-tags}}"
+      volumeMounts:
+      - mountPath: /workspace
+        name: workspace
+      - mountPath: /tmp/results
+        name: results
+      # Podman graphroot must live on a real node filesystem, not the pod's own
+      # overlay rootfs — overlay-on-overlay fails. An emptyDir is a bind mount
+      # of a node directory (ext4 on selfie), so the native overlay driver works.
+      - mountPath: /var/lib/containers
+        name: containers-storage
+      - mountPath: /run/containers
+        name: containers-runroot
+      command: [bash]
+      source: |
+        set -euo pipefail
+
+        mkdir -p /tmp/results
+
+        # Pin to the digest when the caller resolved one, so the image tested is
+        # provably the image whose digest is recorded on success.
+        if [[ -n "${IMAGE_DIGEST:-}" ]]; then
+          TARGET_IMAGE="${IMAGE_REPO}@${IMAGE_DIGEST}"
+          echo "Testing pinned digest ${IMAGE_DIGEST}" >&2
+        else
+          TARGET_IMAGE="${IMAGE_REPO}:${IMAGE_TAG}"
+          echo "No digest supplied; testing moving tag ${IMAGE_TAG}" >&2
+        fi
+
+        STORAGE_CONF=/tmp/storage.conf
+        cat >"${STORAGE_CONF}" <<'EOF'
+        [storage]
+        driver = "overlay"
+        graphroot = "/var/lib/containers/storage"
+        runroot = "/run/containers/storage"
+        EOF
+        export CONTAINERS_STORAGE_CONF="${STORAGE_CONF}"
+
+        TARGET_NAME="snosi-qa-target"
+        trap 'podman rm --force "${TARGET_NAME}" >/dev/null 2>&1 || true' EXIT
+
+        # Bound every pull attempt. An unbounded pull that stalls mid-blob holds
+        # this pod — and its semaphore slot — until activeDeadlineSeconds.
+        # Podman's blob storage persists across attempts within the pod, so a
+        # retry resumes rather than restarting: already-complete blobs are
+        # skipped and attempts get monotonically faster.
+        PULL_ATTEMPTS=4
+        PULL_TIMEOUT_SECONDS=600
+        pull_ok=false
+        for attempt in $(seq 1 "${PULL_ATTEMPTS}"); do
+          echo "Pulling ${TARGET_IMAGE} (attempt ${attempt}/${PULL_ATTEMPTS}, ${PULL_TIMEOUT_SECONDS}s timeout)..." >&2
+          if timeout "${PULL_TIMEOUT_SECONDS}" podman pull "${TARGET_IMAGE}"; then
+            pull_ok=true
+            break
+          fi
+          echo "Pull attempt ${attempt} failed or timed out" >&2
+          sleep 30
+        done
+        if [[ "${pull_ok}" != true ]]; then
+          echo "Giving up on ${TARGET_IMAGE} after ${PULL_ATTEMPTS} attempts" >&2
+          exit 1
+        fi
+
+        # Boot the image under test as a nested systemd container.
+        #   --systemd=always  target PID 1 is /sbin/init, not a shim
+        #   --cgroupns=host   systemd needs to see a writable cgroup hierarchy
+        #   /sys ro           lets systemd-udevd and friends probe without
+        #                     mutating the host
+        podman run --detach --systemd=always --privileged \
+          --cgroupns=host \
+          --network host \
+          --security-opt seccomp=unconfined \
+          --tmpfs /run:rw,nosuid,nodev,mode=755,size=512m \
+          --tmpfs /tmp:rw,nosuid,nodev,mode=1777,size=512m \
+          --name "${TARGET_NAME}" \
+          --pull=never \
+          --mount type=bind,source=/sys,destination=/sys,ro,bind-propagation=rprivate \
+          --volume /workspace:/workspace:ro \
+          --volume /tmp/results:/tmp/results \
+          --volume /etc/resolv.conf:/etc/resolv.conf:ro \
+          "${TARGET_IMAGE}" /sbin/init >/dev/null
+
+        # systemd inside a container legitimately reaches "degraded" — units
+        # that need real hardware or a seat (udev, plymouth, gdm) fail. Waiting
+        # for "running" would never succeed. Gate on dbus instead: it is the
+        # dependency every meaningful probe in the suites relies on.
+        ready=false
+        for i in $(seq 1 90); do
+          state=$(podman exec "${TARGET_NAME}" systemctl is-system-running 2>/dev/null || true)
+          dbus_active=$(podman exec "${TARGET_NAME}" systemctl is-active dbus 2>/dev/null || true)
+          echo "systemd readiness probe ${i}: state=${state:-unknown} dbus=${dbus_active:-unknown}"
+          if [[ "${state}" == "running" || "${state}" == "degraded" ]] \
+             && [[ "${dbus_active}" == "active" ]]; then
+            ready=true
+            break
+          fi
+          sleep 2
+        done
+        if [[ "${ready}" != true ]]; then
+          echo "Nested systemd host never became usable" >&2
+          podman exec "${TARGET_NAME}" systemctl list-units --failed --no-pager || true
+          podman exec "${TARGET_NAME}" journalctl --no-pager -n 200 || true
+          exit 1
+        fi
+
+        echo "Nested systemd host is up. Recording boot state..." >&2
+        podman exec "${TARGET_NAME}" systemctl list-units --failed --no-pager \
+          > /tmp/results/failed-units.txt 2>&1 || true
+
+        # Install the test harness inside the target.
+        #
+        # Debian trixie marks its Python as externally managed (PEP 668), and
+        # the snow image ships neither python3-pip nor python3-behave. behave
+        # comes from apt so the harness matches the distro's Python and no pip
+        # bootstrap is needed. This mutates the running container only — the
+        # image under test is never rebuilt or republished.
+        echo "Installing test harness in nested target..." >&2
+        podman exec "${TARGET_NAME}" bash -c '
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends python3-behave
+          python3 -m behave --version
+        '
+
+        # PYTHONPATH is set to the testsuite root so `tests.shared.*` helper
+        # imports resolve from step definitions.
+        BEHAVE_RC=0
+        podman exec \
+          --env PYTHONPATH=/workspace/testsuite \
+          --env SNOSI_VARIANT="${VARIANT}" \
+          --env SNOSI_IMAGE="${TARGET_IMAGE}" \
+          "${TARGET_NAME}" \
+          python3 -m behave "/workspace/testsuite/tests/${SUITE}/features/" \
+            --format json.pretty \
+            --outfile /tmp/results/results.json \
+            --no-capture \
+            --tags "${BEHAVE_TAGS:-~@wip}" || BEHAVE_RC=$?
+
+        echo "behave exited ${BEHAVE_RC}" >&2
+
+        if [[ -f /tmp/results/results.json ]]; then
+          python3 - <<'PY'
+        import json, re
+
+        with open("/tmp/results/results.json", encoding="utf-8") as fh:
+            data = json.load(fh)
+
+        # Scenario names land in a public results feed, so only emit names that
+        # look like plain prose and carry no credential-ish words.
+        safe_name = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 .,:;()/_+-]{0,159}$")
+        redact = ("token", "password", "secret", "authorization", "key")
+
+        failed_scenarios = []
+        total = failed = 0
+        for feature in data:
+            for scenario in feature.get("elements", []):
+                if scenario.get("type") != "scenario":
+                    continue
+                total += 1
+                if scenario.get("status") != "failed":
+                    continue
+                failed += 1
+                name = scenario.get("name")
+                if (
+                    isinstance(name, str)
+                    and safe_name.fullmatch(name)
+                    and not any(w in name.lower() for w in redact)
+                    and name not in failed_scenarios
+                ):
+                    failed_scenarios.append(name)
+
+        with open("/tmp/results/failed-scenarios.json", "w", encoding="utf-8") as fh:
+            json.dump(failed_scenarios[:20], fh, separators=(",", ":"))
+
+        summary = f"{total - failed}/{total} scenarios passed"
+        with open("/tmp/results/result-summary.txt", "w", encoding="utf-8") as fh:
+            fh.write(summary)
+        print(summary)
+        PY
+        else
+          printf 'Execution failed before any scenario ran' >/tmp/results/result-summary.txt
+        fi
+
+        exit "${BEHAVE_RC}"
+    volumes:
+    - name: workspace
+      emptyDir: {}
+    - name: results
+      emptyDir: {}
+    - name: containers-storage
+      emptyDir: {}
+    - name: containers-runroot
+      emptyDir: {}

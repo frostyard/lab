@@ -1,0 +1,26 @@
+# Cluster-wide Argo workflow queuing.
+#
+# Template-level semaphores are the only lock type that binds across ALL
+# callers, including workflow-of-workflows invocations via templateRef.
+#
+# Keys:
+#   selfie-container-qa — Cross-workflow capacity limit for the container QA
+#                         runner (run-container-tests). Each pod requests 4Gi
+#                         and boots a nested systemd container that pulls a
+#                         multi-GB bootc image. selfie has 125Gi and 32 cores,
+#                         so 4 concurrent lanes is comfortable; the real
+#                         constraint is registry egress during the pull phase,
+#                         not node memory.
+#   snosi-vm-qa         — Reserved for the phase-2 incus VM lanes. Native A/B
+#                         guests own a fixed disk/TPM fixture on the host, so
+#                         they must run one at a time.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workflow-semaphores
+  namespace: argo
+  labels:
+    app.kubernetes.io/part-of: lab
+data:
+  selfie-container-qa: "4"
+  snosi-vm-qa: "1"

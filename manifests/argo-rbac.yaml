@@ -1,0 +1,103 @@
+# ServiceAccount and RBAC for workflow pods.
+#
+# The argo-workflows Helm chart is installed with `workflow.serviceAccount.create:
+# false`, so the SA and its bindings are owned here and reconciled by the
+# lab-infra ArgoCD Application.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: argo
+  namespace: argo
+  labels:
+    app.kubernetes.io/part-of: lab
+---
+# Minimum permissions the Argo emissary executor needs to report step results.
+# Every workflow pod writes a workflowtaskresult; without this the controller
+# never learns a step's outputs and the DAG stalls.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: argo-executor
+  namespace: argo
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["workflowtaskresults"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: argo-executor
+  namespace: argo
+subjects:
+  - kind: ServiceAccount
+    name: argo
+    namespace: argo
+  # A workflow that forgets serviceAccountName falls back to `default`; grant it
+  # the executor minimum too so the failure mode is a clear RBAC error on the
+  # real work rather than a silently stalled DAG.
+  - kind: ServiceAccount
+    name: default
+    namespace: argo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: argo-executor
+---
+# image-poller persists digest state into the image-polling-digests ConfigMap.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: argo-configmap-writer
+  namespace: argo
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: argo-configmap-writer
+  namespace: argo
+subjects:
+  - kind: ServiceAccount
+    name: argo
+    namespace: argo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: argo-configmap-writer
+---
+# Workflow steps that submit or inspect other workflows (nightly fan-out,
+# orphan-pod GC) need to act on Argo resources in their own namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: argo-workflow-operator
+  namespace: argo
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources:
+      - workflows
+      - workflows/finalizers
+      - workflowtemplates
+      - cronworkflows
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: argo-workflow-operator
+  namespace: argo
+subjects:
+  - kind: ServiceAccount
+    name: argo
+    namespace: argo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: argo-workflow-operator

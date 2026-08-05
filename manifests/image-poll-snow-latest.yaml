@@ -1,0 +1,46 @@
+# CronWorkflow: poll ghcr.io/frostyard/snow:latest.
+#
+# Triggers snosi-qa-pipeline only when the OCI digest differs from the value
+# stored in the image-polling-digests ConfigMap.
+#
+# suspend: flip to false once the pipeline has a green run on this lane. Doing
+# it through git (rather than `kubectl patch`) keeps the cluster's enabled lanes
+# reviewable in history — selfHeal would revert a manual patch anyway.
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: image-poll-snow-latest
+  namespace: argo
+  labels:
+    app.kubernetes.io/part-of: lab
+    snosi.io/trigger: digest-poll
+spec:
+  suspend: true
+  schedules:
+    - "0 */3 * * *"
+  timezone: "UTC"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  workflowSpec:
+    serviceAccountName: argo
+    podGC:
+      strategy: OnWorkflowSuccess
+    ttlStrategy:
+      secondsAfterSuccess: 604800
+      secondsAfterFailure: 2592000
+    workflowTemplateRef:
+      name: image-poller
+    arguments:
+      parameters:
+        - name: image
+          value: "ghcr.io/frostyard/snow"
+        - name: image-tag
+          value: "latest"
+        - name: image-digest
+          value: ""
+        - name: state-key
+          value: "digest-snow-latest"
+        - name: suites
+          value: "smoke"
+        - name: variant
+          value: "snow"

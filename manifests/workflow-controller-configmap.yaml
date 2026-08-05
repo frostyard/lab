@@ -1,0 +1,66 @@
+# Workflow controller tuning. The argo-workflows Helm chart is installed with
+# `controller.configMap.create: false`, so this ConfigMap is the sole owner of
+# controller configuration and is reconciled by the lab-infra Application.
+#
+# Rationale for the limits:
+#
+#   resourceRateLimit — token-bucket throttle on how fast the controller creates
+#     Kubernetes resources across all running workflows. This is the primary
+#     guard against a runaway loop (a mis-scheduled CronWorkflow, an agent
+#     submitting in a tight loop) exhausting the API server. Parallelism caps
+#     are not: they bound concurrency, not creation rate.
+#
+#   workflowDefaults.activeDeadlineSeconds — hard 2-hour kill. The longest
+#     legitimate lane today (pull a multi-GB bootc image, boot it nested, run
+#     the smoke suite) finishes well inside 20 minutes; 2h is a generous buffer
+#     that still reaps genuinely stuck workflows.
+#
+#   ttlStrategy — 7 days for success, 30 days for failure. Long enough to answer
+#     "did the last N runs pass?" from the cluster without an archive database.
+#
+#   podGC: OnWorkflowSuccess — keep pods (and therefore logs) for failed
+#     workflows so a failure can be debugged after the fact; reap them promptly
+#     on success.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workflow-controller-configmap
+  namespace: argo
+  labels:
+    app.kubernetes.io/part-of: lab
+data:
+  # Argo is installed with singleNamespace: true, so the controller only watches
+  # `argo`. Stating it explicitly keeps the config honest if that ever changes.
+  namespace: argo
+
+  resourceRateLimit: |
+    limit: 10
+    burst: 10
+
+  workflowDefaults: |
+    spec:
+      activeDeadlineSeconds: 7200
+      parallelism: 10
+      ttlStrategy:
+        secondsAfterCompletion: 604800
+        secondsAfterSuccess: 604800
+        secondsAfterFailure: 2592000
+      podGC:
+        strategy: OnWorkflowSuccess
+
+  # argoexec runs as a sidecar in every workflow pod. Without explicit limits it
+  # inherits node allocatable, which inflates scheduler accounting on a
+  # single-node cluster. Generous values — argoexec only moves parameters and
+  # artifacts.
+  executor: |
+    resources:
+      requests:
+        cpu: 100m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+
+  metricsConfig: |
+    enabled: true
+    metricsTTL: "10m"

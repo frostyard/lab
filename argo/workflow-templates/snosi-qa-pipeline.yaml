@@ -1,0 +1,144 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: snosi-qa-pipeline
+  namespace: argo
+  annotations:
+    description: |
+      Container-only snosi QA pipeline: validate the requested suite list, then
+      fan out each selected suite to run-container-tests. Every lane pulls the
+      same pinned digest, so a tag that moves mid-pipeline cannot split results
+      across two different images.
+
+      Suites:
+        smoke   — the image boots to a usable systemd, core units are active
+        system  — bootc/composefs contracts, filesystem layout, image metadata
+        sysext  — systemd-sysext and updex behaviour against shipped extensions
+  labels:
+    app.kubernetes.io/component: qa-pipeline
+    app.kubernetes.io/part-of: snosi-test-suite
+spec:
+  serviceAccountName: argo
+  # Two lanes at a time. Each pulls a multi-GB image; more concurrency just
+  # queues on the run-container-tests semaphore and on registry egress.
+  parallelism: 2
+  # Must outlive queue wait on the semaphore plus the 1h per-suite deadline.
+  activeDeadlineSeconds: 14400
+  entrypoint: dispatch-pipeline
+  arguments:
+    parameters:
+    - name: image
+      value: "ghcr.io/frostyard/snow"
+    - name: image-tag
+      value: "latest"
+    - name: image-digest
+      value: ""
+    - name: suites
+      value: "smoke"
+    - name: variant
+      value: "snow"
+    - name: testsuite-repo
+      value: "https://github.com/frostyard/testsuite"
+    - name: testsuite-branch
+      value: "main"
+  templates:
+  # Thin entrypoint so the pipeline can be submitted directly with
+  # `argo submit --from workflowtemplate/snosi-qa-pipeline` and also referenced
+  # as a DAG node by image-poller via templateRef to `pipeline`.
+  - name: dispatch-pipeline
+    dag:
+      tasks:
+      - name: pipeline
+        template: pipeline
+        arguments:
+          parameters:
+          - name: image
+            value: "{{workflow.parameters.image}}"
+          - name: image-tag
+            value: "{{workflow.parameters.image-tag}}"
+          - name: image-digest
+            value: "{{workflow.parameters.image-digest}}"
+          - name: suites
+            value: "{{workflow.parameters.suites}}"
+          - name: variant
+            value: "{{workflow.parameters.variant}}"
+          - name: testsuite-repo
+            value: "{{workflow.parameters.testsuite-repo}}"
+          - name: testsuite-branch
+            value: "{{workflow.parameters.testsuite-branch}}"
+
+  - name: pipeline
+    inputs:
+      parameters:
+      - name: image
+      - name: image-tag
+      - name: image-digest
+      - name: suites
+      - name: variant
+      - name: testsuite-repo
+      - name: testsuite-branch
+    dag:
+      tasks:
+      - name: validate-suites
+        template: validate-suites
+        arguments:
+          parameters:
+          - name: suites
+            value: "{{inputs.parameters.suites}}"
+      - name: test-lane
+        depends: "validate-suites.Succeeded"
+        withItems: [smoke, system, sysext]
+        when: "'{{inputs.parameters.suites}}' =~ '{{item}}'"
+        templateRef:
+          name: run-container-tests
+          template: run-container-tests
+        arguments:
+          parameters:
+          - name: image
+            value: "{{inputs.parameters.image}}"
+          - name: image-tag
+            value: "{{inputs.parameters.image-tag}}"
+          - name: image-digest
+            value: "{{inputs.parameters.image-digest}}"
+          - name: suite
+            value: "{{item}}"
+          - name: variant
+            value: "{{inputs.parameters.variant}}"
+          - name: testsuite-repo
+            value: "{{inputs.parameters.testsuite-repo}}"
+          - name: testsuite-branch
+            value: "{{inputs.parameters.testsuite-branch}}"
+          - name: behave-tags
+            value: ""
+
+  # Guard against typos reaching the fan-out. `withItems` + `when` silently
+  # runs zero lanes for an unknown suite name, which would report success for a
+  # pipeline that tested nothing.
+  - name: validate-suites
+    inputs:
+      parameters:
+      - name: suites
+    script:
+      image: cgr.dev/chainguard/bash:latest
+      command: [bash]
+      env:
+      - name: SUITES
+        value: "{{inputs.parameters.suites}}"
+      resources:
+        requests:
+          cpu: 100m
+          memory: 64Mi
+        limits:
+          cpu: 500m
+          memory: 256Mi
+      source: |
+        set -euo pipefail
+        [[ -n "${SUITES}" ]] || { echo "Empty suite list" >&2; exit 1; }
+        IFS=',' read -r -a requested <<< "${SUITES}"
+        for suite in "${requested[@]}"; do
+          case "${suite}" in
+            smoke|system|sysext) ;;
+            *) echo "Unsupported suite: ${suite}" >&2; exit 1 ;;
+          esac
+        done
+        echo "Suites validated: ${SUITES}"

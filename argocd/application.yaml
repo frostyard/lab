@@ -1,0 +1,30 @@
+# Argo CD Application — keeps WorkflowTemplates in sync from git.
+# Apply once: kubectl apply -f argocd/application.yaml -n argocd
+#
+# After this, `git push main` is the only step needed to change a pipeline.
+# WorkflowTemplates are never applied by hand; a manual `kubectl apply` is
+# reverted by selfHeal on the next reconcile.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: frostyard-lab
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: lab
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/frostyard/lab
+    targetRevision: main
+    path: argo/workflow-templates
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argo
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      # The argo namespace is a bootstrap prerequisite, not a synced resource.
+      - CreateNamespace=false
+      - ServerSideApply=true

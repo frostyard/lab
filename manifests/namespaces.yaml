@@ -1,0 +1,14 @@
+# Test namespaces for the frostyard lab.
+#
+# One namespace per image family under test. Container-only QA does not
+# schedule pods here today (run-container-tests runs in `argo`), but the
+# namespaces are the stable home for the incus/VM lanes added in phase 2 and
+# for any per-variant secrets.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: snosi-test
+  labels:
+    kubernetes.io/metadata.name: snosi-test
+    app.kubernetes.io/part-of: lab
+    pod-security.kubernetes.io/enforce: baseline
