@@ -168,6 +168,35 @@ installed and verified: cayo-ab (verity+luks+erofs, secureboot=false, skip-mok=t
 `snosi-install` at install time and exists in no published image, so a lane
 that passes them has genuinely exercised the installer.
 
+### The bootc install lane is red, and the failure is real
+
+`run-incus-bootc-install-tests` works — and it is reporting a genuine defect,
+not a harness problem:
+
+```
+bootc install to-disk --wipe --filesystem ext4 /dev/sda   → succeeds
+first boot of the installed system:
+  DEPEND  Dependency failed for sysroot.mount - Root Partition.
+  DEPEND  Dependency failed for initrd-root-fs.target
+  DEPEND  Dependency failed for bootc-root-setup.service
+  Reached target emergency.target - Emergency Mode.
+```
+
+`bootc install` reports success against `ghcr.io/frostyard/snow:latest`, but the
+resulting system's initrd cannot mount its root partition. The composefs karg
+is present on the kernel command line; the failure is in the initrd, before
+`bootc-root-setup.service` runs.
+
+Reproduced twice, with and without `--generic-image`, so it is not an artifact
+of how the lane invokes bootc. This is exactly the class of bug no container
+lane and no image-boot lane can see, and it is why the install lanes exist.
+
+**Related:** the snow image ships no `/usr/lib/bootc/install/` configuration, so
+a plain `bootc install to-disk` fails with `No root filesystem specified` and
+the lane must pass `--filesystem ext4`. Fedora and Bluefin bootc images ship an
+install-configuration TOML that supplies this. Adding one to snosi would make
+the documented invocation work unmodified for users.
+
 ### Driving a guest with no agent and no SSH
 
 snosi images ship no incus guest agent, and a live ISO has no provisioned SSH
