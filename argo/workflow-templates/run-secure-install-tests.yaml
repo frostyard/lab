@@ -1,0 +1,243 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: run-secure-install-tests
+  namespace: argo
+  annotations:
+    description: |
+      Runs snosi's Task 9 secure-install harness against the real external
+      installer, and is the lane the whole bootc side of this lab points at.
+
+      This does NOT reimplement anything. snosi's
+      test/bootc-secure-install-test.sh owns the QEMU/OVMF/TPM evidence, the MOK
+      enrollment, and every refusal check; dakota-iso's
+      test/bootc-secure-installer-runner.sh owns driving the live ISO and
+      invoking fisherman. Both already exist. This template's only job is to
+      supply the environment they need and then get out of the way — which is
+      precisely what has been missing, and why that harness has only ever
+      reported BLOCKED.
+
+      Everything runs inside this container. The lab host is cayo — an immutable
+      snosi server image with a read-only /usr — so installing qemu/swtpm/sshpass
+      on it is not merely undesirable, it is impossible. The container carries
+      its own toolchain and its own OVMF, and touches the host only for /dev/kvm
+      and a scratch directory.
+  labels:
+    app.kubernetes.io/component: vm-test-runner
+    app.kubernetes.io/part-of: snosi-test-suite
+spec:
+  templates:
+  - name: run-secure-install-tests
+    nodeSelector:
+      node-role.kubernetes.io/control-plane: "true"
+    activeDeadlineSeconds: 10800
+    # Shares the VM semaphore: this runs a full 8 GiB guest plus a 4 GiB one,
+    # and must not overlap the incus lanes.
+    synchronization:
+      semaphores:
+      - configMapKeyRef:
+          name: workflow-semaphores
+          key: snosi-vm-qa
+    inputs:
+      parameters:
+      # cayo is the smallest secure product and therefore the fastest lane to
+      # iterate on. snow/snowfield use the same path.
+      - name: profile
+        value: "cayo"
+      # Must satisfy snosi's own grammar:
+      #   ^ghcr\.io/frostyard/(cayo|snow|snowfield):[a-zA-Z0-9][a-zA-Z0-9._-]*$
+      # The immutable OCI_REF digest is resolved from this at run time.
+      - name: tracking-ref
+        value: "ghcr.io/frostyard/cayo:latest"
+      # The secure Dakota media. dakota-iso publishes this nightly with
+      # SECURE_SNOSI=1 and smoke-tests it under Secure Boot before upload, so
+      # the lab does not build an ISO — it consumes the published one, which is
+      # also what a user would install from.
+      - name: iso-url
+        value: "https://repository.frostyard.org/isos/snow-live-latest.iso"
+      # Pin both repos so a lane failure is attributable to a known tree rather
+      # than to whatever main happened to be that minute.
+      - name: snosi-ref
+        value: "main"
+      - name: dakota-ref
+        value: "main"
+      # snosi requires a blank disk of at least 30 GiB. Sparse, so this costs
+      # only what is written.
+      - name: target-disk-size
+        value: "40G"
+    outputs:
+      parameters:
+      - name: result
+        valueFrom:
+          path: /tmp/results/result-summary.txt
+          default: "No results generated"
+    script:
+      image: docker.io/library/debian:trixie-slim
+      securityContext:
+        # QEMU needs /dev/kvm, and the harness runs cryptsetup and loop-device
+        # work against the installed image.
+        privileged: true
+        runAsUser: 0
+      resources:
+        requests: { cpu: "2", memory: 4Gi }
+        # The live guest is 8 GiB and the installed guest 4 GiB; they do not
+        # overlap, but the ceiling has to cover the larger one plus the
+        # harness's own work.
+        limits: { cpu: "6", memory: 12Gi }
+      env:
+      - { name: PROFILE,      value: "{{inputs.parameters.profile}}" }
+      - { name: TRACKING_REF, value: "{{inputs.parameters.tracking-ref}}" }
+      - { name: ISO_URL,      value: "{{inputs.parameters.iso-url}}" }
+      - { name: SNOSI_REF,    value: "{{inputs.parameters.snosi-ref}}" }
+      - { name: DAKOTA_REF,   value: "{{inputs.parameters.dakota-ref}}" }
+      - { name: DISK_SIZE,    value: "{{inputs.parameters.target-disk-size}}" }
+      - { name: DEBIAN_FRONTEND, value: noninteractive }
+      volumeMounts:
+      - { name: dev,     mountPath: /dev }
+      - { name: iso,     mountPath: /var/lib/snosi-lab/iso }
+      - { name: scratch, mountPath: /var/lib/snosi-lab/secure }
+      - { name: results, mountPath: /tmp/results }
+      command: [bash]
+      source: |
+        set -euo pipefail
+        mkdir -p /tmp/results /var/lib/snosi-lab/iso /var/lib/snosi-lab/secure
+
+        fail() { printf '%s' "$1" > /tmp/results/result-summary.txt; echo "$1" >&2; exit 1; }
+
+        # ── toolchain ────────────────────────────────────────────────────────
+        # Exactly snosi's require_live_inputs list — jq qemu-img
+        # qemu-system-x86_64 swtpm virt-fw-vars cryptsetup objcopy sbverify ssh
+        # ssh-keygen ss — plus what dakota's runner needs (sshpass, socat,
+        # python3) and skopeo to resolve the digest.
+        echo "Installing toolchain..." >&2
+        apt-get update -qq
+        apt-get install -y -qq --no-install-recommends \
+          qemu-system-x86 qemu-utils ovmf swtpm swtpm-tools \
+          cryptsetup-bin binutils sbsigntool openssh-client iproute2 \
+          jq python3 python3-pip sshpass socat git skopeo curl ca-certificates \
+          >/dev/null
+
+        # virt-firmware is not packaged in trixie; it provides virt-fw-vars,
+        # which the harness uses to simulate MokManager approval by writing the
+        # MOK into the guest's own varstore.
+        pip install --quiet --break-system-packages virt-firmware >/dev/null 2>&1 \
+          || pip install --quiet --break-system-packages virt-firmware
+        command -v virt-fw-vars >/dev/null || fail "FAILED: virt-fw-vars unavailable after install"
+
+        # ── sources ──────────────────────────────────────────────────────────
+        # Both public. Shallow clones of a pinned ref.
+        git clone -q --depth 1 --branch "${SNOSI_REF}"  https://github.com/frostyard/snosi.git      /src/snosi
+        git clone -q --depth 1 --branch "${DAKOTA_REF}" https://github.com/frostyard/dakota-iso.git /src/dakota
+        echo "snosi  @ $(git -C /src/snosi  rev-parse --short HEAD)" >&2
+        echo "dakota @ $(git -C /src/dakota rev-parse --short HEAD)" >&2
+
+        RUNNER=/src/dakota/test/bootc-secure-installer-runner.sh
+        NEGATIVE=/src/dakota/test/bootc-secure-negative-runner.sh
+        RECOVERY=/src/dakota/test/bootc-secure-recovery-runner.sh
+        for r in "${RUNNER}" "${NEGATIVE}" "${RECOVERY}"; do
+          [[ -f "${r}" ]] || fail "FAILED: missing runner ${r}"
+          chmod +x "${r}"
+        done
+        chmod +x /src/dakota/test/lib/*.sh 2>/dev/null || true
+
+        # ── ISO ──────────────────────────────────────────────────────────────
+        # Shares the cache the incus lanes already populate. snow-live-latest
+        # is a stable name whose bytes move, so validate against the origin.
+        ISO=/var/lib/snosi-lab/iso/snow-live-latest.iso
+        len="$(curl -sSLI --max-time 60 "${ISO_URL}" | tr -d '\r' | tr '[:upper:]' '[:lower:]' \
+               | grep -m1 '^content-length:' | sed 's/^content-length: *//' || true)"
+        if [[ -s "${ISO}" && -n "${len}" && "$(stat -c%s "${ISO}")" == "${len}" ]]; then
+          echo "ISO cache hit ($(stat -c%s "${ISO}") bytes)" >&2
+        else
+          echo "Downloading secure Dakota ISO..." >&2
+          curl -fSL --max-time 3600 -o "${ISO}.part" "${ISO_URL}"
+          mv "${ISO}.part" "${ISO}"
+        fi
+
+        # ── inputs ───────────────────────────────────────────────────────────
+        WORK=/var/lib/snosi-lab/secure/run-$$
+        mkdir -p "${WORK}"
+        cleanup() {
+          rc=$?
+          # The target disk is tens of GiB on a shared host path; it must go
+          # even when the lane fails.
+          rm -rf "${WORK}" 2>/dev/null || true
+          exit "${rc}"
+        }
+        trap cleanup EXIT
+
+        # Immutable digest, resolved from the tracking tag. snosi requires
+        # OCI_REF to be ghcr.io/frostyard/<profile>@sha256:<digest> and
+        # TRACKING_REF to be the tag — the pair is how it proves an update
+        # moved without trusting a mutable name.
+        OCI_REF="ghcr.io/frostyard/${PROFILE}@$(skopeo inspect "docker://${TRACKING_REF}" --format '{{.Digest}}')"
+        echo "OCI_REF=${OCI_REF}" >&2
+
+        # This lane installs the SECURE image deliberately — that is the whole
+        # point, and it is the opposite of the mechanics lane's guard.
+        cap="$(skopeo inspect "docker://${TRACKING_REF}" --format '{{ index .Labels "io.snosi.bootc.secureboot-capable" }}' 2>/dev/null || echo unknown)"
+        [[ "${cap}" == "true" ]] || fail "FAILED: ${TRACKING_REF} is secureboot-capable=${cap}; the secure install path needs a secure image"
+
+        # Recovery credential: snosi requires a regular, nonempty, mode-0600
+        # file. Generated per run and never leaves this pod.
+        RECOVERY_KEY="${WORK}/recovery.key"
+        ( umask 077; head -c 32 /dev/urandom | base64 -w0 > "${RECOVERY_KEY}" )
+        chmod 600 "${RECOVERY_KEY}"
+
+        # Blank target, sparse.
+        TARGET_DISK="${WORK}/target.raw"
+        qemu-img create -q -f raw "${TARGET_DISK}" "${DISK_SIZE}"
+
+        # Public identities, straight from the snosi tree.
+        MOK_CERT=/src/snosi/shared/native-ab/keys/mok-2026.crt
+        PCR_PUBLIC=/src/snosi/shared/native-ab/keys/pcr-signing-2026.pub
+        [[ -f "${MOK_CERT}" && -f "${PCR_PUBLIC}" ]] || fail "FAILED: MOK/PCR public identities missing from the snosi checkout"
+
+        # Microsoft-enrolled firmware from the container's own ovmf package, so
+        # the immutable host supplies nothing.
+        export SECURE_VM_OVMF_CODE=/usr/share/OVMF/OVMF_CODE_4M.secboot.fd
+        export SECURE_VM_OVMF_VARS=/usr/share/OVMF/OVMF_VARS_4M.ms.fd
+        [[ -f "${SECURE_VM_OVMF_CODE}" && -f "${SECURE_VM_OVMF_VARS}" ]] \
+          || fail "FAILED: Microsoft-enrolled OVMF firmware missing from the container"
+
+        [[ -c /dev/kvm ]] || fail "FAILED: /dev/kvm unavailable; the harness needs hardware virtualization"
+
+        # ── run snosi's harness ──────────────────────────────────────────────
+        export PROFILE TRACKING_REF OCI_REF MOK_CERT PCR_PUBLIC RECOVERY_KEY TARGET_DISK
+        export DAKOTA_ISO="${ISO}"
+        export BOOTC_SECURE_INSTALLER="${RUNNER}"
+        export BOOTC_SECURE_NEGATIVE_COMMAND="${NEGATIVE}"
+        export BOOTC_SECURE_RECOVERY_COMMAND="${RECOVERY}"
+
+        echo "--- running snosi test/bootc-secure-install-test.sh (live) ---" >&2
+        cd /src/snosi
+        set +e
+        ./test/bootc-secure-install-test.sh 2>&1 | tee /tmp/results/harness.log
+        rc="${PIPESTATUS[0]}"
+        set -e
+        echo "--- harness exit ${rc} ---" >&2
+
+        # snosi's own exit-code contract: 2 means BLOCKED (missing inputs), not
+        # failure. Distinguishing the two is the entire point of this lane —
+        # reporting BLOCKED as a pass would be worse than reporting nothing.
+        if [[ "${rc}" == "2" ]]; then
+          blocked="$(grep -m1 'BLOCKED:' /tmp/results/harness.log || echo 'BLOCKED (no reason line)')"
+          fail "BLOCKED: ${blocked}"
+        fi
+        if [[ "${rc}" != "0" ]]; then
+          tail -n 80 /tmp/results/harness.log >&2
+          fail "FAILED: secure install harness exited ${rc} for ${PROFILE}"
+        fi
+
+        printf '%s' "secure install verified: ${PROFILE} @ ${OCI_REF#*@} (Secure Boot enforced, MOK enrolled, TPM unlock)" \
+          > /tmp/results/result-summary.txt
+        cat /tmp/results/result-summary.txt >&2
+    volumes:
+    - name: dev
+      hostPath: { path: /dev, type: Directory }
+    - name: iso
+      hostPath: { path: /var/lib/snosi-lab/iso, type: DirectoryOrCreate }
+    - name: scratch
+      hostPath: { path: /var/lib/snosi-lab/secure, type: DirectoryOrCreate }
+    - name: results
+      emptyDir: {}

@@ -31,7 +31,8 @@ LANE_KINDS = {
     "run-incus-vm-tests": ("vm", "ISO boot (Secure Boot)"),
     "run-incus-disk-tests": ("vm", "Published A/B disk artifact"),
     "run-incus-install-tests": ("install", "Native A/B installer"),
-    "run-incus-bootc-install-tests": ("install", "bootc installer"),
+    "run-incus-bootc-install-tests": ("install", "bootc installer (mechanics)"),
+    "run-secure-install-tests": ("install", "bootc secure installer"),
     "orphan-pod-gc": ("maintenance", "Orphan pod GC"),
 }
 
