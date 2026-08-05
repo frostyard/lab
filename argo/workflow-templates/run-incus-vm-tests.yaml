@@ -135,7 +135,11 @@ spec:
         # Resolve first: the `latest` URLs are uncacheable 302s to an immutable
         # versioned object, so following the redirect is what gives a filename
         # worth caching under.
-        RESOLVED="$(curl -sSL -o /dev/null -w '%{url_effective}' --max-time 60 "${ISO_URL}")"
+        #
+        # -I is load-bearing. Without it curl streams the entire multi-GB body
+        # to /dev/null just to report the final URL, which both wastes the
+        # transfer and blows the resolve timeout.
+        RESOLVED="$(curl -sSLI -o /dev/null -w '%{url_effective}' --max-time 60 "${ISO_URL}")"
         if [[ "${RESOLVED}" != "${ISO_URL}" ]]; then
           ISO_NAME="$(basename "${RESOLVED%%\?*}")"
           ISO_PATH="/var/lib/snosi-lab/iso/${ISO_NAME}"
