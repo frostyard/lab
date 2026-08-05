@@ -393,14 +393,29 @@ spec:
         # fallback for the case where the agent never comes up.
         agent_ok=false
         deadline=$(( SECONDS + INSTALLED_BOOT_TIMEOUT ))
+        ticks=0
         while (( SECONDS < deadline )); do
           if incus exec "${VM}" -- true >/dev/null 2>&1; then agent_ok=true; break; fi
           # Console markers still count: if the guest managed to report through
           # the SMBIOS unit, that is a complete answer and there is no reason to
           # keep waiting on the agent.
           if console_log | grep -qaF "${M_DONE}"; then break; fi
+          # Say something every minute. A silent fifteen-minute wait that ends
+          # in a timeout gives nothing to diagnose; the guest state and console
+          # size together show whether it is booting, stuck, or dead.
+          if (( ticks % 6 == 0 )); then
+            echo "  [installed-boot] ${SECONDS}s state=$(incus list "${VM}" --format csv -c s 2>/dev/null || echo ?) console=$(console_log | wc -c)B" >&2
+          fi
+          ticks=$(( ticks + 1 ))
           sleep 10
         done
+
+        # Always capture the console, whatever happened. With --karg gone this
+        # may legitimately be empty, but "empty" is itself the finding.
+        console_log > /tmp/results/console.log 2>/dev/null || true
+        echo "--- installed-system console (${?}; $(wc -c < /tmp/results/console.log) bytes) ---" >&2
+        tail -n 200 /tmp/results/console.log >&2 || true
+        echo "--- guest state: $(incus list "${VM}" --format csv -c s 2>/dev/null || echo UNKNOWN) ---" >&2
 
         if [[ "${agent_ok}" == true ]]; then
           echo "  [installed-boot] incus agent responded" >&2
@@ -420,9 +435,15 @@ spec:
 
         # Union both channels. Whichever answered, the downstream assertions
         # read one file.
+        # The trailing `|| true` is load-bearing. When neither channel reported,
+        # `grep` matches nothing and exits 1; under `set -o pipefail` that fails
+        # the whole pipeline and `set -e` kills the script *before* the
+        # diagnostic below can run — so a lane that had nothing to say died
+        # silently instead of saying so. Third instance of this shape in this
+        # repo; see docs/roadmap.md A5.
         { cat /tmp/results/agent-checks.txt 2>/dev/null || true
           console_log | grep -aoE "${M_CHECK} [a-z]+=[^[:space:]]+" | sed "s/${M_CHECK} //" || true
-        } | grep -E '^[a-z]+=' | sort -u > /tmp/results/checks.txt
+        } | grep -E '^[a-z]+=' | sort -u > /tmp/results/checks.txt || true
 
         if [[ ! -s /tmp/results/checks.txt ]]; then
           echo "--- neither the agent nor the console reported; console tail ---" >&2
