@@ -275,15 +275,15 @@ spec:
         redact = ("token", "password", "secret", "authorization", "key")
 
         failed_scenarios = []
-        total = failed = 0
+        counts = {"passed": 0, "failed": 0, "skipped": 0, "undefined": 0}
         for feature in data:
             for scenario in feature.get("elements", []):
                 if scenario.get("type") != "scenario":
                     continue
-                total += 1
-                if scenario.get("status") != "failed":
+                status = scenario.get("status", "undefined")
+                counts[status] = counts.get(status, 0) + 1
+                if status != "failed":
                     continue
-                failed += 1
                 name = scenario.get("name")
                 if (
                     isinstance(name, str)
@@ -296,7 +296,12 @@ spec:
         with open("/tmp/results/failed-scenarios.json", "w", encoding="utf-8") as fh:
             json.dump(failed_scenarios[:20], fh, separators=(",", ":"))
 
-        summary = f"{total - failed}/{total} scenarios passed"
+        # Report skipped separately. Variant gating skips whole features by
+        # design (cayo has no desktop), so folding skipped into "passed" would
+        # claim coverage the run never had.
+        summary = ", ".join(
+            f"{count} {status}" for status, count in counts.items() if count
+        )
         with open("/tmp/results/result-summary.txt", "w", encoding="utf-8") as fh:
             fh.write(summary)
         print(summary)
