@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-05T09:47:51Z",
+  "generated": "2026-08-05T15:10:19Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -51,29 +51,29 @@
       "label": "bootc installer",
       "kind": "install",
       "latest": {
-        "name": "snosi-bootc-install-k7gxh",
+        "name": "snosi-bootc-install-t5lt2",
         "phase": "Failed",
-        "started": "2026-08-05T06:39:33Z",
-        "finished": "2026-08-05T06:57:00Z",
-        "durationSeconds": 1047,
+        "started": "2026-08-05T15:08:29Z",
+        "finished": "2026-08-05T15:09:45Z",
+        "durationSeconds": 76,
         "template": "run-incus-bootc-install-tests",
         "kind": "install",
         "label": "bootc installer",
         "trigger": "manual",
-        "result": "FAILED: bootc-installed snow did not boot or report checks",
+        "result": "NOT APPLICABLE: ghcr.io/frostyard/snow:latest is secureboot-capable=true. bootc install to-disk is the mechanics tier and requires secureboot-capable=false; this image needs the external secure installer. See docs/roadmap.md.",
         "checks": []
       },
-      "runs": 12
+      "runs": 17
     },
     {
       "template": "orphan-pod-gc",
       "label": "Orphan pod GC",
       "kind": "maintenance",
       "latest": {
-        "name": "orphan-pod-gc-1785910620",
+        "name": "orphan-pod-gc-1785932220",
         "phase": "Succeeded",
-        "started": "2026-08-05T06:17:00Z",
-        "finished": "2026-08-05T06:17:10Z",
+        "started": "2026-08-05T12:17:00Z",
+        "finished": "2026-08-05T12:17:10Z",
         "durationSeconds": 10,
         "template": "orphan-pod-gc",
         "kind": "maintenance",
@@ -82,23 +82,23 @@
         "result": null,
         "checks": []
       },
-      "runs": 1
+      "runs": 2
     },
     {
       "template": "image-poller",
       "label": "Registry digest poll",
       "kind": "poll",
       "latest": {
-        "name": "image-poll-snowfield-latest-1785922800",
+        "name": "image-poll-snow-latest-1785942000",
         "phase": "Succeeded",
-        "started": "2026-08-05T09:40:00Z",
-        "finished": "2026-08-05T09:40:20Z",
-        "durationSeconds": 20,
+        "started": "2026-08-05T15:00:00Z",
+        "finished": "2026-08-05T15:01:34Z",
+        "durationSeconds": 94,
         "template": "image-poller",
         "kind": "poll",
         "label": "Registry digest poll",
         "trigger": "scheduled",
-        "result": null,
+        "result": "20 passed",
         "checks": []
       },
       "runs": 9
@@ -127,22 +127,178 @@
       "label": "Published A/B disk artifact",
       "kind": "vm",
       "latest": {
-        "name": "snosi-disk-boot-bhckq",
-        "phase": "Failed",
-        "started": "2026-08-05T09:39:18Z",
-        "finished": "2026-08-05T09:46:44Z",
-        "durationSeconds": 446,
+        "name": "snosi-disk-boot-jn5v2",
+        "phase": "Succeeded",
+        "started": "2026-08-05T15:08:28Z",
+        "finished": "2026-08-05T15:09:13Z",
+        "durationSeconds": 45,
         "template": "run-incus-disk-tests",
         "kind": "vm",
         "label": "Published A/B disk artifact",
         "trigger": "manual",
-        "result": "FAILED: cayo-ab 20260805002345 never reached 'Reached target' in 420s (state=RUNNING)",
+        "result": "booted: cayo-ab 20260805095840 reached 'Reached target' (secureboot=false, signature verified)",
         "checks": []
       },
-      "runs": 2
+      "runs": 4
     }
   ],
   "runs": [
+    {
+      "name": "snosi-bootc-install-t5lt2",
+      "phase": "Failed",
+      "started": "2026-08-05T15:08:29Z",
+      "finished": "2026-08-05T15:09:45Z",
+      "durationSeconds": 76,
+      "template": "run-incus-bootc-install-tests",
+      "kind": "install",
+      "label": "bootc installer",
+      "trigger": "manual",
+      "result": "NOT APPLICABLE: ghcr.io/frostyard/snow:latest is secureboot-capable=true. bootc install to-disk is the mechanics tier and requires secureboot-capable=false; this image needs the external secure installer. See docs/roadmap.md.",
+      "checks": []
+    },
+    {
+      "name": "snosi-disk-boot-jn5v2",
+      "phase": "Succeeded",
+      "started": "2026-08-05T15:08:28Z",
+      "finished": "2026-08-05T15:09:13Z",
+      "durationSeconds": 45,
+      "template": "run-incus-disk-tests",
+      "kind": "vm",
+      "label": "Published A/B disk artifact",
+      "trigger": "manual",
+      "result": "booted: cayo-ab 20260805095840 reached 'Reached target' (secureboot=false, signature verified)",
+      "checks": []
+    },
+    {
+      "name": "image-poll-snow-latest-1785942000",
+      "phase": "Succeeded",
+      "started": "2026-08-05T15:00:00Z",
+      "finished": "2026-08-05T15:01:34Z",
+      "durationSeconds": 94,
+      "template": "image-poller",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": "20 passed",
+      "checks": []
+    },
+    {
+      "name": "diag-bootc-keep-b9rv6",
+      "phase": "Failed",
+      "started": "2026-08-05T14:51:26Z",
+      "finished": "2026-08-05T15:00:54Z",
+      "durationSeconds": 568,
+      "template": "run-incus-bootc-install-tests",
+      "kind": "install",
+      "label": "bootc installer",
+      "trigger": "manual",
+      "result": "FAILED: bootc-installed snow did not boot or report checks",
+      "checks": []
+    },
+    {
+      "name": "snosi-bootc-install-pfp8g",
+      "phase": "Failed",
+      "started": "2026-08-05T14:31:30Z",
+      "finished": "2026-08-05T14:49:01Z",
+      "durationSeconds": 1051,
+      "template": "run-incus-bootc-install-tests",
+      "kind": "install",
+      "label": "bootc installer",
+      "trigger": "manual",
+      "result": "FAILED: bootc-installed snow did not boot or report checks",
+      "checks": []
+    },
+    {
+      "name": "snosi-bootc-install-vvjxf",
+      "phase": "Failed",
+      "started": "2026-08-05T14:10:52Z",
+      "finished": "2026-08-05T14:28:23Z",
+      "durationSeconds": 1051,
+      "template": "run-incus-bootc-install-tests",
+      "kind": "install",
+      "label": "bootc installer",
+      "trigger": "manual",
+      "result": "No results generated",
+      "checks": []
+    },
+    {
+      "name": "snosi-bootc-install-mknt2",
+      "phase": "Failed",
+      "started": "2026-08-05T13:57:07Z",
+      "finished": "2026-08-05T14:05:16Z",
+      "durationSeconds": 489,
+      "template": "run-incus-bootc-install-tests",
+      "kind": "install",
+      "label": "bootc installer",
+      "trigger": "manual",
+      "result": "FAILED: bootc install to-disk did not complete for ghcr.io/frostyard/snow:latest",
+      "checks": []
+    },
+    {
+      "name": "diag-disk-sboff-zcgbn",
+      "phase": "Failed",
+      "started": "2026-08-05T13:52:35Z",
+      "finished": "2026-08-05T14:00:38Z",
+      "durationSeconds": 483,
+      "template": "run-incus-disk-tests",
+      "kind": "vm",
+      "label": "Published A/B disk artifact",
+      "trigger": "manual",
+      "result": "FAILED: cayo-ab 20260805095840 never reached 'Reached target' in 420s (state=RUNNING)",
+      "checks": []
+    },
+    {
+      "name": "image-poll-snowfield-latest-1785933600",
+      "phase": "Succeeded",
+      "started": "2026-08-05T12:40:00Z",
+      "finished": "2026-08-05T12:41:31Z",
+      "durationSeconds": 91,
+      "template": "image-poller",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": "20 passed",
+      "checks": []
+    },
+    {
+      "name": "image-poll-cayo-latest-1785932400",
+      "phase": "Succeeded",
+      "started": "2026-08-05T12:20:00Z",
+      "finished": "2026-08-05T12:21:28Z",
+      "durationSeconds": 88,
+      "template": "image-poller",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": "14 passed, 6 skipped",
+      "checks": []
+    },
+    {
+      "name": "orphan-pod-gc-1785932220",
+      "phase": "Succeeded",
+      "started": "2026-08-05T12:17:00Z",
+      "finished": "2026-08-05T12:17:10Z",
+      "durationSeconds": 10,
+      "template": "orphan-pod-gc",
+      "kind": "maintenance",
+      "label": "Orphan pod GC",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "image-poll-snow-latest-1785931200",
+      "phase": "Succeeded",
+      "started": "2026-08-05T12:00:00Z",
+      "finished": "2026-08-05T12:00:20Z",
+      "durationSeconds": 20,
+      "template": "image-poller",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
     {
       "name": "image-poll-snowfield-latest-1785922800",
       "phase": "Succeeded",
@@ -269,19 +425,6 @@
       "template": "orphan-pod-gc",
       "kind": "maintenance",
       "label": "Orphan pod GC",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "image-poll-snow-latest-1785909600",
-      "phase": "Succeeded",
-      "started": "2026-08-05T06:00:00Z",
-      "finished": "2026-08-05T06:00:20Z",
-      "durationSeconds": 20,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": null,
       "checks": []
@@ -463,19 +606,6 @@
       "checks": []
     },
     {
-      "name": "image-poll-snowfield-latest-1785901200",
-      "phase": "Succeeded",
-      "started": "2026-08-05T03:40:00Z",
-      "finished": "2026-08-05T03:41:36Z",
-      "durationSeconds": 96,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": "20 passed",
-      "checks": []
-    },
-    {
       "name": "snosi-disk-boot-n4hcg",
       "phase": "Failed",
       "started": "2026-08-05T03:20:41Z",
@@ -486,32 +616,6 @@
       "label": "Published A/B disk artifact",
       "trigger": "manual",
       "result": "FAILED: cayo-ab 20260805002345 never reached 'Reached target' in 420s (state=RUNNING)",
-      "checks": []
-    },
-    {
-      "name": "image-poll-cayo-latest-1785900000",
-      "phase": "Succeeded",
-      "started": "2026-08-05T03:20:00Z",
-      "finished": "2026-08-05T03:21:30Z",
-      "durationSeconds": 90,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": "14 passed, 6 skipped",
-      "checks": []
-    },
-    {
-      "name": "image-poll-snow-latest-1785898800",
-      "phase": "Succeeded",
-      "started": "2026-08-05T03:00:00Z",
-      "finished": "2026-08-05T03:01:31Z",
-      "durationSeconds": 91,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": "20 passed",
       "checks": []
     },
     {
