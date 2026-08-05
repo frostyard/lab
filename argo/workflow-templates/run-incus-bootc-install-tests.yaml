@@ -239,6 +239,7 @@ spec:
           run --rm --privileged --pid=host \
           --security-opt label=type:unconfined \
           -v /dev:/dev \
+          -v /mnt/qa-scratch:/var/lib/containers \
           "${IMAGE}" \
           bootc install to-disk --wipe --generic-image "\${DISK}" \
           && echo "${M_OK}" || { rc=\$?; echo "df at failure:"; df -h; findmnt -n /mnt/qa-scratch || echo "scratch UNMOUNTED at failure"; echo "${M_FAIL} rc=\${rc}"; exit 1; }
