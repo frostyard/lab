@@ -215,7 +215,14 @@ spec:
         deadline=$(( SECONDS + BOOT_TIMEOUT ))
         booted=false
         while (( SECONDS < deadline )); do
-          if incus console "${VM}" --show-log 2>/dev/null | grep -qaF "${EXPECT_CONSOLE}"; then
+          # Capture to a file, then grep the file. Piping `incus console`
+          # straight into `grep -q` inverts this lane's result: grep exits on
+          # the FIRST match and closes the pipe, incus console dies of SIGPIPE
+          # (141), and `set -o pipefail` reports the pipeline as failed —
+          # precisely when the marker was found. This lane spent its whole
+          # existence reporting a red boot for a guest that was booting fine.
+          incus console "${VM}" --show-log > /tmp/results/console.log 2>/dev/null || true
+          if grep -qaF "${EXPECT_CONSOLE}" /tmp/results/console.log 2>/dev/null; then
             booted=true
             break
           fi

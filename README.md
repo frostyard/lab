@@ -138,7 +138,7 @@ artifact.
 | Template | Submit file | What it proves |
 |---|---|---|
 | `run-incus-vm-tests` | `snosi-vm-boot-test.yaml` | A published ISO boots under Secure Boot. The ISO is signed by a trusted chain, so this lane runs `secureboot=true`. |
-| `run-incus-disk-tests` | `snosi-disk-boot-test.yaml` | Fetches and signature-verifies the published `*-ab.disk.raw.xz`. **Its boot assertion is unproven — see below.** |
+| `run-incus-disk-tests` | `snosi-disk-boot-test.yaml` | Fetches, signature-verifies and boots the published `*-ab.disk.raw.xz`. Green with Secure Boot off. |
 | `run-incus-install-tests` | `snosi-install-test.yaml` | **The native A/B installer** — partitioning, EROFS + dm-verity root, LUKS `/var`, TPM enrollment. |
 | `run-incus-bootc-install-tests` | `snosi-bootc-install-test.yaml` | **The bootc install path** — `bootc install to-disk` from the live ISO, then a real bootc host. |
 
@@ -168,22 +168,53 @@ installed and verified: cayo-ab (verity+luks+erofs, secureboot=false, skip-mok=t
 `snosi-install` at install time and exists in no published image, so a lane
 that passes them has genuinely exercised the installer.
 
-### The disk-artifact lane's premise is probably wrong
+### The disk-artifact lane was red because of a bug in this repo
 
-`run-incus-disk-tests` reliably fetches and signature-verifies the published
-`*-ab.disk.raw.xz`, but its boot assertion has never passed: the guest stays
-`RUNNING` without reaching a login target, with Secure Boot on **or** off.
+Corrected 2026-08-05. This section previously argued that a `*-ab.disk.raw` is
+a *pre-install* artifact which cannot be expected to boot standalone. That was
+wrong on both counts, and it was wrong in the direction that let a broken
+harness look like an open question about snosi.
 
-The likeliest explanation is not a defect but a category error on my part. A
-`*-ab` disk image is a *pre-install* artifact: `snosi-install` is what writes
-it to disk and then provisions the LUKS `/var` and seals it to the TPM. Booted
-standalone, that setup has never happened, so hanging is plausibly correct
-behaviour rather than a bug — which is why this is not filed as an issue.
+The image is a complete, self-contained bootable system. Inspecting the
+published `cayo-ab` disk directly:
 
-Deciding what this lane should assert needs a maintainer's answer to "is a bare
-`*-ab.disk.raw` supposed to boot on its own?". Until then, treat the
-fetch-and-verify half as the useful part: it does prove the published artifact
-is signed, intact, and decompresses. The boot timeout is noise.
+```
+1  esp                    1.0 GiB  vfat    shim + MokManager + systemd-boot + UKI
+2  cayo_<ver>_v         256.0 MiB  verity  slot A hash
+3  cayo_<ver>_r           5.0 GiB  erofs   slot A root — populated
+4  _empty               256.0 MiB  verity  slot B — empty, awaiting first update
+5  _empty                 5.0 GiB  root    slot B — empty
+6  var                    4.0 GiB  ext4    plain, NOT LUKS
+```
+
+The UKI's embedded cmdline is
+`roothash=5c356dcd…9ab76e69 lockdown=integrity console=ttyS0 rd.luks=1 rd.etc.overlay=1`,
+and that roothash is exactly the slot-A root partition UUID concatenated with
+the verity partition UUID — the systemd convention, correctly formed. Booted
+with Secure Boot off it reaches `multi-user.target` **and** `graphical.target`
+in about eleven seconds, on a dm-verity `/dev/mapper/root`, with sshd up.
+
+The real cause of the red was this line, in this repo:
+
+```bash
+if incus console "${VM}" --show-log 2>/dev/null | grep -qaF "${EXPECT_CONSOLE}"; then
+```
+
+`grep -q` exits on the first match and closes the pipe; `incus console` then
+dies of SIGPIPE (141); `set -o pipefail` promotes that to a failed pipeline.
+The lane therefore reported failure **precisely when it found the marker**. The
+other lanes escape this only because they route through a `console_log()`
+helper that ends in `|| true`. Fixed by capturing to a file and grepping the
+file, which is what the ISO lane always did.
+
+Two lessons worth keeping: a lane that has never once been green is not
+evidence about the thing under test, it is evidence about the lane; and one
+plausible-sounding narrative ("pre-install artifact") is exactly how a harness
+bug acquires the appearance of a product question.
+
+Note that `/var` ships as plain ext4 here, while `snosi-install --encrypt-var`
+produces a LUKS `/var`. The two paths genuinely produce different systems, so
+this lane and the install lane are not redundant.
 
 ### The bootc install lane is red, and the failure is real
 

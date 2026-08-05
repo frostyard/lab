@@ -32,5 +32,13 @@ spec:
               parameters:
                 - name: product
                   value: "{{workflow.parameters.product}}"
+                # Off, matching the template default. This lane asks "does the
+                # shipped disk image boot"; Secure Boot asks a different
+                # question, and answering both at once cost this lane months of
+                # a misread result. A published *-ab image is signed with
+                # snosi's own MOK, which a fresh OVMF does not trust, so
+                # secureboot=true here fails at shim with a Security Violation
+                # no matter how healthy the image is. Enrolling that MOK is the
+                # install lane's job — see docs/roadmap.md.
                 - name: secureboot
-                  value: "true"
+                  value: "false"
