@@ -139,12 +139,18 @@ artifact.
 |---|---|---|
 | `run-incus-vm-tests` | `snosi-vm-boot-test.yaml` | A published ISO boots under Secure Boot. The ISO is signed by a trusted chain, so this lane runs `secureboot=true`. |
 | `run-incus-disk-tests` | `snosi-disk-boot-test.yaml` | The published `*-ab.disk.raw.xz` artifact boots and runs, with its signed `SHA256SUMS` verified before use. |
-| `run-incus-install-tests` | `snosi-install-test.yaml` | **The installer itself** — partitioning, EROFS + dm-verity root, LUKS `/var`, TPM enrollment. |
+| `run-incus-install-tests` | `snosi-install-test.yaml` | **The native A/B installer** — partitioning, EROFS + dm-verity root, LUKS `/var`, TPM enrollment. |
+| `run-incus-bootc-install-tests` | `snosi-bootc-install-test.yaml` | **The bootc install path** — `bootc install to-disk` from the live ISO, then a real bootc host. |
 
-The install lane is the one that matters most. Booting an image tests an
-artifact; only running `snosi-install` tests the thing that *creates* the
-on-disk layout, and none of verity, LUKS, or the A/B slots exist in a shipped
-image at all.
+The two install lanes are the ones that matter most. Booting an image tests an
+artifact; only running an installer tests the thing that *creates* the on-disk
+layout — none of verity, LUKS, the A/B slots, or a bootc deployment exists in a
+shipped image at all.
+
+snosi ships both install paths and they fail differently: native A/B is a
+signed sysupdate image with dm-verity, while bootc installs the OCI image
+itself and owns its own deployment layout. Neither lane substitutes for the
+other.
 
 ### Driving a guest with no agent and no SSH
 
