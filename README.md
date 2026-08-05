@@ -152,6 +152,22 @@ signed sysupdate image with dm-verity, while bootc installs the OCI image
 itself and owns its own deployment layout. Neither lane substitutes for the
 other.
 
+The native A/B install lane is verified green against `cayo-ab`:
+
+```
+installed and verified: cayo-ab (verity+luks+erofs, secureboot=false, skip-mok=true)
+  verity=ok            dm-verity backing the root device
+  luks=ok              /var is LUKS
+  varsource=/dev/mapper/var
+  rootfs=erofs
+  osrelease=cayo-20260805002345
+  bootc=absent         expected — native A/B does not use bootc
+```
+
+`verity`, `luks`, and `rootfs=erofs` are the gating checks: each is created by
+`snosi-install` at install time and exists in no published image, so a lane
+that passes them has genuinely exercised the installer.
+
 ### Driving a guest with no agent and no SSH
 
 snosi images ship no incus guest agent, and a live ISO has no provisioned SSH
@@ -297,6 +313,17 @@ Setting up a cluster from scratch: [`docs/ops/bootstrap.md`](docs/ops/bootstrap.
   console therefore goes to the workflow log rather than an artifact — 400
   lines on failure, 40 on success. Standing up an object store would let the
   whole console and the behave `results.json` be retained per run.
-- **The VM lane validates boot only.** See "What it does not do yet" above.
+- **The signed boot chain is not covered end to end.** Both install lanes run
+  `secureboot=false` because of the MOK gap above. Closing it is a decision,
+  not a task — see "Secure Boot: a real gap".
+- **No A/B update or rollback coverage.** The install lane proves a system gets
+  built correctly; it does not yet stage a `systemd-sysupdate` run, switch
+  slots, and boot the other side. That is the natural next lane and the
+  machinery (SMBIOS credentials, console assertions) already exists.
+- **The install lane needs 8 GiB of guest RAM.** `snosi-install` stages a UKI
+  copy in `/var/tmp`, a tmpfs sized from guest memory; at 4 GiB the install
+  fails partway with `objcopy: ...[.initrd]: No space left on device`. Worth
+  knowing outside the lab — a real user on a low-memory machine hits the same
+  wall, with the same unhelpful error.
 - **No registry pull-through cache.** Every lane pulls from ghcr.io directly.
   Fine at three lanes on a 3-hour poll; revisit if lane count grows.
