@@ -108,14 +108,18 @@ cover the large majority of what breaks, cheaply and fast.
 
 ## Image lanes
 
-| Image | Tag | Schedule | Suites | Status |
+| Image | Tag | Schedule | Suites | Last verified |
 |---|---|---|---|---|
-| `ghcr.io/frostyard/snow` | `latest` | digest poll, `0 */3 * * *` | smoke | suspended |
-| `ghcr.io/frostyard/cayo` | `latest` | digest poll, `20 */3 * * *` | smoke | suspended |
-| `ghcr.io/frostyard/snowfield` | `latest` | digest poll, `40 */3 * * *` | smoke | suspended |
+| `ghcr.io/frostyard/snow` | `latest` | digest poll, `0 */3 * * *` | smoke | 20 passed |
+| `ghcr.io/frostyard/cayo` | `latest` | digest poll, `20 */3 * * *` | smoke | 14 passed, 6 skipped |
+| `ghcr.io/frostyard/snowfield` | `latest` | digest poll, `40 */3 * * *` | smoke | 20 passed |
 
-Lanes ship suspended. Flip `spec.suspend` to `false` in the CronWorkflow and
-push — enabling a lane through git keeps the set of active lanes reviewable in
+cayo skips the desktop scenarios by design — it is the headless server image,
+and the suite gates them on variant so one set of features runs unmodified
+across the whole family.
+
+Enable or disable a lane by setting `spec.suspend` in its CronWorkflow and
+pushing. Doing it through git keeps the set of active lanes reviewable in
 history, and `selfHeal` would revert a `kubectl patch` anyway.
 
 ---

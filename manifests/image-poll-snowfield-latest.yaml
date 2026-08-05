@@ -15,7 +15,7 @@ metadata:
     app.kubernetes.io/part-of: lab
     snosi.io/trigger: digest-poll
 spec:
-  suspend: true
+  suspend: false
   schedules:
     - "40 */3 * * *"
   timezone: "UTC"
