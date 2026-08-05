@@ -43,8 +43,15 @@ spec:
       # the key live in the same trust domain.
       - name: pubring-url
         value: "https://raw.githubusercontent.com/frostyard/snosi/main/shared/native-ab/keys/import-pubring.gpg"
+      # OFF by default, and this is a verified property rather than caution:
+      # booting a published *-ab disk image with secureboot=true stops at
+      # "Verification failed: (0x1A) Security Violation". OVMF is correct to
+      # refuse it — snosi signs its UKI with its own MOK, and nothing has
+      # enrolled that MOK into this firmware's db. Enrollment is something the
+      # installer does, so the signed chain is the install lane's to cover, not
+      # this one's. Setting this true here tests firmware, not snosi.
       - name: secureboot
-        value: "true"
+        value: "false"
       - name: vm-cpus
         value: "4"
       - name: vm-memory

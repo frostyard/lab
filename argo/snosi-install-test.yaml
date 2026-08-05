@@ -1,0 +1,36 @@
+# Submit file: run the real snosi native A/B installer unattended, then boot
+# and verify what it produced.
+#
+#   kubectl create -f argo/snosi-install-test.yaml
+#
+# This is the lane the lab exists for — partitioning, EROFS + dm-verity root,
+# LUKS /var, and TPM enrollment are all created by snosi-install and appear
+# nowhere in a published image.
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: snosi-install-
+  namespace: argo
+  labels:
+    app.kubernetes.io/part-of: lab
+    snosi.io/trigger: manual
+spec:
+  serviceAccountName: argo
+  entrypoint: main
+  activeDeadlineSeconds: 9000
+  arguments:
+    parameters:
+      - name: product
+        value: "cayo"
+  templates:
+    - name: main
+      dag:
+        tasks:
+          - name: install
+            templateRef:
+              name: run-incus-install-tests
+              template: run-incus-install-tests
+            arguments:
+              parameters:
+                - name: product
+                  value: "{{workflow.parameters.product}}"

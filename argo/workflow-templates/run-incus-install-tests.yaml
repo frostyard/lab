@@ -1,0 +1,316 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: run-incus-install-tests
+  namespace: argo
+  annotations:
+    description: |
+      Runs the real snosi native A/B installer unattended in a VM, then boots
+      the result and asserts on what it produced.
+
+      This is the lane the lab exists for. Booting a published disk image tests
+      the artifact; only this tests the *installer* — partitioning, the EROFS +
+      dm-verity root, LUKS /var, TPM enrollment, and the A/B slot layout are all
+      created by snosi-install at install time and appear nowhere in the shipped
+      image.
+
+      Driving a guest with no incus agent and no SSH key: systemd reads
+      credentials from SMBIOS type 11, and `systemd.extra-unit.<name>` injects a
+      whole unit. So the lane passes qemu two credentials — the install unit and
+      a multi-user.target drop-in that pulls it in — and the guest runs the
+      installer on its own at boot. Progress comes back on the serial console,
+      which is the only channel that exists before the system is installed.
+  labels:
+    app.kubernetes.io/component: vm-test-runner
+    app.kubernetes.io/part-of: snosi-test-suite
+spec:
+  templates:
+  - name: run-incus-install-tests
+    nodeSelector:
+      node-role.kubernetes.io/control-plane: "true"
+    activeDeadlineSeconds: 7200
+    synchronization:
+      semaphores:
+      - configMapKeyRef:
+          name: workflow-semaphores
+          key: snosi-vm-qa
+    inputs:
+      parameters:
+      - name: iso-url
+        value: "https://repository.frostyard.org/isos/native/v1/snosi-native-installer-latest-x86-64.iso"
+      - name: product
+        value: "cayo"
+      # Secure Boot defaults OFF, and that is a deliberate, documented gap
+      # rather than an oversight. snosi signs its UKI with its own MOK, which a
+      # fresh OVMF does not trust; enrolling it is an interactive MokManager
+      # step at first boot. Booting a published disk image with secureboot=true
+      # fails with "Verification failed: (0x1A) Security Violation" — verified.
+      # Covering the signed chain needs either a lab-side OVMF variable
+      # pre-seed or an unattended enrollment path in the installer. See the
+      # README.
+      - name: secureboot
+        value: "false"
+      # Matching --skip-mok: enrollment would otherwise stage a MokManager
+      # prompt that no unattended run can answer.
+      - name: skip-mok
+        value: "true"
+      - name: vm-cpus
+        value: "4"
+      - name: vm-memory
+        value: "4GiB"
+      - name: target-disk-size
+        value: "40GiB"
+      - name: iso-boot-timeout-seconds
+        value: "420"
+      - name: install-timeout-seconds
+        value: "2400"
+      - name: installed-boot-timeout-seconds
+        value: "600"
+    outputs:
+      parameters:
+      - name: result
+        valueFrom:
+          path: /tmp/results/result-summary.txt
+          default: "No results generated"
+      - name: checks
+        valueFrom:
+          path: /tmp/results/checks.txt
+          default: "no checks recorded"
+    script:
+      image: docker.io/library/debian:trixie-slim
+      securityContext:
+        runAsUser: 0
+      resources:
+        requests: { cpu: "1", memory: 1Gi }
+        limits: { cpu: "4", memory: 4Gi }
+      env:
+      - { name: PATH, value: "/usr/incus/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" }
+      - { name: LD_LIBRARY_PATH, value: "/usr/incus/lib" }
+      - { name: ISO_URL,   value: "{{inputs.parameters.iso-url}}" }
+      - { name: PRODUCT,   value: "{{inputs.parameters.product}}" }
+      - { name: SECUREBOOT, value: "{{inputs.parameters.secureboot}}" }
+      - { name: SKIP_MOK,  value: "{{inputs.parameters.skip-mok}}" }
+      - { name: VM_CPUS,   value: "{{inputs.parameters.vm-cpus}}" }
+      - { name: VM_MEMORY, value: "{{inputs.parameters.vm-memory}}" }
+      - { name: TARGET_DISK_SIZE, value: "{{inputs.parameters.target-disk-size}}" }
+      - { name: ISO_BOOT_TIMEOUT, value: "{{inputs.parameters.iso-boot-timeout-seconds}}" }
+      - { name: INSTALL_TIMEOUT,  value: "{{inputs.parameters.install-timeout-seconds}}" }
+      - { name: INSTALLED_BOOT_TIMEOUT, value: "{{inputs.parameters.installed-boot-timeout-seconds}}" }
+      - { name: DEBIAN_FRONTEND, value: noninteractive }
+      volumeMounts:
+      - { name: incus-bin,  mountPath: /usr/incus, readOnly: true }
+      - { name: incus-sock, mountPath: /var/lib/incus/unix.socket }
+      - { name: iso-cache,  mountPath: /var/lib/snosi-lab/iso }
+      - { name: results,    mountPath: /tmp/results }
+      command: [bash]
+      source: |
+        set -euo pipefail
+        mkdir -p /tmp/results /var/lib/snosi-lab/iso
+        apt-get update -qq
+        apt-get install -y -qq --no-install-recommends ca-certificates curl >/dev/null
+
+        VM="qa-$(echo '{{workflow.name}}' | tail -c 40 | tr -cd 'a-z0-9-' | sed 's/^-*//')"
+        cleanup() {
+          rc=$?
+          echo "--- teardown ---" >&2
+          incus delete --force "${VM}" >/dev/null 2>&1 || true
+          exit "${rc}"
+        }
+        trap cleanup EXIT
+
+        # Console markers. Deliberately distinctive so grepping cannot collide
+        # with ordinary boot chatter.
+        M_BEGIN="SNOSI_QA__INSTALL_BEGIN"
+        M_OK="SNOSI_QA__INSTALL_OK"
+        M_FAIL="SNOSI_QA__INSTALL_FAIL"
+        M_CHECK="SNOSI_QA__CHECK"
+        M_DONE="SNOSI_QA__CHECKS_DONE"
+
+        console_log() { incus console "${VM}" --show-log 2>/dev/null || true; }
+        wait_for() {  # marker, timeout, label
+          local marker="$1" budget="$2" label="$3" deadline=$(( SECONDS + $2 ))
+          while (( SECONDS < deadline )); do
+            if console_log | grep -qaF "${marker}"; then
+              echo "  [${label}] saw ${marker}" >&2; return 0
+            fi
+            if [[ -n "${4:-}" ]] && console_log | grep -qaF "$4"; then
+              echo "  [${label}] saw failure marker $4" >&2; return 1
+            fi
+            sleep 10
+          done
+          echo "  [${label}] timed out after ${budget}s waiting for ${marker}" >&2
+          return 1
+        }
+
+        # ── ISO ──────────────────────────────────────────────────────────────
+        RESOLVED="$(curl -sSLI -o /dev/null -w '%{url_effective}' --max-time 60 "${ISO_URL}")"
+        ISO_NAME="$(basename "${RESOLVED%%\?*}")"
+        ISO_PATH="/var/lib/snosi-lab/iso/${ISO_NAME}"
+        if [[ -s "${ISO_PATH}" ]]; then
+          echo "Installer ISO cached: ${ISO_NAME}" >&2
+        else
+          echo "Downloading ${ISO_NAME}..." >&2
+          curl -fSL --max-time 3600 -o "${ISO_PATH}.part" "${RESOLVED}"
+          mv "${ISO_PATH}.part" "${ISO_PATH}"
+        fi
+        # The installer ISO redirects to an immutable versioned object, so the
+        # filename itself is the cache key — no ETag check needed here.
+
+        # ── the unit the guest will run ──────────────────────────────────────
+        # --list-disks-json is the installer's own view of what it will accept,
+        # so the target is chosen by the code under test rather than by
+        # guessing /dev/vda. --confirm must equal the disk path exactly.
+        MOK_FLAG="--skip-mok"
+        [[ "${SKIP_MOK}" == "true" ]] || MOK_FLAG=""
+
+        INSTALL_SH=$(cat <<SCRIPT
+        #!/bin/bash
+        exec > >(tee /dev/console) 2>&1
+        echo "${M_BEGIN}"
+        set -x
+        DISK=\$(snosi-install --list-disks-json --product ${PRODUCT} \
+                 | python3 -c 'import json,sys; d=json.load(sys.stdin); \
+                     c=[x for x in (d if isinstance(d,list) else d.get("disks",[])) if x.get("installable")]; \
+                     print(c[0]["path"] if c else "")')
+        if [ -z "\${DISK}" ]; then echo "${M_FAIL} no installable disk"; exit 1; fi
+        echo "target disk: \${DISK}"
+        if snosi-install --non-interactive --json-progress \
+             --product ${PRODUCT} \
+             --disk "\${DISK}" --confirm "\${DISK}" \
+             --encrypt-var \
+             --recovery-key-file /run/snosi-qa-recovery.txt \
+             --acknowledge-recovery-saved \
+             ${MOK_FLAG} \
+             --no-create-user --no-core-flatpaks; then
+          echo "${M_OK}"
+        else
+          echo "${M_FAIL} rc=\$?"
+          exit 1
+        fi
+        SCRIPT
+        )
+        INSTALL_B64="$(printf '%s' "${INSTALL_SH}" | base64 -w0)"
+
+        UNIT="[Unit]
+        Description=snosi QA unattended install
+        After=live-ready.service network-online.target
+        Wants=network-online.target
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        StandardOutput=journal+console
+        StandardError=journal+console
+        ExecStart=/bin/bash -c 'echo ${INSTALL_B64} | base64 -d > /run/qa-install.sh; chmod +x /run/qa-install.sh; /run/qa-install.sh'"
+        DROPIN="[Unit]
+        Wants=snosi-qa-install.service"
+
+        U_B64="$(printf '%s' "${UNIT}"   | base64 -w0)"
+        D_B64="$(printf '%s' "${DROPIN}" | base64 -w0)"
+
+        # ── create and run ───────────────────────────────────────────────────
+        echo "Creating VM (secureboot=${SECUREBOOT}, target ${TARGET_DISK_SIZE})..." >&2
+        incus init "${VM}" --empty --vm \
+          -c "security.secureboot=${SECUREBOOT}" \
+          -c "limits.cpu=${VM_CPUS}" -c "limits.memory=${VM_MEMORY}" \
+          -d "root,size=${TARGET_DISK_SIZE}"
+        incus config device add "${VM}" vtpm tpm
+        incus config device add "${VM}" installer disk \
+          source="${ISO_PATH}" boot.priority=10 readonly=true
+        incus config set "${VM}" raw.qemu="-smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.snosi-qa-install.service=${U_B64} -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.multi-user.target=${D_B64}"
+
+        incus start "${VM}"
+        echo "Waiting for the installer to start..." >&2
+        if ! wait_for "${M_BEGIN}" "${ISO_BOOT_TIMEOUT}" "iso-boot"; then
+          tail -n 400 <(console_log) >&2
+          printf '%s' "FAILED: installer never started from the ISO" > /tmp/results/result-summary.txt
+          exit 1
+        fi
+
+        echo "Installer running; waiting up to ${INSTALL_TIMEOUT}s..." >&2
+        if ! wait_for "${M_OK}" "${INSTALL_TIMEOUT}" "install" "${M_FAIL}"; then
+          echo "--- console tail (install failed) ---" >&2
+          console_log | tail -n 400 >&2
+          printf '%s' "FAILED: snosi-install did not complete for ${PRODUCT}" > /tmp/results/result-summary.txt
+          exit 1
+        fi
+        echo "Install reported success." >&2
+
+        # ── boot what was installed ──────────────────────────────────────────
+        # Detach the ISO so firmware falls through to the freshly written ESP.
+        incus stop "${VM}" --force
+        incus config device remove "${VM}" installer
+
+        # Second credential set: the post-install assertions. Same mechanism,
+        # different unit — the installed system has no agent either.
+        CHECK_SH=$(cat <<'SCRIPT'
+        #!/bin/bash
+        exec > >(tee /dev/console) 2>&1
+        emit() { echo "SNOSI_QA__CHECK $1=$2"; }
+        # dm-verity must be backing the root device on a native A/B install.
+        if veritysetup status "$(findmnt -no SOURCE / | xargs -r basename)" >/dev/null 2>&1 \
+           || dmsetup table 2>/dev/null | grep -q verity; then
+          emit verity ok; else emit verity MISSING; fi
+        # Root must be EROFS.
+        emit rootfs "$(findmnt -no FSTYPE / 2>/dev/null || echo unknown)"
+        # /var must be a LUKS-backed mount.
+        if lsblk -o NAME,FSTYPE 2>/dev/null | grep -qi crypto_LUKS; then
+          emit luks ok; else emit luks MISSING; fi
+        # TPM enrollment on the var LUKS device.
+        VARSRC="$(findmnt -no SOURCE /var 2>/dev/null || true)"
+        emit varsource "${VARSRC:-none}"
+        emit bootc "$(bootc --version 2>/dev/null || echo absent)"
+        emit osrelease "$(. /etc/os-release; echo "${IMAGE_ID:-?}-${IMAGE_VERSION:-?}")"
+        echo "SNOSI_QA__CHECKS_DONE"
+        SCRIPT
+        )
+        C_B64="$(printf '%s' "${CHECK_SH}" | base64 -w0)"
+        CUNIT="[Unit]
+        Description=snosi QA post-install checks
+        After=multi-user.target
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        StandardOutput=journal+console
+        StandardError=journal+console
+        ExecStart=/bin/bash -c 'echo ${C_B64} | base64 -d > /run/qa-check.sh; chmod +x /run/qa-check.sh; /run/qa-check.sh'"
+        CD="[Unit]
+        Wants=snosi-qa-check.service"
+        CU_B64="$(printf '%s' "${CUNIT}" | base64 -w0)"
+        CD_B64="$(printf '%s' "${CD}"    | base64 -w0)"
+        incus config set "${VM}" raw.qemu="-smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.snosi-qa-check.service=${CU_B64} -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.multi-user.target=${CD_B64}"
+
+        echo "Booting the installed system..." >&2
+        incus start "${VM}"
+        if ! wait_for "${M_DONE}" "${INSTALLED_BOOT_TIMEOUT}" "installed-boot"; then
+          echo "--- console tail (installed system did not report) ---" >&2
+          console_log | tail -n 400 >&2
+          printf '%s' "FAILED: installed ${PRODUCT} did not boot or did not report checks" \
+            > /tmp/results/result-summary.txt
+          exit 1
+        fi
+
+        console_log | grep -aoE "${M_CHECK} [a-z]+=[^[:space:]]+" | sed "s/${M_CHECK} //" | sort -u \
+          > /tmp/results/checks.txt
+        echo "--- post-install checks ---" >&2
+        cat /tmp/results/checks.txt >&2
+
+        # Judge the checks. verity and LUKS are the two properties that only an
+        # install can produce, so a missing one fails the lane.
+        failed=""
+        grep -q '^verity=ok$'   /tmp/results/checks.txt || failed="${failed} verity"
+        grep -q '^luks=ok$'     /tmp/results/checks.txt || failed="${failed} luks"
+        grep -q '^rootfs=erofs$' /tmp/results/checks.txt || failed="${failed} rootfs-not-erofs"
+
+        if [[ -n "${failed}" ]]; then
+          printf '%s' "FAILED: installed ${PRODUCT} missing:${failed}" > /tmp/results/result-summary.txt
+          exit 1
+        fi
+
+        printf '%s' "installed and verified: ${PRODUCT} (verity+luks+erofs, secureboot=${SECUREBOOT}, skip-mok=${SKIP_MOK})" \
+          > /tmp/results/result-summary.txt
+        cat /tmp/results/result-summary.txt >&2
+    volumes:
+    - { name: incus-bin,  hostPath: { path: /usr/incus, type: Directory } }
+    - { name: incus-sock, hostPath: { path: /var/lib/incus/unix.socket, type: Socket } }
+    - { name: iso-cache,  hostPath: { path: /var/lib/snosi-lab/iso, type: DirectoryOrCreate } }
+    - { name: results,    emptyDir: {} }
