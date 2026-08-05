@@ -191,11 +191,16 @@ Reproduced twice, with and without `--generic-image`, so it is not an artifact
 of how the lane invokes bootc. This is exactly the class of bug no container
 lane and no image-boot lane can see, and it is why the install lanes exist.
 
+Filed as [frostyard/snosi#504](https://github.com/frostyard/snosi/issues/504).
+The failing unit names `/dev/gpt-auto-root`, so root discovery is going through
+systemd's `gpt-auto-generator` and that device never appears.
+
 **Related:** the snow image ships no `/usr/lib/bootc/install/` configuration, so
 a plain `bootc install to-disk` fails with `No root filesystem specified` and
 the lane must pass `--filesystem ext4`. Fedora and Bluefin bootc images ship an
 install-configuration TOML that supplies this. Adding one to snosi would make
-the documented invocation work unmodified for users.
+the documented invocation work unmodified for users. Filed as
+[frostyard/snosi#505](https://github.com/frostyard/snosi/issues/505).
 
 ### Driving a guest with no agent and no SSH
 
