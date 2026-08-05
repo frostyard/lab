@@ -1,0 +1,34 @@
+# Submit file: boot the published snow-live ISO in a Secure Boot + vTPM VM.
+#
+#   kubectl create -f argo/snosi-vm-boot-test.yaml
+#
+# run-incus-vm-tests is a library template with no entrypoint of its own, so it
+# is invoked through a one-step DAG here rather than a workflowTemplateRef.
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: snosi-vm-boot-
+  namespace: argo
+  labels:
+    app.kubernetes.io/part-of: lab
+    snosi.io/trigger: manual
+spec:
+  serviceAccountName: argo
+  entrypoint: main
+  activeDeadlineSeconds: 5400
+  templates:
+    - name: main
+      dag:
+        tasks:
+          - name: boot
+            templateRef:
+              name: run-incus-vm-tests
+              template: run-incus-vm-tests
+            arguments:
+              parameters:
+                - name: iso-url
+                  value: "https://repository.frostyard.org/isos/snow-live-latest.iso"
+                - name: variant
+                  value: "snow-live"
+                - name: secureboot
+                  value: "true"

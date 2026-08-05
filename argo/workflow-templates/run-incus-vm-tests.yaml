@@ -1,0 +1,216 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: run-incus-vm-tests
+  namespace: argo
+  annotations:
+    description: |
+      Boots a published snosi ISO in an incus virtual machine with UEFI Secure
+      Boot and a vTPM, and asserts on what the boot produced.
+
+      This is the lane that covers what the container runner structurally
+      cannot: a real kernel, real firmware, and real Secure Boot signature
+      verification. If the shim/UKI chain is mis-signed, this lane is the only
+      thing in the lab that notices.
+
+      Driving incus from a pod: the host's incus client is a shell wrapper that
+      sets PATH and LD_LIBRARY_PATH over /usr/incus, so the pod mounts that
+      directory plus the API socket and runs the version-matched client. No SSH
+      to the host, and nothing to keep in sync with the host's incus version.
+  labels:
+    app.kubernetes.io/component: vm-test-runner
+    app.kubernetes.io/part-of: snosi-test-suite
+spec:
+  templates:
+  - name: run-incus-vm-tests
+    # The incus socket and /usr/incus only exist on selfie.
+    nodeSelector:
+      node-role.kubernetes.io/control-plane: "true"
+    activeDeadlineSeconds: 3600
+    # Native A/B guests contend for host memory, the vTPM, and the shared
+    # incus daemon. Serialize them.
+    synchronization:
+      semaphores:
+      - configMapKeyRef:
+          name: workflow-semaphores
+          key: snosi-vm-qa
+    inputs:
+      parameters:
+      - name: iso-url
+        value: "https://repository.frostyard.org/isos/snow-live-latest.iso"
+      - name: variant
+        value: "snow-live"
+      # Secure Boot on means OVMF enforces signatures against the MS KEK/db.
+      # Turning it off is a deliberate downgrade — say so in the run that does.
+      - name: secureboot
+        value: "true"
+      - name: vm-cpus
+        value: "4"
+      - name: vm-memory
+        value: "4GiB"
+      - name: disk-size
+        value: "20GiB"
+      # How long to let the guest boot before capturing the console and
+      # judging the result.
+      - name: boot-timeout-seconds
+        value: "300"
+      # Console must contain this to count as a successful boot.
+      - name: expect-console
+        value: "Reached target"
+    outputs:
+      parameters:
+      - name: result
+        valueFrom:
+          path: /tmp/results/result-summary.txt
+          default: "No results generated"
+      artifacts:
+      - name: console-log
+        path: /tmp/results/console.log
+        optional: true
+        archive:
+          none: {}
+    script:
+      image: cgr.dev/chainguard/bash:latest
+      securityContext:
+        runAsUser: 0
+      resources:
+        requests:
+          cpu: 200m
+          memory: 256Mi
+        limits:
+          cpu: "1"
+          memory: 1Gi
+      env:
+      - name: PATH
+        value: "/usr/incus/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+      - name: LD_LIBRARY_PATH
+        value: "/usr/incus/lib"
+      - name: ISO_URL
+        value: "{{inputs.parameters.iso-url}}"
+      - name: VARIANT
+        value: "{{inputs.parameters.variant}}"
+      - name: SECUREBOOT
+        value: "{{inputs.parameters.secureboot}}"
+      - name: VM_CPUS
+        value: "{{inputs.parameters.vm-cpus}}"
+      - name: VM_MEMORY
+        value: "{{inputs.parameters.vm-memory}}"
+      - name: DISK_SIZE
+        value: "{{inputs.parameters.disk-size}}"
+      - name: BOOT_TIMEOUT
+        value: "{{inputs.parameters.boot-timeout-seconds}}"
+      - name: EXPECT_CONSOLE
+        value: "{{inputs.parameters.expect-console}}"
+      volumeMounts:
+      - { name: incus-bin, mountPath: /usr/incus, readOnly: true }
+      - { name: incus-sock, mountPath: /var/lib/incus/unix.socket }
+      - { name: results, mountPath: /tmp/results }
+      # ISO cache lives on the host so a 3.5 GB download is not repeated on
+      # every run. Shared with the incus daemon, which reads the ISO from here.
+      - { name: iso-cache, mountPath: /var/lib/snosi-lab/iso }
+      command: [bash]
+      source: |
+        set -euo pipefail
+        mkdir -p /tmp/results /var/lib/snosi-lab/iso
+
+        # Workflow name keeps the guest unique across concurrent runs and makes
+        # an orphan traceable back to the workflow that leaked it.
+        VM="qa-$(echo '{{workflow.name}}' | tail -c 40 | tr -cd 'a-z0-9-' | sed 's/^-*//')"
+        echo "Guest name: ${VM}" >&2
+
+        # Always tear the guest down. A leaked VM holds the semaphore's worth of
+        # host memory and the vTPM state directory until someone notices.
+        cleanup() {
+          rc=$?
+          echo "--- teardown ---" >&2
+          incus delete --force "${VM}" >/dev/null 2>&1 || true
+          exit "${rc}"
+        }
+        trap cleanup EXIT
+
+        # ── fetch the ISO ────────────────────────────────────────────────────
+        ISO_NAME="$(basename "${ISO_URL%%\?*}")"
+        ISO_PATH="/var/lib/snosi-lab/iso/${ISO_NAME}"
+
+        # Resolve first: the `latest` URLs are uncacheable 302s to an immutable
+        # versioned object, so following the redirect is what gives a filename
+        # worth caching under.
+        RESOLVED="$(curl -sSL -o /dev/null -w '%{url_effective}' --max-time 60 "${ISO_URL}")"
+        if [[ "${RESOLVED}" != "${ISO_URL}" ]]; then
+          ISO_NAME="$(basename "${RESOLVED%%\?*}")"
+          ISO_PATH="/var/lib/snosi-lab/iso/${ISO_NAME}"
+          echo "Resolved to immutable object: ${ISO_NAME}" >&2
+        fi
+
+        if [[ -s "${ISO_PATH}" ]]; then
+          echo "ISO already cached: ${ISO_PATH} ($(stat -c%s "${ISO_PATH}") bytes)" >&2
+        else
+          echo "Downloading ${RESOLVED}..." >&2
+          curl -fSL --max-time 1800 -o "${ISO_PATH}.part" "${RESOLVED}"
+          mv "${ISO_PATH}.part" "${ISO_PATH}"
+          echo "Downloaded $(stat -c%s "${ISO_PATH}") bytes" >&2
+        fi
+
+        # ── create the guest ─────────────────────────────────────────────────
+        echo "Creating VM (secureboot=${SECUREBOOT})..." >&2
+        incus init "${VM}" --empty --vm \
+          -c "security.secureboot=${SECUREBOOT}" \
+          -c "limits.cpu=${VM_CPUS}" \
+          -c "limits.memory=${VM_MEMORY}" \
+          -d "root,size=${DISK_SIZE}"
+
+        # A vTPM is required for snosi's TPM-sealed LUKS /var. Present even on
+        # live-ISO runs so the guest sees the same firmware shape it will have
+        # after an install.
+        incus config device add "${VM}" vtpm tpm
+
+        # Attach the ISO read-only and make it the boot device.
+        incus config device add "${VM}" installer disk \
+          source="${ISO_PATH}" boot.priority=10 readonly=true
+
+        echo "Starting VM..." >&2
+        incus start "${VM}"
+
+        # ── wait for the boot marker ─────────────────────────────────────────
+        # No guest agent is available on a live ISO, so the serial console is
+        # the only channel. Poll it rather than sleeping the full timeout: a
+        # boot that already succeeded should not cost the whole budget.
+        deadline=$(( SECONDS + BOOT_TIMEOUT ))
+        booted=false
+        while (( SECONDS < deadline )); do
+          incus console "${VM}" --show-log > /tmp/results/console.log 2>/dev/null || true
+          if grep -qF "${EXPECT_CONSOLE}" /tmp/results/console.log 2>/dev/null; then
+            booted=true
+            break
+          fi
+          sleep 10
+        done
+
+        # Capture the final console state either way — on failure this is the
+        # only evidence of what the guest was doing.
+        incus console "${VM}" --show-log > /tmp/results/console.log 2>/dev/null || true
+        echo "--- console tail ---" >&2
+        tail -n 60 /tmp/results/console.log >&2 || true
+
+        state="$(incus list "${VM}" --format csv -c s 2>/dev/null || echo UNKNOWN)"
+        echo "--- VM state: ${state} ---" >&2
+
+        if [[ "${booted}" != true ]]; then
+          printf '%s' "FAILED: console never showed ${EXPECT_CONSOLE} within ${BOOT_TIMEOUT}s (state=${state})" \
+            > /tmp/results/result-summary.txt
+          echo "Guest did not reach the expected boot marker" >&2
+          exit 1
+        fi
+
+        printf '%s' "booted: console reached '${EXPECT_CONSOLE}' (secureboot=${SECUREBOOT}, state=${state})" \
+          > /tmp/results/result-summary.txt
+        cat /tmp/results/result-summary.txt >&2
+    volumes:
+    - name: incus-bin
+      hostPath: { path: /usr/incus, type: Directory }
+    - name: incus-sock
+      hostPath: { path: /var/lib/incus/unix.socket, type: Socket }
+    - name: iso-cache
+      hostPath: { path: /var/lib/snosi-lab/iso, type: DirectoryOrCreate }
+    - name: results
+      emptyDir: {}
