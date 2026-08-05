@@ -47,6 +47,7 @@ next — none of them findable without running against real media:
 | 6 | OCI layout `rejected by policy` | scoped local-transport policy ([fisherman#17](https://github.com/frostyard/fisherman/pull/17)) |
 | 7 | composefs digest probe `exit status 1` | `--privileged` + store bind-mount ([fisherman#18](https://github.com/frostyard/fisherman/pull/18)) |
 | 8 | post-install validation reads `<target>/usr/...`, which composefs does not provide | split target/image roots ([fisherman#19](https://github.com/frostyard/fisherman/pull/19)) |
+| 9 | contract rejected: ESP floor `2 GiB` vs the normative `1 GiB` | corrected to the normative figure ([fisherman#20](https://github.com/frostyard/fisherman/pull/20)) |
 
 **Where it sits now:** fisherman **v0.2.6** is released and carries 4 through 7.
 The dakota pin is repointed at it and the secure ISO rebuilt against it.
@@ -127,11 +128,40 @@ The three options as they stood:
    those. Simple, but it validates a copy the installer made — the weakest of
    the three.
 
-Blocker 8 is qualitatively different from 1–7. Those were wrong flags, wrong
+### The tests are half the story
+
+Four of the nine blockers were **actively masked by tests that asserted the
+broken behaviour**, and each passed while the thing it covered could not work:
+
+| Blocker | What the test locked in |
+|---|---|
+| 5 | `--signature-policy` before the subcommand — podman rejects it outright |
+| 5 | the same, in a second test |
+| 7 | the composefs digest probe without `--privileged` or the store mounted |
+| 9 | a 2 GiB ESP floor no image declares |
+
+The common shape: each test restated the argument vector or constant the
+implementation happened to produce, so it could only ever fail if someone
+changed the implementation *and forgot to change the test*. It could never fail
+because the behaviour was wrong.
+
+The replacements assert **properties** instead — "the subcommand precedes its
+flags", "the store is mounted", "the constant equals the normative figure". That
+is the only form that fails when reality drifts, and it is worth adopting as a
+review habit in that repo: it accounts for roughly half of everything found
+here.
+
+### On blocker 8's framing
+
+Blocker 8 was qualitatively different from 1–7. Those were wrong flags, wrong
 paths, wrong namespaces — mistakes. This one is an architectural mismatch:
 post-install validation written for one deployment layout, against an install
 path that mandates another. That it surfaced only after seven other fixes
 cleared the way to it is the whole argument for the lane existing.
+
+Blocker 9 was back to the ordinary kind, so that framing described one blocker
+rather than a new phase. The honest summary remains: each run gets further and
+finds the next real thing, and there is no way to know how many remain.
 
 ### After that
 
