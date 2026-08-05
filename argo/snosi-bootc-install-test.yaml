@@ -20,7 +20,7 @@ spec:
   arguments:
     parameters:
       - name: image
-        value: "ghcr.io/frostyard/snow:latest"
+        value: "ghcr.io/frostyard/snow:mechanics"
       - name: variant
         value: "snow"
   templates:

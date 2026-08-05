@@ -36,11 +36,14 @@ spec:
       parameters:
       - name: iso-url
         value: "https://repository.frostyard.org/isos/snow-live-latest.iso"
-      # The OCI image to install. This is the same artifact the container
-      # smoke lanes test, so a green container lane plus a green bootc install
-      # lane covers both "is the image sane" and "can it become a system".
+      # The MECHANICS image, not :latest. `bootc install to-disk` is the
+      # mechanics tier and the guard below refuses anything
+      # secureboot-capable=true, which :latest always is. snosi publishes
+      # mechanics builds nightly under :mechanics for exactly this lane
+      # (build-mechanics.yml); they carry no security evidence and are not for
+      # installation. The secure install path is run-secure-install-tests.
       - name: image
-        value: "ghcr.io/frostyard/snow:latest"
+        value: "ghcr.io/frostyard/snow:mechanics"
       - name: variant
         value: "snow"
       # bootc installs the OCI image's own signed UKI/kernel; the same MOK
