@@ -45,12 +45,22 @@ next — none of them findable without running against real media:
 | 4 | systemd `261.1-3` vs media `261.2-1` | version floors ([fisherman#14](https://github.com/frostyard/fisherman/pull/14), [snosi#509](https://github.com/frostyard/snosi/pull/509)) |
 | 5 | `podman pull` exit 125 | `--signature-policy` is a *pull* flag ([fisherman#15](https://github.com/frostyard/fisherman/pull/15)) |
 | 6 | OCI layout `rejected by policy` | scoped local-transport policy ([fisherman#17](https://github.com/frostyard/fisherman/pull/17)) |
+| 7 | composefs digest probe `exit status 1` | `--privileged` + store bind-mount ([fisherman#18](https://github.com/frostyard/fisherman/pull/18)) |
 
-**Where it sits now:** fisherman **v0.2.5** is released and carries all of 4, 5
-and 6. The dakota pin is repointed at it and the secure ISO is rebuilding
-against it. Next action is to re-run the lane — blockers 5 and 6 have never been
-exercised together on real media, so the honest expectation is that it gets
-further and finds a seventh thing.
+**Where it sits now:** fisherman **v0.2.6** is released and carries 4 through 7.
+The dakota pin is repointed at it and the secure ISO rebuilt against it.
+
+The pattern has been stable enough to state plainly: **each release clears one
+blocker and the next attempt finds the next one.** Seven so far, none of them
+reachable without running against real media, and two of them actively masked by
+tests that asserted the broken behaviour. Expect an eighth rather than a green
+run — that is not pessimism, it is what six iterations of evidence say, and the
+lane is worth running precisely because it keeps finding real defects.
+
+A note on how this gets diagnosed now: fisherman's `DefaultOutput` used to drop
+`ExitError.Stderr`, so every failed command surfaced as a command line plus
+`exit status N`. Blocker 7 needed a hand-built reproduction to diagnose for that
+reason alone. #18 propagates stderr, so the next one should explain itself.
 
 ### After that
 
