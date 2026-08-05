@@ -172,14 +172,26 @@ spec:
         # `bootc install to-disk` is run from a privileged container of the
         # image being installed — that is bootc's own documented flow, and it
         # means the image installs itself rather than the ISO installing it.
-        INSTALL_SH=$(cat <<SCRIPT
-        #!/bin/bash
+        # The heredoc delimiter is QUOTED. Unquoted, everything inside is
+        # expanded by the POD shell before it ever reaches the guest — which
+        # means a backtick in a *comment* is a command substitution that runs
+        # here, as root, with the incus socket mounted. That was live: a
+        # comment mentioning `bootc install --wipe` executed `bootc` in the
+        # pod on every run ("bootc: command not found"). Quoting the delimiter
+        # makes the body literal; the four values the guest genuinely needs
+        # are seeded as assignments above it instead.
+        INSTALL_SH="#!/bin/bash
+        IMAGE='${IMAGE}'
+        M_BEGIN='${M_BEGIN}'
+        M_OK='${M_OK}'
+        M_FAIL='${M_FAIL}'
+        $(cat <<'SCRIPT'
         # -e matters here: without it a failed mkfs or mount passes silently and
         # the failure surfaces much later as an unrelated "no space" error.
         set -eux
         exec > >(tee /dev/console) 2>&1
         echo "${M_BEGIN}"
-        for i in \$(seq 1 30); do ip route get 1.1.1.1 >/dev/null 2>&1 && break; sleep 5; done
+        for i in $(seq 1 30); do ip route get 1.1.1.1 >/dev/null 2>&1 && break; sleep 5; done
         # Two disks are attached, and neither is the ISO (type rom). The larger
         # is the install target; the smaller is scratch for container storage.
         # Identify disks by the incus device name embedded in their serial, not
@@ -187,15 +199,15 @@ spec:
         # the run wiped the scratch disk and pointed podman at the install
         # target — because the root disk did not end up the larger of the two.
         ls -l /dev/disk/by-id/ || true
-        DISK="\$(readlink -f /dev/disk/by-id/*incus_root* 2>/dev/null | head -1)"
-        SCRATCH="\$(readlink -f /dev/disk/by-id/*incus_scratch* 2>/dev/null | head -1)"
-        if [ -z "\${DISK}" ] || [ -z "\${SCRATCH}" ] || [ "\${DISK}" = "\${SCRATCH}" ]; then
-          echo "${M_FAIL} could not identify disks by id (root=\${DISK:-none} scratch=\${SCRATCH:-none})"
+        DISK="$(readlink -f /dev/disk/by-id/*incus_root* 2>/dev/null | head -1)"
+        SCRATCH="$(readlink -f /dev/disk/by-id/*incus_scratch* 2>/dev/null | head -1)"
+        if [ -z "${DISK}" ] || [ -z "${SCRATCH}" ] || [ "${DISK}" = "${SCRATCH}" ]; then
+          echo "${M_FAIL} could not identify disks by id (root=${DISK:-none} scratch=${SCRATCH:-none})"
           lsblk -o NAME,TYPE,SIZE,SERIAL; ls -l /dev/disk/by-id/ 2>/dev/null
           exit 1
         fi
-        echo "target disk: \${DISK}"
-        echo "scratch disk: \${SCRATCH}"
+        echo "target disk: ${DISK}"
+        echo "scratch disk: ${SCRATCH}"
 
         # The live ISO's /var/lib/containers is RAM-backed, so pulling a
         # multi-GB bootc image there dies with "no space left on device" partway
@@ -213,9 +225,9 @@ spec:
         # selection had inverted target and scratch, so `bootc install --wipe`
         # was destroying the very disk holding the mount. With disks now
         # identified by incus device name, mounting here is correct.
-        mkfs.ext4 -F -q "\${SCRATCH}"
+        mkfs.ext4 -F -q "${SCRATCH}"
         mkdir -p /var/lib/containers
-        mount "\${SCRATCH}" /var/lib/containers
+        mount "${SCRATCH}" /var/lib/containers
         findmnt -n /var/lib/containers || { echo "${M_FAIL} scratch did not mount"; lsblk; exit 1; }
         mkdir -p /var/lib/containers/storage /var/lib/containers/runroot
         df -h /var/lib/containers
@@ -235,7 +247,7 @@ spec:
         # which recorded the default in the storage database and made the real
         # run fail with "database configuration mismatch".
         PODMAN_STORE=(--root /var/lib/containers/storage --runroot /var/lib/containers/runroot --storage-driver overlay)
-        echo "storage driver: \$(podman "\${PODMAN_STORE[@]}" info --format '{{.Store.GraphDriverName}}' 2>/dev/null || echo unknown)"
+        echo "storage driver: $(podman "${PODMAN_STORE[@]}" info --format '{{.Store.GraphDriverName}}' 2>/dev/null || echo unknown)"
 
         # Flags mirror snosi's own reference invocation in test/lib/vm.sh
         # (install_to_disk), which is the only supported shape for these images.
@@ -258,7 +270,7 @@ spec:
         #
         # --via-loopback is deliberately NOT passed: snosi's harness installs to
         # a raw *file* and needs it, this lane installs to a real block device.
-        podman "\${PODMAN_STORE[@]}" \
+        podman "${PODMAN_STORE[@]}" \
           run --rm --privileged --pid=host \
           --security-opt label=type:unconfined_t \
           -v /dev:/dev \
@@ -270,10 +282,10 @@ spec:
             --composefs-backend \
             --filesystem btrfs \
             --karg console=ttyS0 \
-            "\${DISK}" \
-          && echo "${M_OK}" || { rc=\$?; echo "df at failure:"; df -h; findmnt -n /var/lib/containers || echo "scratch UNMOUNTED at failure"; echo "${M_FAIL} rc=\${rc}"; exit 1; }
+            "${DISK}" \
+          && echo "${M_OK}" || { rc=$?; echo "df at failure:"; df -h; findmnt -n /var/lib/containers || echo "scratch UNMOUNTED at failure"; echo "${M_FAIL} rc=${rc}"; exit 1; }
         SCRIPT
-        )
+        )"
         I_B64="$(printf '%s' "${INSTALL_SH}" | base64 -w0)"
         UNIT="[Unit]
         Description=snosi QA bootc install
