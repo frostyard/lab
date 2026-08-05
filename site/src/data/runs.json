@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-05T15:53:07Z",
+  "generated": "2026-08-05T17:11:57Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -50,22 +50,49 @@
     },
     {
       "template": "run-incus-bootc-install-tests",
-      "label": "bootc installer",
+      "label": "bootc installer (mechanics)",
       "kind": "install",
       "latest": {
-        "name": "snosi-bootc-install-t5lt2",
-        "phase": "Failed",
-        "started": "2026-08-05T15:08:29Z",
-        "finished": "2026-08-05T15:09:45Z",
-        "durationSeconds": 76,
+        "name": "snosi-bootc-install-fvd4n",
+        "phase": "Succeeded",
+        "started": "2026-08-05T17:08:06Z",
+        "finished": "2026-08-05T17:11:28Z",
+        "durationSeconds": 202,
         "template": "run-incus-bootc-install-tests",
         "kind": "install",
-        "label": "bootc installer",
+        "label": "bootc installer (mechanics)",
         "trigger": "manual",
-        "result": "NOT APPLICABLE: ghcr.io/frostyard/snow:latest is secureboot-capable=true. bootc install to-disk is the mechanics tier and requires secureboot-capable=false; this image needs the external secure installer. See docs/roadmap.md.",
+        "result": "bootc installed and verified: ghcr.io/frostyard/snow:mechanics (secureboot=false)",
+        "checks": [
+          "backend=composefs",
+          "booted=ok",
+          "failedunits=0",
+          "image=ghcr.io/frostyard/snow:mechanics",
+          "osrelease=snow-20260805161157",
+          "rootfs=overlay"
+        ]
+      },
+      "runs": 19,
+      "everGreen": true
+    },
+    {
+      "template": "run-secure-install-tests",
+      "label": "bootc secure installer",
+      "kind": "install",
+      "latest": {
+        "name": "diag-secure-install-wldw2",
+        "phase": "Failed",
+        "started": "2026-08-05T17:00:21Z",
+        "finished": "2026-08-05T17:01:43Z",
+        "durationSeconds": 82,
+        "template": "run-secure-install-tests",
+        "kind": "install",
+        "label": "bootc secure installer",
+        "trigger": "manual",
+        "result": "FAILED: secure install harness exited 1 for cayo",
         "checks": []
       },
-      "runs": 17,
+      "runs": 8,
       "everGreen": false
     },
     {
@@ -151,6 +178,143 @@
   ],
   "runs": [
     {
+      "name": "snosi-bootc-install-fvd4n",
+      "phase": "Succeeded",
+      "started": "2026-08-05T17:08:06Z",
+      "finished": "2026-08-05T17:11:28Z",
+      "durationSeconds": 202,
+      "template": "run-incus-bootc-install-tests",
+      "kind": "install",
+      "label": "bootc installer (mechanics)",
+      "trigger": "manual",
+      "result": "bootc installed and verified: ghcr.io/frostyard/snow:mechanics (secureboot=false)",
+      "checks": [
+        "backend=composefs",
+        "booted=ok",
+        "failedunits=0",
+        "image=ghcr.io/frostyard/snow:mechanics",
+        "osrelease=snow-20260805161157",
+        "rootfs=overlay"
+      ]
+    },
+    {
+      "name": "snosi-bootc-install-svkng",
+      "phase": "Failed",
+      "started": "2026-08-05T17:04:39Z",
+      "finished": "2026-08-05T17:05:39Z",
+      "durationSeconds": 60,
+      "template": "run-incus-bootc-install-tests",
+      "kind": "install",
+      "label": "bootc installer (mechanics)",
+      "trigger": "manual",
+      "result": "FAILED: bootc install to-disk did not complete for ghcr.io/frostyard/snow:mechanics",
+      "checks": []
+    },
+    {
+      "name": "diag-secure-install-wldw2",
+      "phase": "Failed",
+      "started": "2026-08-05T17:00:21Z",
+      "finished": "2026-08-05T17:01:43Z",
+      "durationSeconds": 82,
+      "template": "run-secure-install-tests",
+      "kind": "install",
+      "label": "bootc secure installer",
+      "trigger": "manual",
+      "result": "FAILED: secure install harness exited 1 for cayo",
+      "checks": []
+    },
+    {
+      "name": "diag-secure-install-9b6bc",
+      "phase": "Failed",
+      "started": "2026-08-05T16:48:33Z",
+      "finished": "2026-08-05T16:59:45Z",
+      "durationSeconds": 672,
+      "template": "run-secure-install-tests",
+      "kind": "install",
+      "label": "bootc secure installer",
+      "trigger": "manual",
+      "result": "FAILED: secure install harness exited 1 for cayo",
+      "checks": []
+    },
+    {
+      "name": "diag-secure-install-4ds74",
+      "phase": "Failed",
+      "started": "2026-08-05T16:41:44Z",
+      "finished": "2026-08-05T16:48:09Z",
+      "durationSeconds": 385,
+      "template": "run-secure-install-tests",
+      "kind": "install",
+      "label": "bootc secure installer",
+      "trigger": "manual",
+      "result": "FAILED: secure install harness exited 1 for cayo",
+      "checks": []
+    },
+    {
+      "name": "diag-secure-install-j84k8",
+      "phase": "Failed",
+      "started": "2026-08-05T16:39:47Z",
+      "finished": "2026-08-05T16:41:07Z",
+      "durationSeconds": 80,
+      "template": "run-secure-install-tests",
+      "kind": "install",
+      "label": "bootc secure installer",
+      "trigger": "manual",
+      "result": "FAILED: secure install harness exited 1 for cayo",
+      "checks": []
+    },
+    {
+      "name": "diag-secure-install-cm8jg",
+      "phase": "Failed",
+      "started": "2026-08-05T16:36:40Z",
+      "finished": "2026-08-05T16:37:53Z",
+      "durationSeconds": 73,
+      "template": "run-secure-install-tests",
+      "kind": "install",
+      "label": "bootc secure installer",
+      "trigger": "manual",
+      "result": "FAILED: secure install harness exited 1 for cayo",
+      "checks": []
+    },
+    {
+      "name": "diag-secure-install-9vlck",
+      "phase": "Failed",
+      "started": "2026-08-05T16:34:35Z",
+      "finished": "2026-08-05T16:35:37Z",
+      "durationSeconds": 62,
+      "template": "run-secure-install-tests",
+      "kind": "install",
+      "label": "bootc secure installer",
+      "trigger": "manual",
+      "result": "FAILED: secure install harness exited 1 for cayo",
+      "checks": []
+    },
+    {
+      "name": "snosi-secure-install-6vfjl",
+      "phase": "Failed",
+      "started": "2026-08-05T16:15:28Z",
+      "finished": "2026-08-05T16:24:20Z",
+      "durationSeconds": 532,
+      "template": "run-secure-install-tests",
+      "kind": "install",
+      "label": "bootc secure installer",
+      "trigger": "manual",
+      "result": "FAILED: secure install harness exited 1 for cayo",
+      "checks": []
+    },
+    {
+      "name": "snosi-secure-install-4r8vj",
+      "phase": "Failed",
+      "started": "2026-08-05T16:13:36Z",
+      "finished": "2026-08-05T16:14:24Z",
+      "durationSeconds": 48,
+      "template": "run-secure-install-tests",
+      "kind": "install",
+      "label": "bootc secure installer",
+      "trigger": "manual",
+      "result": "No results generated",
+      "checks": []
+    },
+    {
       "name": "image-poll-snowfield-latest-1785944400",
       "phase": "Succeeded",
       "started": "2026-08-05T15:40:00Z",
@@ -184,7 +348,7 @@
       "durationSeconds": 76,
       "template": "run-incus-bootc-install-tests",
       "kind": "install",
-      "label": "bootc installer",
+      "label": "bootc installer (mechanics)",
       "trigger": "manual",
       "result": "NOT APPLICABLE: ghcr.io/frostyard/snow:latest is secureboot-capable=true. bootc install to-disk is the mechanics tier and requires secureboot-capable=false; this image needs the external secure installer. See docs/roadmap.md.",
       "checks": []
@@ -223,7 +387,7 @@
       "durationSeconds": 568,
       "template": "run-incus-bootc-install-tests",
       "kind": "install",
-      "label": "bootc installer",
+      "label": "bootc installer (mechanics)",
       "trigger": "manual",
       "result": "FAILED: bootc-installed snow did not boot or report checks",
       "checks": []
@@ -236,7 +400,7 @@
       "durationSeconds": 1051,
       "template": "run-incus-bootc-install-tests",
       "kind": "install",
-      "label": "bootc installer",
+      "label": "bootc installer (mechanics)",
       "trigger": "manual",
       "result": "FAILED: bootc-installed snow did not boot or report checks",
       "checks": []
@@ -249,7 +413,7 @@
       "durationSeconds": 1051,
       "template": "run-incus-bootc-install-tests",
       "kind": "install",
-      "label": "bootc installer",
+      "label": "bootc installer (mechanics)",
       "trigger": "manual",
       "result": "No results generated",
       "checks": []
@@ -262,7 +426,7 @@
       "durationSeconds": 489,
       "template": "run-incus-bootc-install-tests",
       "kind": "install",
-      "label": "bootc installer",
+      "label": "bootc installer (mechanics)",
       "trigger": "manual",
       "result": "FAILED: bootc install to-disk did not complete for ghcr.io/frostyard/snow:latest",
       "checks": []
@@ -392,7 +556,7 @@
       "durationSeconds": 1047,
       "template": "run-incus-bootc-install-tests",
       "kind": "install",
-      "label": "bootc installer",
+      "label": "bootc installer (mechanics)",
       "trigger": "manual",
       "result": "FAILED: bootc-installed snow did not boot or report checks",
       "checks": []
@@ -405,7 +569,7 @@
       "durationSeconds": 746,
       "template": "run-incus-bootc-install-tests",
       "kind": "install",
-      "label": "bootc installer",
+      "label": "bootc installer (mechanics)",
       "trigger": "manual",
       "result": "FAILED: bootc-installed snow did not boot or report checks",
       "checks": []
@@ -418,7 +582,7 @@
       "durationSeconds": 103,
       "template": "run-incus-bootc-install-tests",
       "kind": "install",
-      "label": "bootc installer",
+      "label": "bootc installer (mechanics)",
       "trigger": "manual",
       "result": "FAILED: bootc install to-disk did not complete for ghcr.io/frostyard/snow:latest",
       "checks": []
@@ -444,7 +608,7 @@
       "durationSeconds": 2457,
       "template": "run-incus-bootc-install-tests",
       "kind": "install",
-      "label": "bootc installer",
+      "label": "bootc installer (mechanics)",
       "trigger": "manual",
       "result": "FAILED: bootc install to-disk did not complete for ghcr.io/frostyard/snow:latest",
       "checks": []
@@ -457,7 +621,7 @@
       "durationSeconds": 94,
       "template": "run-incus-bootc-install-tests",
       "kind": "install",
-      "label": "bootc installer",
+      "label": "bootc installer (mechanics)",
       "trigger": "manual",
       "result": "FAILED: bootc install to-disk did not complete for ghcr.io/frostyard/snow:latest",
       "checks": []
@@ -470,7 +634,7 @@
       "durationSeconds": 2458,
       "template": "run-incus-bootc-install-tests",
       "kind": "install",
-      "label": "bootc installer",
+      "label": "bootc installer (mechanics)",
       "trigger": "manual",
       "result": "FAILED: bootc install to-disk did not complete for ghcr.io/frostyard/snow:latest",
       "checks": []
@@ -483,7 +647,7 @@
       "durationSeconds": 112,
       "template": "run-incus-bootc-install-tests",
       "kind": "install",
-      "label": "bootc installer",
+      "label": "bootc installer (mechanics)",
       "trigger": "manual",
       "result": "FAILED: bootc install to-disk did not complete for ghcr.io/frostyard/snow:latest",
       "checks": []
@@ -496,7 +660,7 @@
       "durationSeconds": 115,
       "template": "run-incus-bootc-install-tests",
       "kind": "install",
-      "label": "bootc installer",
+      "label": "bootc installer (mechanics)",
       "trigger": "manual",
       "result": "FAILED: bootc install to-disk did not complete for ghcr.io/frostyard/snow:latest",
       "checks": []
@@ -509,7 +673,7 @@
       "durationSeconds": 105,
       "template": "run-incus-bootc-install-tests",
       "kind": "install",
-      "label": "bootc installer",
+      "label": "bootc installer (mechanics)",
       "trigger": "manual",
       "result": "FAILED: bootc install to-disk did not complete for ghcr.io/frostyard/snow:latest",
       "checks": []
@@ -522,7 +686,7 @@
       "durationSeconds": 103,
       "template": "run-incus-bootc-install-tests",
       "kind": "install",
-      "label": "bootc installer",
+      "label": "bootc installer (mechanics)",
       "trigger": "manual",
       "result": "FAILED: bootc install to-disk did not complete for ghcr.io/frostyard/snow:latest",
       "checks": []
@@ -535,7 +699,7 @@
       "durationSeconds": 93,
       "template": "run-incus-bootc-install-tests",
       "kind": "install",
-      "label": "bootc installer",
+      "label": "bootc installer (mechanics)",
       "trigger": "manual",
       "result": "FAILED: bootc install to-disk did not complete for ghcr.io/frostyard/snow:latest",
       "checks": []
@@ -548,7 +712,7 @@
       "durationSeconds": 93,
       "template": "run-incus-bootc-install-tests",
       "kind": "install",
-      "label": "bootc installer",
+      "label": "bootc installer (mechanics)",
       "trigger": "manual",
       "result": "FAILED: bootc install to-disk did not complete for ghcr.io/frostyard/snow:latest",
       "checks": []
