@@ -178,7 +178,12 @@ spec:
         fi
 
         # ── inputs ───────────────────────────────────────────────────────────
-        WORK=/var/lib/snosi-lab/secure/run-$$
+        # NOT run-$$: Kubernetes expands $$ to a literal $ in container args
+        # before bash ever sees it, so that spelled one shared directory called
+        # "run-$" for every run -- and the cleanup trap below would then delete
+        # a concurrent run's target disk. {{workflow.name}} is unique per run
+        # and substituted by Argo, not the kubelet.
+        WORK=/var/lib/snosi-lab/secure/run-{{workflow.name}}
         mkdir -p "${WORK}"
         cleanup() {
           rc=$?
@@ -288,9 +293,19 @@ spec:
                 # one here is the whole answer; sbverify --list exits 0 either
                 # way, so the OUTPUT is what matters, not the status.
                 while IFS= read -r efi; do
-                  echo "### ${efi#"${MP}"}"
+                  echo "### ${efi#"${MP}"}  ($(stat -c %s "${efi}") bytes)"
                   sbverify --list "${efi}" 2>&1 \
                     | grep -aE 'signature [0-9]|issuers|subject|No signature table' || true
+                  # For a UKI, the section layout and the baked-in cmdline are
+                  # what distinguish "bootc copied the image's signed UKI" from
+                  # "bootc rebuilt one". A missing .pcrsig would also break TPM
+                  # unlock later, so it is worth seeing before that happens.
+                  if objdump -h "${efi}" 2>/dev/null | grep -q '\.linux'; then
+                    echo "    sections: $(objdump -h "${efi}" 2>/dev/null \
+                      | awk '$2 ~ /^\./ {printf "%s(%s) ", $2, $3}')"
+                    echo "    cmdline:  $(objcopy -O binary --only-section=.cmdline \
+                      "${efi}" /dev/stdout 2>/dev/null | tr -d '\0')"
+                  fi
                 done < <(find "${MP}" -iname '*.efi' -type f 2>/dev/null)
                 umount "${MP}" || true
               else
