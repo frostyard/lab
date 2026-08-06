@@ -49,6 +49,7 @@ next — none of them findable without running against real media:
 | 8 | post-install validation reads `<target>/usr/...`, which composefs does not provide | split target/image roots ([fisherman#19](https://github.com/frostyard/fisherman/pull/19)) |
 | 9 | contract rejected: ESP floor `2 GiB` vs the normative `1 GiB` | corrected to the normative figure ([fisherman#20](https://github.com/frostyard/fisherman/pull/20)) |
 | 10 | `mmx64.efi` missing — nothing stages the Secure Boot chain onto the ESP | ESP chain staging built ([fisherman#21](https://github.com/frostyard/fisherman/pull/21)) |
+| 11 | BLS validator rejects `uki`, the directive bootc actually writes | accept `uki` as well as `efi` ([fisherman#22](https://github.com/frostyard/fisherman/pull/22)) |
 
 **Where it sits now:** fisherman **v0.2.6** is released and carries 4 through 7.
 The dakota pin is repointed at it and the secure ISO rebuilt against it.
@@ -185,9 +186,24 @@ place a later change could go wrong quietly:
   rewrites a firmware entry point on an existing install.
 
 This was the first blocker where the fix was new behaviour rather than a
-correction, so there is more room for it to be subtly wrong than in 1–9. Unit
-tests pass; the parts that only a real boot can judge are whether shim actually
-chainloads `grubx64.efi` under this layout and whether the MOK enrols.
+correction, so there is more room for it to be subtly wrong than in 1–9.
+
+**It worked on real media.** The next run got past the missing `mmx64.efi`
+entirely, which means shim, MokManager and the MOK-signed second stage all
+landed where they belong. Blocker 11 was found immediately after, further along
+the same code path.
+
+Blocker 11 itself was small — `ValidateType2BLS` accepted only the `efi`
+directive while every entry bootc writes uses `uki`. Both designate a Type #2
+UKI under `/EFI/Linux`; snosi's note that "bootc writes a BLS `efi=` entry" was
+an observation of one build that has gone stale. Fixed in
+[fisherman#22](https://github.com/frostyard/fisherman/pull/22), released as
+v0.2.10, with an entry carrying *both* directives now refused as ambiguous
+rather than silently preferring one.
+
+**The failures are arriving later in the install each time.** That is the shape
+worth watching: it means each fix is real and the remaining surface is
+shrinking, rather than the same wall being hit from different angles.
 
 ### The tests are half the story
 
