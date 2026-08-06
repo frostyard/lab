@@ -306,6 +306,24 @@ spec:
             echo "=== ESP of ${TARGET_DISK} ==="
             LOOP="$(losetup --show -Pfr "${TARGET_DISK}" 2>/dev/null || true)"
             if [[ -n "${LOOP}" ]]; then
+              # Partition and crypto layout. /dev/gpt-auto-root never appearing
+              # is a discovery failure, and discovery is driven entirely by the
+              # GPT type GUID plus whether the partition is really LUKS -- so
+              # both have to be visible, along with the TPM token that unlocks
+              # it. Without this the console only says "Timed out waiting for
+              # device", which names the symptom and nothing else.
+              echo "--- partition table ---"
+              sfdisk -l "${LOOP}" 2>&1 | grep -vE '^$' || true
+              echo "--- partition identities ---"
+              for part in "${LOOP}"p*; do
+                [[ -b "${part}" ]] || continue
+                echo "### ${part}"
+                blkid -p -o udev "${part}" 2>/dev/null                   | grep -aE 'TYPE|PART_ENTRY_TYPE|PART_ENTRY_NAME' || echo "    (no signature)"
+                if cryptsetup isLuks "${part}" 2>/dev/null; then
+                  echo "    LUKS: yes"
+                  cryptsetup luksDump "${part}" 2>/dev/null                     | grep -aE '^(Version|Tokens|  [0-9]+: )' | head -10 || true
+                fi
+              done
               MP="$(mktemp -d)"
               # The ESP is partition 1 on every layout fisherman produces.
               if mount -o ro "${LOOP}p1" "${MP}" 2>/dev/null; then
