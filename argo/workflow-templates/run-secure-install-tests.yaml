@@ -246,10 +246,25 @@ spec:
         echo "--- full log persists at ${HLOG} on the lab host ---" >&2
         cd /src/snosi
         set +e
-        ./test/bootc-secure-install-test.sh > "${HLOG}" 2>&1
+        # KEEP_VM=1 retains the harness's work directory so its guest serial log
+        # survives the run. Without it the directory is removed on exit, taking
+        # the only record of what the guest actually did -- and the checks that
+        # matter from here on (shim rejecting an unenrolled MOK, the enrolled
+        # boot, TPM unlock) are all judged from that console. The leftover QEMU
+        # and swtpm the flag warns about die with this pod.
+        KEEP_VM=1 ./test/bootc-secure-install-test.sh > "${HLOG}" 2>&1
         rc=$?
         set -e
         echo "--- harness exit ${rc} ---" >&2
+
+        # Preserve the guest console beside the harness log, whatever happened.
+        for serial in /var/tmp/bootc-secure-install-test.*/serial.log; do
+          [[ -f "${serial}" ]] || continue
+          cp -f "${serial}" "${LOGDIR}/{{workflow.name}}-serial.log" 2>/dev/null || true
+          echo "--- guest serial console persisted at ${LOGDIR}/{{workflow.name}}-serial.log ($(wc -c < "${serial}") bytes) ---" >&2
+          echo "--- last 30 lines of guest console ---" >&2
+          tail -n 30 "${serial}" >&2 || true
+        done
 
         # snosi's own exit-code contract: 2 means BLOCKED (missing inputs), not
         # failure. Distinguishing the two is the entire point of this lane —

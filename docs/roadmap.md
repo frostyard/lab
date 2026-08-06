@@ -53,6 +53,42 @@ next — none of them findable without running against real media:
 | 12 | composefs identity read from BLS `options`, which a UKI entry does not have | read it from the UKI's signed `.cmdline` ([fisherman#23](https://github.com/frostyard/fisherman/pull/23)) |
 | 13 | the QA SSH unit killed the `ssh.socket` that was already serving | start SSH only if nothing already is ([dakota#17](https://github.com/frostyard/dakota-iso/pull/17)) |
 | 14 | MOK certificate still read from the target root | move both reads to the image root ([fisherman#24](https://github.com/frostyard/fisherman/pull/24)) |
+| 15 | post-install LUKS assertion: `$2` expanded by the remote shell | escape it ([dakota#18](https://github.com/frostyard/dakota-iso/pull/18)) |
+| 16 | pre-MOK boot found no TPM socket — swtpm dies with its QEMU client | re-arm before the boot ([snosi#510](https://github.com/frostyard/snosi/pull/510)) |
+| 17 | pre-MOK boot classified as neither rejection nor boot-through | **open — evidence was being discarded; now preserved** |
+
+### The secure install now completes
+
+**2026-08-06.** After fourteen blockers, fisherman runs the whole secure install
+end to end on real media:
+
+```
+{"elapsed_ms":214076,"message":"Installation complete!","type":"complete"}
+```
+
+Everything from partitioning through MOK enrollment staging works: LUKS,
+policy-checked pull, composefs digest computed and verified, deployment written,
+Secure Boot chain staged, contract read and validated, BLS validated, composefs
+identity checked against the deployment.
+
+**The remaining blockers are no longer in the installer.** 15 was in dakota's
+post-install assertion, 16 and 17 are in snosi's own harness — code that had
+never been reached because nothing had ever got this far. That is a different
+phase of the work, and the failures look different: less "this call is wrong",
+more "this step has never run".
+
+Blocker 17 is the current front. The harness boots the target *before* MOK
+enrollment and requires one of two outcomes — shim printing
+`Security Violation` (the correct rejection) or a diagnosable boot-through — and
+saw neither. Its verdict is `BLOCKED` rather than failure, which the lane
+reports as such.
+
+Diagnosing it was blocked by a familiar problem: the evidence is the guest's
+serial console, which lives in the harness's work directory and is deleted on
+exit. The lane now runs with `KEEP_VM=1` and copies that console to
+`/var/lib/snosi-lab/secure/logs/<workflow>-serial.log`. **Every check from here
+on — shim rejection, the enrolled boot, TPM unlock — is judged from that
+console**, so it is worth having permanently rather than one run at a time.
 
 **Where it sits now:** fisherman **v0.2.6** is released and carries 4 through 7.
 The dakota pin is repointed at it and the secure ISO rebuilt against it.
