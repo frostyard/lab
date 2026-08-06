@@ -57,7 +57,7 @@ next — none of them findable without running against real media:
 | 16 | pre-MOK boot found no TPM socket — swtpm dies with its QEMU client | re-arm before the boot ([snosi#510](https://github.com/frostyard/snosi/pull/510)) |
 | 17 | ~~pre-MOK boot classified as neither rejection nor boot-through~~ — a symptom of 18, not a blocker | the `ssh.socket` guard was insufficient; prefer the socket outright ([dakota#19](https://github.com/frostyard/dakota-iso/pull/19)) |
 | 18 | ESP staged the **unsigned** `shimx64.efi`; firmware refuses it with `Access Denied` before shim runs | stage the `.signed` variants, and check for a signature table ([fisherman#26](https://github.com/frostyard/fisherman/pull/26)) |
-| 19 | `bootc install` rewrites the UKI and drops its Authenticode signature; systemd-boot refuses it with `Invalid parameter` | stage the image's signed UKI over it ([fisherman#27](https://github.com/frostyard/fisherman/pull/27)) |
+| 19 | reading the UKI's sections with `objcopy` (no outfile) **rewrote it in place and dropped its signature** — the installer unsigned its own kernel | read sections with `debug/pe` ([fisherman#28](https://github.com/frostyard/fisherman/pull/28)) |
 | 20 | live SSH intermittently unreachable with `ssh.socket` listening and `ssh.service` failed — **open, cause unknown** | diagnostics now unconditional ([dakota#20](https://github.com/frostyard/dakota-iso/pull/20)) |
 
 ### The secure install now completes
@@ -130,7 +130,7 @@ answered it in one line had already been deleted. The lane now dumps the
 installed ESP — a directory listing plus a signature summary of every `.efi` on
 it — to `<workflow>-esp.txt` on any non-zero exit, before the cleanup trap runs.
 
-### Blocker 19 — the UKI reaches the ESP unsigned
+### Blocker 19 — the installer was unsigning its own kernel
 
 That ESP dump paid for itself on its first run. With the chain fixed, the target
 got **past the pre-MOK rejection and past MOK enrollment** for the first time,
@@ -141,34 +141,51 @@ Error loading EFI binary \EFI\Linux\bootc\bootc_composefs-a0c1f9a9….efi: Inval
 BdsDxe: No bootable option or device was found.
 ```
 
-shim ran, verified systemd-boot, and systemd-boot refused the kernel. Measured
-against the exact image that install used:
+The image's UKI is MOK-signed; the one on the ESP was not.
 
-| | image `boot/EFI/Linux/<kver>.efi` | ESP `EFI/Linux/bootc/bootc_composefs-<id>.efi` |
-|---|---|---|
-| signature | `/CN=snosi Secure Boot 2026/O=frostyard` | **none** |
-| `.cmdline` | `rw composefs=?a0c1f9a9…4f` | `rw composefs=?a0c1f9a9…4f` |
-| sections | 13, incl. `.pcrsig` `.pcrpkey` | identical names **and sizes** |
-| bytes | 101157224 | 101134848 |
+**I got the cause wrong, twice over, and it is worth recording why.** I
+concluded `bootc install` was rewriting the UKI and dropping its signature, and
+built [fisherman#27](https://github.com/frostyard/fisherman/pull/27) to stage
+the image's signed UKI over it — at a cost of ~100 MiB added to the image-root
+extraction. I also filed frostyard/snosi#516 claiming the update path had the
+same defect. Both were wrong.
 
-`bootc install` **rewrites** the UKI rather than copying it — stripping the
-image UKI's signature with `sbattach --remove` still leaves 101154816 bytes, so
-bootc's file is ~20 KiB smaller than a stripped copy. Same sections, different
-packing, no signature.
+The real cause is ours. `objcopy`'s synopsis is `objcopy [options] infile
+[outfile]`, and **with `outfile` omitted it rewrites `infile` in place** — even
+when the only requested operation is to dump a section *out*. The rewrite keeps
+every section but does not carry the Authenticode certificate table across:
 
-One piece of good news in that table: `.pcrsig` and `.pcrpkey` survive, so TPM
-unlock material is intact and is not the next failure.
+```
+shimx64.efi.signed   1036152 bytes
+objcopy --dump-section .sbat=out shimx64.efi.signed
+                     1016789 bytes   ← exactly Debian's UNSIGNED shim
+```
 
-Two fixes are closed off. Re-signing needs the MOK private key, which must never
-be present during an install; re-attaching the image's signature cannot work
-because the bytes differ. Installing the already-signed artifact is the only move
-that needs no key —
-[fisherman#27](https://github.com/frostyard/fisherman/pull/27). It is a
-substitution of the same boot, not a swap: both UKIs must name the same composefs
-identity, and that identity pins the deployment bootc just wrote.
+fisherman read the UKI's `.cmdline` and `.pcrpkey` that way, against the UKI on
+the installed ESP, inside `VerifyInstalled`. **The secure install unsigned its
+own kernel between completing and rebooting.** On the real UKI it reproduces the
+observed artifact exactly: 101157224 → 101134848.
 
-The durable fix arguably belongs in bootc, which would make this staging
-unnecessary. #27 no-ops the moment bootc preserves the signature.
+bootc is not involved: `write_pe_to_esp` is a `std::io::copy`, unchanged between
+v1.16.3 and main, and bootc links no PE-writing crate.
+
+The disproof was in evidence I had already collected and reported as good news:
+**`.pcrsig` survived**. Regenerating that section needs the PCR *private* key,
+which is never present during an install — so nothing could have rebuilt the PE,
+and only a tool that preserves sections while dropping the certificate table
+fits. When section contents survive but a signature does not, suspect a rewrite,
+not a rebuild.
+
+Fixed at the cause in
+[fisherman#28](https://github.com/frostyard/fisherman/pull/28): both reads use
+Go's `debug/pe` in process, which cannot mutate and avoids a ~100 MiB temporary
+copy per call. `VerifyInstalled` now also refuses an unsigned installed UKI
+outright, so this class fails at install time rather than at the next boot.
+#27 is closed and snosi#516 withdrawn.
+
+The finding came from a subagent audit of bootc's write path, dispatched after
+the maintainer asked whether the next bootc *update* would strip the signature
+again — a question about coverage that turned up the actual cause.
 
 ### Blocker 20 — live SSH is intermittent, and the cause is still unknown
 
