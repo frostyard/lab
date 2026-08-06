@@ -44,16 +44,18 @@ spec:
       # run-incus-disk-tests takes the bare form; do not conflate them.
       - name: product
         value: "cayo-ab"
-      # Secure Boot defaults OFF, and that is a deliberate, documented gap
-      # rather than an oversight. snosi signs its UKI with its own MOK, which a
-      # fresh OVMF does not trust; enrolling it is an interactive MokManager
-      # step at first boot. Booting a published disk image with secureboot=true
-      # fails with "Verification failed: (0x1A) Security Violation" — verified.
-      # Covering the signed chain needs either a lab-side OVMF variable
-      # pre-seed or an unattended enrollment path in the installer. See the
-      # README.
+      # Secure Boot ON, and genuinely enforced: Microsoft's KEK/db are
+      # untouched, so firmware rejects anything not trusted. What makes it work
+      # unattended is the MOK pre-seed below, which grants trust in exactly one
+      # certificate — snosi's — by writing it into this guest's own OVMF
+      # variable store before first boot.
+      #
+      # This was false for a long time, and the gap was real: without the
+      # pre-seed a snosi-signed UKI fails at shim with "Verification failed:
+      # (0x1A) Security Violation". Proven green 2026-08-06:
+      #   installed and verified: cayo-ab (verity+luks+erofs, secureboot=true)
       - name: secureboot
-        value: "false"
+        value: "true"
       # Matching --skip-mok: enrollment would otherwise stage a MokManager
       # prompt that no unattended run can answer.
       - name: skip-mok

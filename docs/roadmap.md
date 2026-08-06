@@ -669,10 +669,25 @@ templates.
 
 Independent of everything above; adopt snosi's existing pattern.
 
-- [ ] **F1.** `virt-fw-vars --add-mok` into each guest's `qemu.nvram` before
-      first boot, as `native-ab-secure-boot-test.sh` does.
-- [ ] **F2.** Install lane to `secureboot=true`, drop `--skip-mok`, assert the
-      installed system boots enforced and unattended.
+- [x] **F1.** `virt-fw-vars --add-mok` into each guest's `qemu.nvram` before
+      first boot, using snosi's exact invocation (owner GUID + `--inplace`), and
+      verifying the varstore contains a `MokList` afterwards rather than
+      trusting the exit status. incus materialises the varstore at
+      `storage-pools/<pool>/virtual-machines/<vm>/qemu.nvram` only once the
+      instance has started, so the guest is started and immediately stopped to
+      create it.
+- [x] **F2.** Install lane now defaults to `secureboot=true`. Proven
+      2026-08-06:
+
+      ```
+      installed and verified: cayo-ab (verity+luks+erofs, secureboot=true, skip-mok=true)
+      ```
+
+      `--skip-mok` is kept rather than dropped: the pre-seed replaces MokManager
+      entirely, so asking the installer to stage a prompt nothing can answer
+      would be worse, not better. Secure Boot is genuinely enforced — Microsoft's
+      KEK/db are untouched and firmware still rejects everything except the one
+      certificate granted.
 - [ ] **F3.** Negative proof — a wrongly-signed binary must be rejected by shim,
       or the positive result proves nothing.
 - [ ] **F4.** Published-disk lane under enforced SB with the MOK pre-seeded.
