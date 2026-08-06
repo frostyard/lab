@@ -122,7 +122,7 @@ spec:
           # virt-fw-vars pre-seeds the guest's own OVMF variable store with the
           # snosi MOK. gcc/python3-dev because Python 3.13 dropped `crypt`, so
           # pip resolves virt-firmware onto crypt_r, which ships no wheel.
-          apt-get install -y -qq --no-install-recommends git gcc python3-dev libc6-dev python3-pip >/dev/null
+          apt-get install -y -qq --no-install-recommends git gcc python3 python3-dev libc6-dev python3-pip >/dev/null
           pip install --quiet --break-system-packages virt-firmware
           command -v virt-fw-vars >/dev/null || { echo "virt-fw-vars unavailable" >&2; exit 1; }
         fi
@@ -274,9 +274,18 @@ spec:
           incus stop "${VM}" --force >/dev/null 2>&1 || true
           [[ -n "${NVRAM}" ]] || { echo "guest varstore never appeared" >&2; exit 1; }
 
-          virt-fw-vars --input "${NVRAM}" --output "${NVRAM}" --add-mok "${MOK_CERT}" \
+          # --add-mok takes an owner GUID and the certificate, and --inplace
+          # edits the varstore directly. This is snosi's own invocation from
+          # test/native-installer-e2e-test.sh, GUID and all; deviating from it
+          # is how a "MOK enrolled" message ends up meaning nothing.
+          MOK_GUID="$(python3 -c 'import uuid; print(uuid.uuid4())')"
+          virt-fw-vars --inplace "${NVRAM}" --add-mok "${MOK_GUID}" "${MOK_CERT}" \
             || { echo "virt-fw-vars could not enroll the MOK" >&2; exit 1; }
-          echo "MOK enrolled into $(basename "${NVRAM}")" >&2
+          # Prove it landed rather than trusting the exit status: the varstore
+          # must now contain a MokList.
+          virt-fw-vars -i "${NVRAM}" -p 2>&1 | grep -q MokList \
+            || { echo "varstore has no MokList after injection" >&2; exit 1; }
+          echo "MOK enrolled into $(basename "${NVRAM}") as owner ${MOK_GUID}" >&2
         fi
 
         incus start "${VM}"
