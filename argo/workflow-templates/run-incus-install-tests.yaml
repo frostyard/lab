@@ -107,6 +107,7 @@ spec:
       - { name: INSTALLED_BOOT_TIMEOUT, value: "{{inputs.parameters.installed-boot-timeout-seconds}}" }
       - { name: DEBIAN_FRONTEND, value: noninteractive }
       volumeMounts:
+      - { name: incus-pools, mountPath: /var/lib/incus/storage-pools }
       - { name: incus-bin,  mountPath: /usr/incus, readOnly: true }
       - { name: incus-sock, mountPath: /var/lib/incus/unix.socket }
       - { name: iso-cache,  mountPath: /var/lib/snosi-lab/iso }
@@ -117,6 +118,14 @@ spec:
         mkdir -p /tmp/results /var/lib/snosi-lab/iso
         apt-get update -qq
         apt-get install -y -qq --no-install-recommends ca-certificates curl >/dev/null
+        if [[ "${SECUREBOOT}" == "true" ]]; then
+          # virt-fw-vars pre-seeds the guest's own OVMF variable store with the
+          # snosi MOK. gcc/python3-dev because Python 3.13 dropped `crypt`, so
+          # pip resolves virt-firmware onto crypt_r, which ships no wheel.
+          apt-get install -y -qq --no-install-recommends git gcc python3-dev libc6-dev python3-pip >/dev/null
+          pip install --quiet --break-system-packages virt-firmware
+          command -v virt-fw-vars >/dev/null || { echo "virt-fw-vars unavailable" >&2; exit 1; }
+        fi
 
         VM="qa-$(echo '{{workflow.name}}' | tail -c 40 | tr -cd 'a-z0-9-' | sed 's/^-*//')"
         cleanup() {
@@ -235,6 +244,41 @@ spec:
           source="${ISO_PATH}" boot.priority=10 readonly=true
         incus config set "${VM}" raw.qemu="-smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.snosi-qa-install.service=${U_B64} -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.multi-user.target=${D_B64}"
 
+        # ── Secure Boot: pre-enroll the MOK into this guest's own varstore ───
+        # snosi signs its UKI with its own MOK, which a fresh OVMF does not
+        # trust, and enrollment is an interactive MokManager step no unattended
+        # run can answer. snosi's own harnesses solve this host-side with
+        # `virt-fw-vars --add-mok` against a copy of OVMF_VARS_4M.ms.fd; this is
+        # the same technique against incus's per-instance varstore.
+        #
+        # It simulates an operator who has already enrolled the key. Microsoft's
+        # KEK/db are untouched, so Secure Boot stays genuinely enforced -- this
+        # grants trust in exactly one certificate, and firmware still rejects
+        # anything else.
+        #
+        # The varstore only exists once the instance has been started, so the
+        # guest is started and immediately stopped to materialise it.
+        if [[ "${SECUREBOOT}" == "true" ]]; then
+          echo "Pre-enrolling the snosi MOK into the guest varstore..." >&2
+          git clone -q --depth 1 https://github.com/frostyard/snosi.git /src/snosi
+          MOK_CERT=/src/snosi/shared/native-ab/keys/mok-2026.crt
+          [[ -f "${MOK_CERT}" ]] || { echo "MOK certificate missing from the snosi checkout" >&2; exit 1; }
+
+          incus start "${VM}"
+          NVRAM=""
+          for _ in $(seq 1 30); do
+            candidate="/var/lib/incus/storage-pools/lab/virtual-machines/${VM}/qemu.nvram"
+            [[ -e "${candidate}" ]] && { NVRAM="${candidate}"; break; }
+            sleep 2
+          done
+          incus stop "${VM}" --force >/dev/null 2>&1 || true
+          [[ -n "${NVRAM}" ]] || { echo "guest varstore never appeared" >&2; exit 1; }
+
+          virt-fw-vars --input "${NVRAM}" --output "${NVRAM}" --add-mok "${MOK_CERT}" \
+            || { echo "virt-fw-vars could not enroll the MOK" >&2; exit 1; }
+          echo "MOK enrolled into $(basename "${NVRAM}")" >&2
+        fi
+
         incus start "${VM}"
         echo "Waiting for the installer to start..." >&2
         if ! wait_for "${M_BEGIN}" "${ISO_BOOT_TIMEOUT}" "iso-boot"; then
@@ -332,6 +376,8 @@ spec:
           > /tmp/results/result-summary.txt
         cat /tmp/results/result-summary.txt >&2
     volumes:
+    # Writable: the MOK pre-seed edits this guest's own OVMF variable store.
+    - { name: incus-pools, hostPath: { path: /var/lib/incus/storage-pools, type: Directory } }
     - { name: incus-bin,  hostPath: { path: /usr/incus, type: Directory } }
     - { name: incus-sock, hostPath: { path: /var/lib/incus/unix.socket, type: Socket } }
     - { name: iso-cache,  hostPath: { path: /var/lib/snosi-lab/iso, type: DirectoryOrCreate } }
