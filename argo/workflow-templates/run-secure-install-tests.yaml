@@ -55,6 +55,20 @@ spec:
       # also what a user would install from.
       - name: iso-url
         value: "https://repository.frostyard.org/isos/snow-live-latest.iso"
+      # Escape hatch for a locally built ISO. When set, the lane uses this file
+      # verbatim and does NOT touch iso-url or the ETag cache.
+      #
+      # This exists because GitHub repeatedly failed to allocate a runner for
+      # dakota-iso's publisher, and an unpublishable ISO would otherwise block
+      # every secure-install run. It is deliberately a separate input rather
+      # than a hand-written cache fingerprint: forging the fingerprint would
+      # make a local build indistinguishable from the published origin in the
+      # log, which is exactly the confusion the ETag check exists to prevent.
+      #
+      # A run using this is NOT evidence about published media. The lane says
+      # so in its own output.
+      - name: iso-path
+        value: ""
       # Pin both repos so a lane failure is attributable to a known tree rather
       # than to whatever main happened to be that minute.
       - name: snosi-ref
@@ -88,6 +102,7 @@ spec:
       - { name: PROFILE,      value: "{{inputs.parameters.profile}}" }
       - { name: TRACKING_REF, value: "{{inputs.parameters.tracking-ref}}" }
       - { name: ISO_URL,      value: "{{inputs.parameters.iso-url}}" }
+      - { name: ISO_PATH,     value: "{{inputs.parameters.iso-path}}" }
       - { name: SNOSI_REF,    value: "{{inputs.parameters.snosi-ref}}" }
       - { name: DAKOTA_REF,   value: "{{inputs.parameters.dakota-ref}}" }
       - { name: DISK_SIZE,    value: "{{inputs.parameters.target-disk-size}}" }
@@ -157,6 +172,12 @@ spec:
         # that had already been superseded, which is precisely the failure mode
         # it exists to catch.
         ISO=/var/lib/snosi-lab/iso/snow-live-latest.iso
+        if [[ -n "${ISO_PATH}" ]]; then
+          [[ -s "${ISO_PATH}" ]] || fail "FAILED: iso-path ${ISO_PATH} is missing or empty"
+          ISO="${ISO_PATH}"
+          echo "*** LOCAL ISO: ${ISO} ($(stat -c%s "${ISO}") bytes, sha256 $(sha256sum "${ISO}" | cut -c1-16)…)" >&2
+          echo "*** This run is NOT evidence about published media." >&2
+        else
         hdrs="$(curl -sSLI --max-time 60 "${ISO_URL}" | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
         _etag="$(grep -m1 '^etag:'           <<<"${hdrs}" | sed 's/^etag: *//'           || true)"
         _lm="$(  grep -m1 '^last-modified:'  <<<"${hdrs}" | sed 's/^last-modified: *//'  || true)"
@@ -175,6 +196,7 @@ spec:
           curl -fSL --max-time 3600 -o "${ISO}.part" "${ISO_URL}"
           mv "${ISO}.part" "${ISO}"
           printf '%s' "${fp}" > "${ISO}.fingerprint"
+        fi
         fi
 
         # ── inputs ───────────────────────────────────────────────────────────
