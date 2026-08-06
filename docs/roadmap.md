@@ -48,7 +48,7 @@ next — none of them findable without running against real media:
 | 7 | composefs digest probe `exit status 1` | `--privileged` + store bind-mount ([fisherman#18](https://github.com/frostyard/fisherman/pull/18)) |
 | 8 | post-install validation reads `<target>/usr/...`, which composefs does not provide | split target/image roots ([fisherman#19](https://github.com/frostyard/fisherman/pull/19)) |
 | 9 | contract rejected: ESP floor `2 GiB` vs the normative `1 GiB` | corrected to the normative figure ([fisherman#20](https://github.com/frostyard/fisherman/pull/20)) |
-| 10 | `mmx64.efi` missing — nothing stages the Secure Boot chain onto the ESP | **open, and it is a feature gap rather than a bug** |
+| 10 | `mmx64.efi` missing — nothing stages the Secure Boot chain onto the ESP | ESP chain staging built ([fisherman#21](https://github.com/frostyard/fisherman/pull/21)) |
 
 **Where it sits now:** fisherman **v0.2.6** is released and carries 4 through 7.
 The dakota pin is repointed at it and the secure ISO rebuilt against it.
@@ -168,21 +168,26 @@ never modified"). Both assume an install step that puts shim and MokManager
 there in the first place. On the native A/B path mkosi/repart does it. On the
 bootc path nobody does.
 
-**This is why I stopped.** Blockers 1–9 were corrections to existing code with a
-single right answer, and mostly provable in isolation. This one is new
-functionality on the Secure Boot chain — which binaries, under which names, in
-what order, verified how — and getting it wrong produces a system that either
-will not boot under Secure Boot or boots something unverified. It wants a
-deliberate design decision and a maintainer's eye, not a late-night patch from
-the end of a long autonomous run.
+**Built in [fisherman#21](https://github.com/frostyard/fisherman/pull/21)**,
+released as v0.2.9. Three decisions in it are worth knowing, because each is a
+place a later change could go wrong quietly:
 
-Rough shape, for when it is picked up: stage `shimx64.efi` to
-`EFI/BOOT/BOOTX64.EFI` and `mmx64.efi` to `EFI/BOOT/mmx64.efi` from the image's
-`/usr/lib/shim/`, place the MOK-signed `systemd-bootx64.efi` as
-`EFI/BOOT/grubx64.EFI` (the name shim chainloads and the Task 7 reconciler
-later replaces), and verify each against the MOK certificate before it lands —
-`RepairESP` already has that verification logic and would then be doing what its
-name says.
+- **Only the second stage is verified.** It is what snosi signs with its own
+  MOK. shim and MokManager are Debian's and Microsoft-signed — checking them
+  against snosi's MOK would *fail*, and firmware establishes their trust at
+  boot. What this does rely on is all three coming from an image whose
+  signature was verified at pull.
+- **shim is written last.** Until it lands the entry point is still bootc's
+  plain systemd-boot, which at least boots unsecured. Writing shim before its
+  chainload target exists would leave an ESP that cannot boot at all if the
+  install is interrupted. The ordering is a failure-mode choice.
+- **Idempotent.** A complete chain is left untouched, so this never gratuitously
+  rewrites a firmware entry point on an existing install.
+
+This was the first blocker where the fix was new behaviour rather than a
+correction, so there is more room for it to be subtly wrong than in 1–9. Unit
+tests pass; the parts that only a real boot can judge are whether shim actually
+chainloads `grubx64.efi` under this layout and whether the MOK enrols.
 
 ### The tests are half the story
 
