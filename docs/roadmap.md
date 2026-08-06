@@ -55,7 +55,8 @@ next — none of them findable without running against real media:
 | 14 | MOK certificate still read from the target root | move both reads to the image root ([fisherman#24](https://github.com/frostyard/fisherman/pull/24)) |
 | 15 | post-install LUKS assertion: `$2` expanded by the remote shell | escape it ([dakota#18](https://github.com/frostyard/dakota-iso/pull/18)) |
 | 16 | pre-MOK boot found no TPM socket — swtpm dies with its QEMU client | re-arm before the boot ([snosi#510](https://github.com/frostyard/snosi/pull/510)) |
-| 17 | pre-MOK boot classified as neither rejection nor boot-through | **open — evidence was being discarded; now preserved** |
+| 17 | ~~pre-MOK boot classified as neither rejection nor boot-through~~ — a symptom of 18, not a blocker | the `ssh.socket` guard was insufficient; prefer the socket outright ([dakota#19](https://github.com/frostyard/dakota-iso/pull/19)) |
+| 18 | ESP staged the **unsigned** `shimx64.efi`; firmware refuses it with `Access Denied` before shim runs | stage the `.signed` variants, and check for a signature table ([fisherman#26](https://github.com/frostyard/fisherman/pull/26)) |
 
 ### The secure install now completes
 
@@ -77,18 +78,55 @@ never been reached because nothing had ever got this far. That is a different
 phase of the work, and the failures look different: less "this call is wrong",
 more "this step has never run".
 
-Blocker 17 is the current front. The harness boots the target *before* MOK
-enrollment and requires one of two outcomes — shim printing
-`Security Violation` (the correct rejection) or a diagnosable boot-through — and
-saw neither. Its verdict is `BLOCKED` rather than failure, which the lane
-reports as such.
+Blocker 17 turned out to be a **symptom, not a cause** — and the cause was back
+in the installer after all.
 
-Diagnosing it was blocked by a familiar problem: the evidence is the guest's
+The harness boots the target *before* MOK enrollment and requires one of two
+outcomes: shim printing `Security Violation` (the correct rejection), or a
+diagnosable boot-through. It saw neither. With the serial console finally
+preserved, what it actually saw was:
+
+```
+BdsDxe: loading Boot0001 "UEFI Misc Device" from PciRoot(0x0)/Pci(0x2,0x0)
+BdsDxe: failed to load Boot0001 "UEFI Misc Device": Access Denied
+>>Start PXE over IPv4.
+```
+
+`Access Denied` is `EFI_ACCESS_DENIED` — **firmware** rejecting the signature at
+the very first hop. shim never ran, so it could never print `Security
+Violation`; the harness was watching for a message from a program that had not
+started. Its "neither outcome" verdict was correct and precise.
+
+The cause (**blocker 18**) is that Debian installs an unsigned and a signed copy
+of the boot chain into the *same directory*, from different packages:
+
+| path | signature |
+|---|---|
+| `usr/lib/shim/shimx64.efi` | **none** |
+| `usr/lib/shim/shimx64.efi.signed` | Microsoft Corporation UEFI CA 2011 |
+| `usr/lib/shim/mmx64.efi` | **none** |
+| `usr/lib/shim/mmx64.efi.signed` | Debian Secure Boot CA |
+
+The ESP staging added in fisherman#21 took the bare names — the unsigned pair —
+and carried a comment asserting they were Microsoft-signed. An assertion in a
+comment cannot fail. [fisherman#26](https://github.com/frostyard/fisherman/pull/26)
+stages the `.signed` variants and adds a check for a signature table, matching
+what snosi's own native-installer has always done. One trap worth recording:
+`sbverify --list` exits 0 for signed and unsigned binaries alike, so its
+*output* has to be read, not its status.
+
+Diagnosing this was blocked by a familiar problem: the evidence is the guest's
 serial console, which lives in the harness's work directory and is deleted on
 exit. The lane now runs with `KEEP_VM=1` and copies that console to
 `/var/lib/snosi-lab/secure/logs/<workflow>-serial.log`. **Every check from here
 on — shim rejection, the enrolled boot, TPM unlock — is judged from that
 console**, so it is worth having permanently rather than one run at a time.
+
+Even so, placing blocker 18 still meant pulling the 2 GiB image by hand and
+running `sbverify` over its layers, because the target disk that would have
+answered it in one line had already been deleted. The lane now dumps the
+installed ESP — a directory listing plus a signature summary of every `.efi` on
+it — to `<workflow>-esp.txt` on any non-zero exit, before the cleanup trap runs.
 
 **Where it sits now:** fisherman **v0.2.6** is released and carries 4 through 7.
 The dakota pin is repointed at it and the secure ISO rebuilt against it.

@@ -266,6 +266,46 @@ spec:
           tail -n 30 "${serial}" >&2 || true
         done
 
+        # On any non-zero exit, dump the installed ESP before the cleanup trap
+        # takes the target disk with it. Blocker 18 was a wrongly-signed
+        # BOOTX64.EFI, and the only evidence the lane produced was firmware
+        # saying "Access Denied" — placing it meant pulling the 2 GiB image by
+        # hand afterwards and running sbverify on layer contents, because the
+        # disk that would have answered it in one line was already deleted.
+        # This is small: a directory listing and four signature summaries.
+        if [[ "${rc}" != "0" && -f "${TARGET_DISK}" ]]; then
+          ESPLOG="${LOGDIR}/{{workflow.name}}-esp.txt"
+          {
+            echo "=== ESP of ${TARGET_DISK} ==="
+            LOOP="$(losetup --show -Pfr "${TARGET_DISK}" 2>/dev/null || true)"
+            if [[ -n "${LOOP}" ]]; then
+              MP="$(mktemp -d)"
+              # The ESP is partition 1 on every layout fisherman produces.
+              if mount -o ro "${LOOP}p1" "${MP}" 2>/dev/null; then
+                find "${MP}" -type f -printf '%10s  %p\n' 2>/dev/null | sed "s|${MP}||" || true
+                echo "--- signatures ---"
+                # Every binary firmware or shim will try to load. An unsigned
+                # one here is the whole answer; sbverify --list exits 0 either
+                # way, so the OUTPUT is what matters, not the status.
+                while IFS= read -r efi; do
+                  echo "### ${efi#"${MP}"}"
+                  sbverify --list "${efi}" 2>&1 \
+                    | grep -aE 'signature [0-9]|issuers|subject|No signature table' || true
+                done < <(find "${MP}" -iname '*.efi' -type f 2>/dev/null)
+                umount "${MP}" || true
+              else
+                echo "(could not mount ${LOOP}p1 as the ESP)"
+              fi
+              rmdir "${MP}" 2>/dev/null || true
+              losetup -d "${LOOP}" || true
+            else
+              echo "(could not attach ${TARGET_DISK} to a loop device)"
+            fi
+          } > "${ESPLOG}" 2>&1 || true
+          echo "--- installed ESP dumped to ${ESPLOG} ---" >&2
+          cat "${ESPLOG}" >&2 || true
+        fi
+
         # snosi's own exit-code contract: 2 means BLOCKED (missing inputs), not
         # failure. Distinguishing the two is the entire point of this lane —
         # reporting BLOCKED as a pass would be worse than reporting nothing.
