@@ -59,7 +59,7 @@ next — none of them findable without running against real media:
 | 18 | ESP staged the **unsigned** `shimx64.efi`; firmware refuses it with `Access Denied` before shim runs | stage the `.signed` variants, and check for a signature table ([fisherman#26](https://github.com/frostyard/fisherman/pull/26)) |
 | 19 | reading the UKI's sections with `objcopy` (no outfile) **rewrote it in place and dropped its signature** — the installer unsigned its own kernel | read sections with `debug/pe` ([fisherman#28](https://github.com/frostyard/fisherman/pull/28)) |
 | 20 | live SSH intermittently unreachable with `ssh.socket` listening and `ssh.service` failed — **open, cause unknown** | diagnostics now unconditional ([dakota#20](https://github.com/frostyard/dakota-iso/pull/20)) |
-| 21 | the installed target boots the signed kernel, then drops to **emergency mode**: nothing unlocks the LUKS root | **open — [snosi#517](https://github.com/frostyard/snosi/issues/517)** |
+| 21 | the installed target boots the signed kernel, then drops to **emergency mode**: nothing unlocks the LUKS root | systemd 261 moved the `gpt-auto-root-luks` udev rule into `90-image-dissect.rules`, which dracut does not install ([snosi#520](https://github.com/frostyard/snosi/pull/520)) — **fix merged, awaiting a rebuilt image for proof** |
 
 ### The secure install now completes
 
@@ -250,6 +250,49 @@ no `root=`) it never takes the LUKS branch. That is the open question in
 [#519](https://github.com/frostyard/snosi/pull/519) add a build-time regression
 test that runs the embedded generator and requires the unit — scoped, explicitly,
 to *not* claim coverage of the production path.
+
+#### Blocker 21 — resolved: a udev rule that moved house
+
+**Root cause, found by a second agent and confirmed here against the real
+artifacts:** systemd 257 shipped the udev rules that create
+`/dev/gpt-auto-root[-luks]` in `99-systemd.rules`, which dracut installs by
+name. systemd 261 moved them into `90-image-dissect.rules`, which dracut's
+hardcoded list does **not** install. The bootc-secure fragment pins
+`udev/forky`, so the initramfs got 261's rules file minus the rules.
+
+The generator was never the problem. v261 writes
+`systemd-cryptsetup@root.service` **unconditionally**, keyed on the device
+appearing — from systemd's own source:
+
+> *If a device /dev/gpt-auto-root-luks … appears, then make it pull in
+> systemd-cryptsetup@root.service, which sets it up, and causes
+> /dev/gpt-auto-root … to appear which is all we are looking for.*
+
+So the unit was generated correctly every time; nothing ever created the device
+it binds to. `cryptsetup.target` completed empty, `sysroot.mount` timed out,
+emergency mode. My own framing — "the generator never took the LUKS branch" —
+was wrong, and that error is why I kept looking at the generator instead of at
+udev.
+
+**Verified before merge, without CI or signing keys.** Running `dracut` inside
+the published image twice, identical but for the drop-in:
+
+| | `90-image-dissect.rules` in the initramfs |
+|---|---|
+| baseline | **0** |
+| with `35-gpt-auto-udev-rules.conf` | **1** |
+
+with the installed file carrying
+`ENV{ID_FS_TYPE}=="crypto_LUKS", … SYMLINK+="gpt-auto-root-luks"`. The baseline
+`0` also reproduces the defect in a *fresh* dracut run, making it a build
+configuration bug rather than an accident of how one initramfs was assembled.
+
+**Also confirmed on published media.** The lane ran against the ISO GitHub built
+after runners briefly recovered — new ETag, freshly downloaded, fisherman
+v0.2.14 — and reached emergency mode identically. So this was a defect in what
+users would install, not an artefact of the ISO built by hand on selfie.
+
+**Still unproven:** the runtime chain. A rebuilt secure image is required.
 
 ### Blocker 20 — live SSH is intermittent, and the cause is still unknown
 

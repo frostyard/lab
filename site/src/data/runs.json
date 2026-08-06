@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-06T19:37:59Z",
+  "generated": "2026-08-06T20:09:59Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -80,11 +80,11 @@
       "label": "bootc secure installer",
       "kind": "install",
       "latest": {
-        "name": "snosi-secure-install-t6pmj",
+        "name": "snosi-secure-install-2tbbp",
         "phase": "Failed",
-        "started": "2026-08-06T18:00:21Z",
-        "finished": "2026-08-06T18:10:34Z",
-        "durationSeconds": 613,
+        "started": "2026-08-06T19:54:01Z",
+        "finished": "2026-08-06T20:05:34Z",
+        "durationSeconds": 693,
         "template": "run-secure-install-tests",
         "kind": "install",
         "label": "bootc secure installer",
@@ -92,7 +92,7 @@
         "result": "BLOCKED: BLOCKED: MOK-enrolled installed target did not reach SSH",
         "checks": []
       },
-      "runs": 29,
+      "runs": 30,
       "everGreen": false
     },
     {
@@ -177,6 +177,19 @@
     }
   ],
   "runs": [
+    {
+      "name": "snosi-secure-install-2tbbp",
+      "phase": "Failed",
+      "started": "2026-08-06T19:54:01Z",
+      "finished": "2026-08-06T20:05:34Z",
+      "durationSeconds": 693,
+      "template": "run-secure-install-tests",
+      "kind": "install",
+      "label": "bootc secure installer",
+      "trigger": "manual",
+      "result": "BLOCKED: BLOCKED: MOK-enrolled installed target did not reach SSH",
+      "checks": []
+    },
     {
       "name": "image-poll-snowfield-latest-1786041600",
       "phase": "Succeeded",
