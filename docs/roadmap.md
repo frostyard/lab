@@ -315,10 +315,8 @@ finds the next real thing, and there is no way to know how many remain.
   adopts snosi's existing `virt-fw-vars` pattern, could start any time.
 - **Phase E** — the lab as `bootc-secure` self-hosted runner. Approved; gated on
   the secure lane being green so we are not automating something unproven.
-- **ext4 in the fisherman matrix.** All three entries are btrfs today. ext4
-  coverage was lost with the removed `dakota` entry — btrfs is correctly primary
-  (it is what most installs use and what the secure path produces), but ext4
-  should come back as a second filesystem once the secure path is green.
+- **ext4 in the fisherman matrix** — done, open as
+  [fisherman#25](https://github.com/frostyard/fisherman/pull/25). See G0.
 - **A live dashboard.** The current design — a 30-minute CronWorkflow that
   commits `runs.json` and triggers a Pages rebuild — is the *least* live option
   available, and the maintainer wants more live rather than less. So it is a
@@ -734,11 +732,24 @@ stages enrollment itself. Do not unify them.
 
 ### Phase G — matrix, updates, gating
 
-- [ ] **G0.** Restore ext4 to the fisherman test matrix. All three entries are
-      btrfs today; ext4 coverage disappeared with the removed `dakota` entry,
-      which was the only ext4 filesystem in it. btrfs is correctly primary — it
-      is what most installs use and what the secure path produces — but ext4
-      should return as a second filesystem once the secure path is green.
+- [x] **G0.** Restore ext4 to the fisherman test matrix — **open as
+      [fisherman#25](https://github.com/frostyard/fisherman/pull/25)**. All three
+      entries were btrfs; ext4 coverage disappeared with the removed `dakota`
+      entry, which was the only ext4 filesystem in it. btrfs is correctly primary
+      — it is what most installs use and what the secure path produces — but
+      `FormatRoot`'s ext4 branch is not a trivial variation of it:
+
+      ```go
+      case "ext4":
+          return runner.Run("mkfs.ext4", "-F", "-L", "root", "-O", "verity", dev)
+      ```
+
+      composefs enables fs-verity per file and ext4 only offers
+      `FS_IOC_ENABLE_VERITY` when the feature is set at format time. Drop that
+      one flag and the **install still reports success**; the deployment then
+      fails to boot, and nothing in CI notices. The new leg is
+      `frostyard-cayo-ext4`: advisory, on the small image, reusing cayo's
+      published `:ssh-enabled` tag so no new SSH image is built.
 - [ ] **G1.** Both install lanes across `{cayo, snow, snowfield}`.
 - [ ] **G2.** Run the behave suite against installed VMs, not just console
       assertions. This is where `snowfield`'s Surface kernel finally gets
