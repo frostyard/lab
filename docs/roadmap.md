@@ -50,6 +50,7 @@ next — none of them findable without running against real media:
 | 9 | contract rejected: ESP floor `2 GiB` vs the normative `1 GiB` | corrected to the normative figure ([fisherman#20](https://github.com/frostyard/fisherman/pull/20)) |
 | 10 | `mmx64.efi` missing — nothing stages the Secure Boot chain onto the ESP | ESP chain staging built ([fisherman#21](https://github.com/frostyard/fisherman/pull/21)) |
 | 11 | BLS validator rejects `uki`, the directive bootc actually writes | accept `uki` as well as `efi` ([fisherman#22](https://github.com/frostyard/fisherman/pull/22)) |
+| 12 | composefs identity read from BLS `options`, which a UKI entry does not have | read it from the UKI's signed `.cmdline` ([fisherman#23](https://github.com/frostyard/fisherman/pull/23)) |
 
 **Where it sits now:** fisherman **v0.2.6** is released and carries 4 through 7.
 The dakota pin is repointed at it and the secure ISO rebuilt against it.
@@ -217,10 +218,18 @@ broken behaviour**, and each passed while the thing it covered could not work:
 | 7 | the composefs digest probe without `--privileged` or the store mounted |
 | 9 | a 2 GiB ESP floor no image declares |
 
-The common shape: each test restated the argument vector or constant the
-implementation happened to produce, so it could only ever fail if someone
-changed the implementation *and forgot to change the test*. It could never fail
-because the behaviour was wrong.
+Blocker 12 added a fifth, and a sharper variant: `installedFixture` writes a BLS
+entry with an `options composefs=` line, a shape **no real install produces**.
+Every test in that file was exercising a fallback path rather than the live one,
+which is why the suite stayed green through a bug that broke every install.
+
+The common shape: each test restated the argument vector, constant, or file
+layout the implementation happened to produce, so it could only ever fail if
+someone changed the implementation *and forgot to change the test*. It could
+never fail because the behaviour was wrong.
+
+**This is now the most reliable predictor of where the next blocker is:**
+wherever a fixture encodes a shape the product does not emit.
 
 The replacements assert **properties** instead — "the subcommand precedes its
 flags", "the store is mounted", "the constant equals the normative figure". That
