@@ -51,6 +51,8 @@ next — none of them findable without running against real media:
 | 10 | `mmx64.efi` missing — nothing stages the Secure Boot chain onto the ESP | ESP chain staging built ([fisherman#21](https://github.com/frostyard/fisherman/pull/21)) |
 | 11 | BLS validator rejects `uki`, the directive bootc actually writes | accept `uki` as well as `efi` ([fisherman#22](https://github.com/frostyard/fisherman/pull/22)) |
 | 12 | composefs identity read from BLS `options`, which a UKI entry does not have | read it from the UKI's signed `.cmdline` ([fisherman#23](https://github.com/frostyard/fisherman/pull/23)) |
+| 13 | the QA SSH unit killed the `ssh.socket` that was already serving | start SSH only if nothing already is ([dakota#17](https://github.com/frostyard/dakota-iso/pull/17)) |
+| 14 | MOK certificate still read from the target root | move both reads to the image root ([fisherman#24](https://github.com/frostyard/fisherman/pull/24)) |
 
 **Where it sits now:** fisherman **v0.2.6** is released and carries 4 through 7.
 The dakota pin is repointed at it and the secure ISO rebuilt against it.
@@ -230,6 +232,28 @@ never fail because the behaviour was wrong.
 
 **This is now the most reliable predictor of where the next blocker is:**
 wherever a fixture encodes a shape the product does not emit.
+
+### Two of my own mistakes, worth recording
+
+**Blocker 13 was self-inflicted.** The QA SSH unit added in
+[dakota#16](https://github.com/frostyard/dakota-iso/pull/16) ran
+`systemctl start ssh.socket || systemctl start ssh.service`. The live image
+socket-activates sshd, so `ssh.socket` was usually already listening; starting
+`ssh.service` *conflicts* with it, so systemd stopped the working socket and
+then failed to start the service, leaving nothing listening. The unit was
+breaking the very SSH it exists to provide — and only when it lost the race
+against socket activation, which is exactly the intermittent
+"Dakota live SSH did not become ready" seen earlier. Raising the timeout to
+600s could never have helped; that was treating a symptom. What actually caught
+it was the serial-console dump added in the same PR.
+
+**Blocker 14 was an incomplete fix of blocker 8.** When the contract, PCR key
+and ESP second stage moved to the image root, two MOK certificate reads were
+left on the target root. The failure pointed at one path and I converted the
+paths it pointed at, rather than auditing the class. Fixed properly this time by
+sweeping every caller, with a note at the `secureImageRoot` declaration listing
+everything that must come from the image root — because the next `/usr` read is
+the obvious place for a third.
 
 The replacements assert **properties** instead — "the subcommand precedes its
 flags", "the store is mounted", "the constant equals the normative figure". That
