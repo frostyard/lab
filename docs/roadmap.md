@@ -59,6 +59,7 @@ next — none of them findable without running against real media:
 | 18 | ESP staged the **unsigned** `shimx64.efi`; firmware refuses it with `Access Denied` before shim runs | stage the `.signed` variants, and check for a signature table ([fisherman#26](https://github.com/frostyard/fisherman/pull/26)) |
 | 19 | reading the UKI's sections with `objcopy` (no outfile) **rewrote it in place and dropped its signature** — the installer unsigned its own kernel | read sections with `debug/pe` ([fisherman#28](https://github.com/frostyard/fisherman/pull/28)) |
 | 20 | live SSH intermittently unreachable with `ssh.socket` listening and `ssh.service` failed — **open, cause unknown** | diagnostics now unconditional ([dakota#20](https://github.com/frostyard/dakota-iso/pull/20)) |
+| 21 | the installed target boots the signed kernel, then drops to **emergency mode**: nothing unlocks the LUKS root | **open — [snosi#517](https://github.com/frostyard/snosi/issues/517)** |
 
 ### The secure install now completes
 
@@ -186,6 +187,69 @@ outright, so this class fails at install time rather than at the next boot.
 The finding came from a subagent audit of bootc's write path, dispatched after
 the maintainer asked whether the next bootc *update* would strip the signature
 again — a question about coverage that turned up the actual cause.
+
+### Blocker 21 — the kernel boots; nothing unlocks the root
+
+**This is the current front, and it is much further along than anything before it.**
+
+With the UKI signature preserved, the target now boots. The kernel starts, the
+initramfs runs, the TPM is found — and then:
+
+```
+[1.872] Expecting device dev-gpt-auto-root.device - /dev/gpt-auto-root...
+[  OK ] Reached target cryptsetup.target - Local Encrypted Volumes.
+[  OK ] Found device dev-tpm0.device - /dev/tpm0.
+[  OK ] Reached target tpm2.target - Trusted Platform Module.
+[TIME ] Timed out waiting for device dev-gpt-auto-root.device.
+[DEPEND] Dependency failed for sysroot.mount - Root Partition.
+Entering emergency mode.
+```
+
+`cryptsetup.target` is reached **with no units beneath it**. Nothing ever
+attempted an unlock.
+
+**What is ruled out.** The lane now dumps the installed disk before cleanup, and
+the disk is correct:
+
+| partition | name | GPT type | fs |
+|---|---|---|---|
+| p1 | `EFI-SYSTEM` | `c12a7328-…` | vfat |
+| p2 | `root` | `4f68bce3-e8cd-4db1-96e7-fbcaf984b709` | **crypto_LUKS** |
+
+LUKS2 carrying both a `systemd-tpm2` token and a pbkdf2 recovery slot. So
+partitioning, LUKS setup and TPM enrollment — all fisherman's work — are right.
+
+Unpacking the initramfs from the image's own signed UKI rules out more:
+`libcryptsetup.so.12` and the tpm2 token plugin are present, the generator has
+`add_root_cryptsetup` compiled in, and `libsystemd-shared-261.so` matches PID 1's
+`systemd 261.2-1`, so there is no trixie/forky skew.
+
+**A wrong turn worth recording.** I first blamed a missing
+`systemd-cryptsetup@.service` template, filed that as the root cause, and was
+corrected: systemd v261's generator *writes* complete units rather than
+instantiating a packaged template, so forky omitting the template is correct
+packaging. Verified against systemd's source before accepting it. Copying a
+template in would have been a fix for a non-problem.
+
+**Then proven capable.** Running the real initramfs's own generator against the
+real signed UKI on selfie, it emits everything needed:
+
+```
+/run/gen/late/systemd-cryptsetup@root.service
+/run/gen/late/dev-gpt\x2dauto\x2droot\x2dluks.device.wants/systemd-cryptsetup@root.service
+/run/gen/late/systemd-veritysetup@root.service
+/run/gen/late/sysroot.mount
+```
+
+So the generator can set up the encrypted root. The failure is in the
+**production discovery path** — under the real cmdline (`rw composefs=?<digest>`,
+no `root=`) it never takes the LUKS branch. That is the open question in
+[snosi#517](https://github.com/frostyard/snosi/issues/517).
+
+[snosi#518](https://github.com/frostyard/snosi/pull/518) and
+[#519](https://github.com/frostyard/snosi/pull/519) add a build-time regression
+test that runs the embedded generator and requires the unit — scoped, explicitly,
+to *not* claim coverage of the production path.
 
 ### Blocker 20 — live SSH is intermittent, and the cause is still unknown
 
