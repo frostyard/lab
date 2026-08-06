@@ -234,6 +234,14 @@ finds the next real thing, and there is no way to know how many remain.
   coverage was lost with the removed `dakota` entry — btrfs is correctly primary
   (it is what most installs use and what the secure path produces), but ext4
   should come back as a second filesystem once the secure path is green.
+- **A live dashboard.** The current design — a 30-minute CronWorkflow that
+  commits `runs.json` and triggers a Pages rebuild — is the *least* live option
+  available, and the maintainer wants more live rather than less. So it is a
+  working default, not the end state. Reference to study first:
+  <https://factory.projectbluefin.io/>, projectbluefin's own build/QA surface —
+  worth understanding before designing ours, given this lab is modelled on
+  `projectbluefin/lab`. `collect_runs.py` stays the producer whichever way it
+  goes; only the sink and the cadence change.
 
 ---
 
