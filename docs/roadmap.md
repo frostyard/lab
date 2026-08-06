@@ -57,6 +57,8 @@ next — none of them findable without running against real media:
 | 16 | pre-MOK boot found no TPM socket — swtpm dies with its QEMU client | re-arm before the boot ([snosi#510](https://github.com/frostyard/snosi/pull/510)) |
 | 17 | ~~pre-MOK boot classified as neither rejection nor boot-through~~ — a symptom of 18, not a blocker | the `ssh.socket` guard was insufficient; prefer the socket outright ([dakota#19](https://github.com/frostyard/dakota-iso/pull/19)) |
 | 18 | ESP staged the **unsigned** `shimx64.efi`; firmware refuses it with `Access Denied` before shim runs | stage the `.signed` variants, and check for a signature table ([fisherman#26](https://github.com/frostyard/fisherman/pull/26)) |
+| 19 | `bootc install` rewrites the UKI and drops its Authenticode signature; systemd-boot refuses it with `Invalid parameter` | stage the image's signed UKI over it ([fisherman#27](https://github.com/frostyard/fisherman/pull/27)) |
+| 20 | live SSH intermittently unreachable with `ssh.socket` listening and `ssh.service` failed — **open, cause unknown** | diagnostics now unconditional ([dakota#20](https://github.com/frostyard/dakota-iso/pull/20)) |
 
 ### The secure install now completes
 
@@ -127,6 +129,62 @@ running `sbverify` over its layers, because the target disk that would have
 answered it in one line had already been deleted. The lane now dumps the
 installed ESP — a directory listing plus a signature summary of every `.efi` on
 it — to `<workflow>-esp.txt` on any non-zero exit, before the cleanup trap runs.
+
+### Blocker 19 — the UKI reaches the ESP unsigned
+
+That ESP dump paid for itself on its first run. With the chain fixed, the target
+got **past the pre-MOK rejection and past MOK enrollment** for the first time,
+and then failed one hop later:
+
+```
+Error loading EFI binary \EFI\Linux\bootc\bootc_composefs-a0c1f9a9….efi: Invalid parameter
+BdsDxe: No bootable option or device was found.
+```
+
+shim ran, verified systemd-boot, and systemd-boot refused the kernel. Measured
+against the exact image that install used:
+
+| | image `boot/EFI/Linux/<kver>.efi` | ESP `EFI/Linux/bootc/bootc_composefs-<id>.efi` |
+|---|---|---|
+| signature | `/CN=snosi Secure Boot 2026/O=frostyard` | **none** |
+| `.cmdline` | `rw composefs=?a0c1f9a9…4f` | `rw composefs=?a0c1f9a9…4f` |
+| sections | 13, incl. `.pcrsig` `.pcrpkey` | identical names **and sizes** |
+| bytes | 101157224 | 101134848 |
+
+`bootc install` **rewrites** the UKI rather than copying it — stripping the
+image UKI's signature with `sbattach --remove` still leaves 101154816 bytes, so
+bootc's file is ~20 KiB smaller than a stripped copy. Same sections, different
+packing, no signature.
+
+One piece of good news in that table: `.pcrsig` and `.pcrpkey` survive, so TPM
+unlock material is intact and is not the next failure.
+
+Two fixes are closed off. Re-signing needs the MOK private key, which must never
+be present during an install; re-attaching the image's signature cannot work
+because the bytes differ. Installing the already-signed artifact is the only move
+that needs no key —
+[fisherman#27](https://github.com/frostyard/fisherman/pull/27). It is a
+substitution of the same boot, not a swap: both UKIs must name the same composefs
+identity, and that identity pins the deployment bootc just wrote.
+
+The durable fix arguably belongs in bootc, which would make this staging
+unnecessary. #27 no-ops the moment bootc preserves the signature.
+
+### Blocker 20 — live SSH is intermittent, and the cause is still unknown
+
+Two runs in a row differed only in this: one reached the installer fine, the
+other sat for 600 s with `ssh.socket` **listening**, `ssh.service` **failed**,
+and nothing on the console. It is flaky, not deterministic.
+
+Worth stating plainly because it has cost three rounds: **two fixes here were
+built on unverified theories** about why `ssh.service` fails — first "our unit
+stops the working socket" (#17), then "connecting is what starts the service"
+(#19). Both were wrong, and each took a run to disprove.
+[dakota#20](https://github.com/frostyard/dakota-iso/pull/20) stops theorising:
+it reports `is-active`, `ss -ltnp` on `:22` — whether anything is actually
+*serving*, which is not the same claim as a unit being active — `sshd -t`, and
+the journal, **unconditionally**. The previous guard only spoke when nothing was
+listening, which is precisely the case that did not occur.
 
 **Where it sits now:** fisherman **v0.2.6** is released and carries 4 through 7.
 The dakota pin is repointed at it and the secure ISO rebuilt against it.
