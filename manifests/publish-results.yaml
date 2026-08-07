@@ -11,9 +11,10 @@
 #   kubectl create secret generic github-token -n argo \
 #     --from-literal=token=<PAT with contents:write on frostyard/lab>
 #
-# suspend: true until that secret exists — a lane that fails every 30 minutes
-# because of a missing credential is noise, not a signal. Flip to false in git
-# once the secret is in place.
+# The secret is in place (created 2026-08-07), the hardened script was proven
+# end to end by a manual run that pushed 988ec16 and triggered a green Pages
+# deploy, so this is now active. If the credential is ever removed, the script
+# exits 0 at its own guard rather than failing every 30 minutes.
 apiVersion: argoproj.io/v1alpha1
 kind: CronWorkflow
 metadata:
@@ -22,7 +23,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: lab
 spec:
-  suspend: true
+  suspend: false
   schedules:
     - "*/30 * * * *"
   timezone: "UTC"
