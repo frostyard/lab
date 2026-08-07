@@ -25,18 +25,39 @@ Updated 2026-08-05, end of day. If you read one section, read this one.
 | Published A/B disk artifact | 🟢 |
 | ISO boot, Secure Boot enforced | 🟢 |
 | bootc installer (mechanics) | 🟢 — first pass ever, today |
-| **bootc secure installer** | 🟡 **installs and BOOTS**; failing on later harness assertions |
+| **bootc secure installer** | 🟢 **18/18, first green 2026-08-07** |
 | Registry digest poll, orphan GC | 🟢 |
 
-**Seven of eight lanes green.** The eighth is the secure install path. As of
-2026-08-07 it **installs and boots** — Secure Boot enforced, measured UKI,
-lockdown active, TPM-unlocked LUKS root — and is now failing on assertions that
-run *inside a working system* rather than on getting one to exist.
+**All eight lanes green.** The secure install path went green on 2026-08-07
+(`snosi-secure-install-5dpkq`, 18 assertions, 0 failed, 0 blocked) against
+**published media and a published image** — `snow-live-latest.iso` and
+`cayo@sha256:b3375f6c`.
 
-### The one live front
+Proven end to end: install completes; boots under enforced Secure Boot with a
+measured, MOK-signed UKI; lockdown active; LUKS2/Btrfs root unlocked by a single
+signed-PCR-11 TPM token; Type #2-only BLS; composefs binding with no root or
+LUKS identifier on the kernel command line; complete non-secret provenance;
+bootc-managed deployment; the runtime ESP reconciler restoring only what was
+deliberately changed; an unattended TPM-unlock reboot; and both recovery paths
+— TPM replacement and recovery re-enrolment.
+
+**What green does NOT mean here.** The harness proves a good image installs and
+boots. It no longer proves a bad one is refused: the nine-case negative-fixture
+requirement was removed by decision on 2026-08-07
+([snosi#548](https://github.com/frostyard/snosi/pull/548),
+[dakota#31](https://github.com/frostyard/dakota-iso/pull/31)) rather than
+implemented. Six of those cases needed published, deliberately-broken, signed
+OCI artifacts to be *causal* — valid in every respect except the property under
+test — and that cost was judged not worth paying. Signature enforcement itself
+is still covered by the shipped `policy.json` and
+`snosi test/bootc-container-policy-test.sh RUN_LIVE=1`, and Dakota's shim
+`Security Violation` proof is untouched. The specific uncovered gap is a
+deliberately-broken image reaching the installer.
+
+### How the secure lane got green
 
 `run-secure-install-tests` drives snosi's Task 9 harness against the real
-external installer. Each attempt has cleared one genuine defect and exposed the
+external installer. Each attempt cleared one genuine defect and exposed the
 next — none of them findable without running against real media:
 
 | # | Blocker | Resolution |
@@ -63,6 +84,19 @@ next — none of them findable without running against real media:
 | 20 | live SSH intermittently unreachable with `ssh.socket` listening and `ssh.service` failed — **open, cause unknown** | diagnostics now unconditional ([dakota#20](https://github.com/frostyard/dakota-iso/pull/20)) |
 | 21 | the installed target boots the signed kernel, then drops to **emergency mode**: nothing unlocks the LUKS root | systemd 261 moved the `gpt-auto-root-luks` udev rule into `90-image-dissect.rules`, which dracut does not install — force it in ([snosi#520](https://github.com/frostyard/snosi/pull/520)). **Proven: the target now boots.** |
 | 22 | harness read BLS entries from `/boot`, which bootc leaves unmounted unless it is using it | read them off the ESP, located by GPT type GUID ([snosi#524](https://github.com/frostyard/snosi/pull/524)) |
+| 23 | recovery runner read `ssh_private_key`; the manifest has always been `ssh_key`. Also matched only `efi` BLS keys when bootc writes `uki`, and ran `objcopy --dump-section` with **no output file against the installed system's UKI** — which would have unsigned the kernel of the machine it was recovering | all three fixed ([dakota#25](https://github.com/frostyard/dakota-iso/pull/25)). The unit test had asserted the *wrong* key name, so it defended the bug; replaced with a check coupling every key a runner reads to what `validate_state` requires |
+| 24 | every subsequent failure reported only "runner failed or omitted its completion marker" plus four stray ssh lines | **no fix — diagnostics.** ERR trap naming line/command/status, phase markers, serial tail ([dakota#26](https://github.com/frostyard/dakota-iso/pull/26)). Found the next three defects in three consecutive runs, first try each |
+| 25 | `stop_vm` used a bare `return` after a failed test, so it reported failure **exactly when it succeeded** — and succeeded only in the had-to-SIGKILL branch | `return 0` on both graceful paths ([dakota#27](https://github.com/frostyard/dakota-iso/pull/27)). Inert in two EXIT-trap callers; fatal in the one that calls it as a function's last command under `set -e` |
+| 26 | swtpm control socket gone between the replacement-TPM VM and the live guest; QEMU does not retry a missing `-chardev` socket | tear down and re-arm against the **same** `--tpmstate` dir ([dakota#28](https://github.com/frostyard/dakota-iso/pull/28)) — reinitializing would have discarded the very TPM the case rotates |
+| 27 | `$2` unescaped inside `sudo bash -ceu`, eaten as a positional parameter; `-u` made it fatal inside a process substitution, so the visible symptom was a bogus "expected exactly one LUKS device" | escape it ([dakota#29](https://github.com/frostyard/dakota-iso/pull/29)); test now scans every runner's awk programs |
+| 28 | `stop_vm` again: `-f` test then a separate read, racing the `quit` it had just sent — QEMU removes its own pidfile on exit. Killed a **successful** install from its EXIT trap | one tolerant read ([dakota#30](https://github.com/frostyard/dakota-iso/pull/30)) |
+| 29 | `BLOCKED: signed causal fixture for unsigned was not supplied` — the last non-green line | requirement removed by decision, not implemented ([snosi#548](https://github.com/frostyard/snosi/pull/548), [dakota#31](https://github.com/frostyard/dakota-iso/pull/31), [lab#14](https://github.com/frostyard/lab/pull/14)) |
+
+**Every one of blockers 23–28 was a first-execution defect in a code path that
+had never run end to end — not a regression.** Each was invisible until the one
+before it was fixed. The turning point was 24, which fixed nothing and only made
+the runner name its own failure; before it, each failure cost a full run to
+re-observe and was diagnosed by guessing at shape.
 
 ### The secure install now completes
 
@@ -766,7 +800,7 @@ test suite but not continuously, and not against published artifacts.
 | Image | container smoke suites (20 desktop / 14 server) | 🟢 lab ×3 products |
 | Installer | `bootc install to-disk` (mechanics tier) | ⚪ **not applicable** to `:latest`, which is `secureboot-capable=true`; lane now refuses it, as snosi's CI does |
 | OS | installed system boots | ⚪ blocked behind the row above |
-| OS | secure install path (external Dakota / bootc-installer / Fisherman) | 🔴 not covered anywhere — snosi's own live harness is `BLOCKED` for lack of a prepared runner |
+| OS | secure install path (external Dakota / bootc-installer / Fisherman) | 🟢 `run-secure-install-tests` — 18/18 on published media, first green 2026-08-07. Refusal of a deliberately-broken image is **not** covered (negative fixtures removed by decision) |
 | OS | update / rollback | 🔴 not covered |
 
 **There is currently no way for this lab to test bootc installation at all.**
@@ -827,7 +861,7 @@ already, on branches in repos we own:
 | Unattended install entrypoint | `fisherman install --recipe <json>`, and `/usr/lib/snosi/fisherman <recipe.json>` on the live ISO | exists |
 | Secure install flow (LUKS, MOK staging, TPM, cosign) | `bootc-installer` `feat/live-image-selection`, `bootc_installer/utils/secure_install.py` + `docs/secure-install.md` | exists |
 | Secure Snow installer media | `dakota-iso` `feat/secure-snow-media`, `images.json` with `secure_install: true` on all three products | exists, pushed |
-| **snosi's missing Task 9 runners** | `dakota-iso` `test/bootc-secure-{installer,negative,recovery,update-*}-runner.sh` + `test/lib/bootc-secure-runner-lib.sh` | **exists, pushed** |
+| **snosi's missing Task 9 runners** | `dakota-iso` `test/bootc-secure-{installer,recovery}-runner.sh`, `test/bootc-secure-update-publish.sh` + `test/lib/bootc-secure-runner-lib.sh` | **exists, green** (the two negative runners were deleted 2026-08-07) |
 
 That last row is the finding. snosi's `test/bootc-secure-install-test.sh` reports
 `BLOCKED` because no prepared runner is supplied — and
@@ -925,8 +959,16 @@ the short version is the table in [Status at a glance](#status-at-a-glance).
 - [x] **D4a.** `BLOCKED` cleared.
 - [x] **D4b–d.** Six blockers cleared, fisherman v0.2.5 released with the last
       three.
-- [ ] **D5.** Re-run against the v0.2.5 media, then the negative and recovery
-      runners, then update.
+- [x] **D4.** Lane green: 18 assertions, 0 failed, 0 blocked, on published
+      media and a published image (`snosi-secure-install-5dpkq`, 2026-08-07).
+      Twenty-nine blockers cleared across four repos.
+- [x] **D5.** Recovery runners green (TPM replacement + recovery re-enrolment).
+      Negative runners **removed by decision**, not implemented — see the
+      status section above for exactly what that gives up.
+- [ ] **D6.** The update runner (`bootc-secure-update-test.sh`) is still
+      unproven: it needs published N+1/N+2 versions with distinct 14-digit
+      image versions. Its negative half is gone for the same reason as the
+      install lane's.
 
 
 ### Phase E — the lab as self-hosted runner
@@ -1256,4 +1298,5 @@ This is the prize: it unblocks snosi's own Task 9 harness, not just the lab.
       delete-and-re-push under a user credential to publish v0.2.3, and it will
       need that every time. Fix is one of: add `workflow_dispatch` to
       `release-publish.yml`, or have `release-cut` push the tag with a PAT.
-- [ ] **D5.** Then the negative and recovery runners, then the update runner.
+- [x] **D5.** Recovery runners done; negative runners removed by decision.
+      The update runner remains (now D6).

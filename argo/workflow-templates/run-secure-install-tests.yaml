@@ -89,6 +89,14 @@ spec:
         valueFrom:
           path: /tmp/results/result-summary.txt
           default: "No results generated"
+      # Same key=value convention the incus lanes use, so collect_runs.py and
+      # the site render this lane's evidence without a special case. Without
+      # it the dashboard shows a green tick and one summary line for the most
+      # security-relevant lane we have, and none of what it actually proved.
+      - name: checks
+        valueFrom:
+          path: /tmp/results/checks.txt
+          default: "no checks recorded"
     script:
       image: docker.io/library/debian:trixie-slim
       securityContext:
@@ -443,6 +451,28 @@ spec:
         printf '%s' "secure install verified: ${PROFILE} @ ${OCI_REF#*@} (Secure Boot enforced, MOK enrolled, TPM unlock)" \
           > /tmp/results/result-summary.txt
         cat /tmp/results/result-summary.txt >&2
+
+        # Derive the dashboard checks from the harness's own TAP-ish output
+        # rather than restating them here: a hand-maintained second list would
+        # drift from the assertions and could report a check the run never made.
+        # Counted, not enumerated -- 18 lines would not fit the card, and the
+        # count plus the pass/fail split is what tells you whether coverage
+        # silently shrank.
+        {
+          # `|| true`, never `|| echo 0`: grep -c ALREADY prints 0 on no match
+          # and then exits 1, so `|| echo 0` appends a second 0 and the value
+          # becomes "0 0". That corrupts exactly the two counters that are zero
+          # on a green run, which is the run nobody looks at twice.
+          printf 'assertions=%s\n' "$(grep -c '^ok - ' "${HLOG}" || true)"
+          printf 'failed=%s\n'     "$(grep -c '^not ok' "${HLOG}" || true)"
+          printf 'blocked=%s\n'    "$(grep -c 'BLOCKED' "${HLOG}" || true)"
+          printf 'profile=%s\n'    "${PROFILE}"
+          printf 'media=%s\n'      "$([[ -n "${ISO_PATH}" ]] && echo local || echo published)"
+          grep -q '^ok - firmware Secure Boot is enforced' "${HLOG}" && printf 'secureboot=enforced\n'
+          grep -q '^ok - TPM unlock reboot reached a distinct boot ID' "${HLOG}" && printf 'tpmunlock=ok\n'
+          grep -q '^ok - recovery reenrollment' "${HLOG}" && printf 'recovery=ok\n'
+        } | grep -E '^[a-z]+=' | sort -u > /tmp/results/checks.txt || true
+        cat /tmp/results/checks.txt >&2
     volumes:
     - name: dev
       hostPath: { path: /dev, type: Directory }
