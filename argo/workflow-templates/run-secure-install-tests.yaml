@@ -361,6 +361,30 @@ spec:
                 echo "(could not mount ${LOOP}p1 as the ESP)"
               fi
               rmdir "${MP}" 2>/dev/null || true
+
+              # Where does /var actually live on the installed root, and did
+              # the provenance record land in it? fisherman writes
+              # <target>/var/lib/snosi/bootc-secure-install.json, and the booted
+              # system reports that file missing -- so either /var is elsewhere
+              # on a composefs deployment, or the write did not happen. Open the
+              # encrypted root read-only and look rather than infer.
+              if [[ -s "${RECOVERY_KEY}" ]] && cryptsetup open --readonly --key-file "${RECOVERY_KEY}" "${LOOP}p2" qa-root-ro 2>/dev/null; then
+                RM="$(mktemp -d)"
+                if mount -o ro /dev/mapper/qa-root-ro "${RM}" 2>/dev/null; then
+                  echo "--- installed root, top level ---"
+                  ls -1 "${RM}" 2>/dev/null | head -20
+                  echo "--- any bootc-secure-install.json on the root ---"
+                  find "${RM}" -name bootc-secure-install.json 2>/dev/null | sed "s|${RM}|<root>|" | head -5
+                  echo "--- var and state layout ---"
+                  find "${RM}/var" -maxdepth 2 2>/dev/null | sed "s|${RM}|<root>|" | head -8
+                  find "${RM}/state" -maxdepth 3 2>/dev/null | sed "s|${RM}|<root>|" | head -8
+                  umount "${RM}" || true
+                fi
+                rmdir "${RM}" 2>/dev/null || true
+                cryptsetup close qa-root-ro 2>/dev/null || true
+              else
+                echo "(could not open the encrypted root for inspection)"
+              fi
               losetup -d "${LOOP}" || true
             else
               echo "(could not attach ${TARGET_DISK} to a loop device)"
