@@ -1,0 +1,55 @@
+# The config SEED. An init container copies this into a writable emptyDir at
+# /etc/hive on every pod start; after first boot the dashboard's overlay on
+# the PVC (/data/hive.yaml.dashboard) wins over anything edited here — change
+# runtime settings through the dashboard, not this file.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hive-config
+  namespace: hive
+  labels:
+    app: hive
+data:
+  hive.yaml: |
+    project:
+      org: frostyard
+      repos: [snosi, testsuite, lab, updex]
+      primary_repo: snosi
+
+    agents:
+      guide:
+        enabled: true
+        backend: copilot
+        model: claude-sonnet-4-6
+      scanner:
+        enabled: true
+        backend: copilot
+        model: claude-sonnet-4-6
+
+    governor:
+      eval_interval_s: 300
+      modes:
+        idle: { threshold: 0,  guide: 4h, scanner: 4h }
+        busy: { threshold: 10, guide: 2h, scanner: 2h }
+
+    github:
+      app_id: 4518769
+      installation_id: 151997502
+      app_slug: frostyard-hive
+      key_file: /secrets/gh-app-key.pem
+      forge: github.com
+      # Public device-flow OAuth client for dashboard sign-in (no secret).
+      oauth_client_id: Ov23ligE2p0gjXg6xAUf
+
+    dashboard:
+      port: 3002
+      # First entry is the owner (read-write); later entries default to viewer.
+      authorized_users:
+        - bketelsen:owner
+      # No hub auth proxy in front of this spoke — direct device-flow login.
+      hub_proxied: false
+
+    hub:
+      enabled: false
+
+    acmm_level: 2
