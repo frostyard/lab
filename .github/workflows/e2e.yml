@@ -1,0 +1,53 @@
+# End-to-end tests for the reporting site.
+#
+# The site is the only thing this repo ships to a browser, so the suite builds
+# it and drives the real static output — the same artifact the pages workflow
+# deploys.
+name: e2e
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'e2e/**'
+      - 'playwright.config.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/e2e.yml'
+  pull_request:
+    paths:
+      - 'site/**'
+      - 'e2e/**'
+      - 'playwright.config.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/e2e.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  playwright:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v5.0.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            site/package-lock.json
+      - run: npm ci
+      - run: npm ci
+        working-directory: site
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e

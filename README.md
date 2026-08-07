@@ -404,6 +404,11 @@ so a lane added tomorrow appears with no reporting change. It skips the commit
 when only the generation timestamp moved, so an idle cluster does not push a
 commit every 30 minutes.
 
+`e2e/` holds the [Playwright](https://playwright.dev) end-to-end suite. It
+builds the site and drives the same static output GitHub Pages serves, asserting
+that what `runs.json` contains is what the dashboard renders. Run it with `just
+site-e2e`; CI runs it via `.github/workflows/e2e.yml`.
+
 The page is styled with the [frostyard design
 system](https://github.com/frostyard/design-system), following its Pilothouse
 dashboard language: ink surfaces, hairline separation, square corners, cold
