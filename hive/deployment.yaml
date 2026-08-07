@@ -41,12 +41,23 @@ spec:
             - { name: config, mountPath: /etc/hive-seed, readOnly: true }
             - { name: config-writable, mountPath: /etc/hive }
             - { name: data, mountPath: /data }
+        # Runs as root (image user). The in-process permissions watcher runs
+        # as uid 1001 and cannot chown/chmod files created by the per-agent
+        # UIDs (2001+), so cross-agent sharing of /data/home (copilot session
+        # state) and /data/beads breaks between restarts unless this repairs
+        # the tree on every pod start: everything dev:node (1001:1000), the
+        # shared trees group-writable, setgid dirs so new files inherit the
+        # node group.
         - name: init-permissions
           image: ghcr.io/kubestellar/hive:v2-latest
           command:
             - sh
             - -c
-            - "chown -R 1001:1000 /data 2>/dev/null || true; echo permissions-set"
+            - >-
+              chown -R 1001:1000 /data 2>/dev/null || true;
+              chmod -R g+rwX /data/home /data/beads /data/agents 2>/dev/null || true;
+              find /data/home /data/beads /data/agents -type d -exec chmod g+s {} + 2>/dev/null || true;
+              echo permissions-set
           volumeMounts:
             - { name: data, mountPath: /data }
       containers:
