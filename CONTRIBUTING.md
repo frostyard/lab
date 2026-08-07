@@ -24,6 +24,10 @@ or supporting docs/tooling (`docs/`, `Justfile`, `scripts/`, `site/`).
 3. The [`Justfile`](Justfile) has convenience recipes for common operations
    (`just status`, `just refresh`, `just smoke`, `just qa ...`). Run
    `just --list` to see everything available.
+4. The [prompt catalog](.github/prompts/) has task recipes for the common
+   kinds of change here (workflow templates, manifests, new QA lanes, triaging
+   a failed run, docs). They are written for coding agents, but they double as
+   a checklist for humans.
 
 ## Making changes
 
