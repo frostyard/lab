@@ -328,6 +328,15 @@ spec:
               # The ESP is partition 1 on every layout fisherman produces.
               if mount -o ro "${LOOP}p1" "${MP}" 2>/dev/null; then
                 find "${MP}" -type f -printf '%10s  %p\n' 2>/dev/null | sed "s|${MP}||" || true
+                # The BLS entries decide two assertions that report only
+                # "not ok" with no detail: whether the entry is Type #2, and
+                # which directive bootc actually wrote (`uki` vs `efi`).
+                echo "--- BLS entries ---"
+                for conf in "${MP}"/loader/entries/*.conf; do
+                  [[ -f "${conf}" ]] || continue
+                  echo "### ${conf#"${MP}"}"
+                  sed 's/^/    /' "${conf}" || true
+                done
                 echo "--- signatures ---"
                 # Every binary firmware or shim will try to load. An unsigned
                 # one here is the whole answer; sbverify --list exits 0 either
