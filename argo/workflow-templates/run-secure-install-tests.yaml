@@ -69,6 +69,10 @@ spec:
       # so in its own output.
       - name: iso-path
         value: ""
+      # Retain the installed target disk for offline inspection. Opt-in: it is
+      # tens of GiB on a shared host path and nothing reaps it.
+      - name: keep-target-disk
+        value: "0"
       # Pin both repos so a lane failure is attributable to a known tree rather
       # than to whatever main happened to be that minute.
       - name: snosi-ref
@@ -103,6 +107,7 @@ spec:
       - { name: TRACKING_REF, value: "{{inputs.parameters.tracking-ref}}" }
       - { name: ISO_URL,      value: "{{inputs.parameters.iso-url}}" }
       - { name: ISO_PATH,     value: "{{inputs.parameters.iso-path}}" }
+      - { name: KEEP_TARGET_DISK, value: "{{inputs.parameters.keep-target-disk}}" }
       - { name: SNOSI_REF,    value: "{{inputs.parameters.snosi-ref}}" }
       - { name: DAKOTA_REF,   value: "{{inputs.parameters.dakota-ref}}" }
       - { name: DISK_SIZE,    value: "{{inputs.parameters.target-disk-size}}" }
@@ -209,6 +214,13 @@ spec:
         mkdir -p "${WORK}"
         cleanup() {
           rc=$?
+          # KEEP_TARGET_DISK=1 retains the installed image for offline
+          # inspection. Tens of GiB on a shared host path, so it is opt-in and
+          # must be cleaned up by hand.
+          if [[ "${KEEP_TARGET_DISK:-0}" == "1" ]]; then
+            echo "--- retaining ${WORK} for inspection (KEEP_TARGET_DISK=1) ---" >&2
+            exit "${rc}"
+          fi
           # The target disk is tens of GiB on a shared host path; it must go
           # even when the lane fails.
           rm -rf "${WORK}" 2>/dev/null || true
