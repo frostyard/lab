@@ -303,6 +303,12 @@ spec:
         if [[ "${rc}" != "0" && -f "${TARGET_DISK}" ]]; then
           ESPLOG="${LOGDIR}/{{workflow.name}}-esp.txt"
           {
+            # A post-mortem dump must never be able to kill itself. The group
+            # runs under `set -euo pipefail` with `|| true` on the outside, so
+            # any unguarded non-zero silently truncates everything after it --
+            # which is how the encrypted-root inspection came to be skipped
+            # with no trace, in the block whose whole job is leaving a trace.
+            set +e
             echo "=== ESP of ${TARGET_DISK} ==="
             LOOP="$(losetup --show -Pfr "${TARGET_DISK}" 2>/dev/null || true)"
             if [[ -n "${LOOP}" ]]; then
