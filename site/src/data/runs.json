@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-07T20:30:27Z",
+  "generated": "2026-08-07T21:00:18Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -129,9 +129,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-manual-hgg89",
+        "name": "publish-results-1786136400",
         "phase": "Running",
-        "started": "2026-08-07T20:30:08Z",
+        "started": "2026-08-07T21:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -141,19 +141,19 @@
         "result": null,
         "checks": []
       },
-      "runs": 1,
-      "everGreen": false
+      "runs": 2,
+      "everGreen": true
     },
     {
       "template": "watch",
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786134000",
-        "phase": "Succeeded",
-        "started": "2026-08-07T20:20:00Z",
-        "finished": "2026-08-07T20:20:30Z",
-        "durationSeconds": 30,
+        "name": "secure-install-watch-1786136400",
+        "phase": "Running",
+        "started": "2026-08-07T21:00:00Z",
+        "finished": null,
+        "durationSeconds": null,
         "template": "watch",
         "kind": "other",
         "label": "watch",
@@ -161,7 +161,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 4,
+      "runs": 5,
       "everGreen": true
     },
     {
@@ -169,19 +169,19 @@
       "label": "Registry digest poll",
       "kind": "poll",
       "latest": {
-        "name": "image-poll-snowfield-latest-1786128000",
-        "phase": "Failed",
-        "started": "2026-08-07T18:40:00Z",
-        "finished": "2026-08-07T18:41:24Z",
-        "durationSeconds": 84,
+        "name": "image-poll-snow-latest-1786136400",
+        "phase": "Running",
+        "started": "2026-08-07T21:00:00Z",
+        "finished": null,
+        "durationSeconds": null,
         "template": "image-poller",
         "kind": "poll",
         "label": "Registry digest poll",
         "trigger": "scheduled",
-        "result": "19 passed, 1 failed",
+        "result": null,
         "checks": []
       },
-      "runs": 11,
+      "runs": 12,
       "everGreen": true
     },
     {
@@ -227,11 +227,63 @@
   ],
   "runs": [
     {
-      "name": "publish-results-manual-hgg89",
+      "name": "image-poll-snow-latest-1786136400",
       "phase": "Running",
-      "started": "2026-08-07T20:30:08Z",
+      "started": "2026-08-07T21:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "image-poller",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786136400",
+      "phase": "Running",
+      "started": "2026-08-07T21:00:00Z",
+      "finished": null,
+      "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786136400",
+      "phase": "Running",
+      "started": "2026-08-07T21:00:00Z",
+      "finished": null,
+      "durationSeconds": null,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786135200",
+      "phase": "Succeeded",
+      "started": "2026-08-07T20:40:00Z",
+      "finished": "2026-08-07T20:40:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-manual-hgg89",
+      "phase": "Succeeded",
+      "started": "2026-08-07T20:30:08Z",
+      "finished": "2026-08-07T20:30:40Z",
+      "durationSeconds": 32,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -321,19 +373,6 @@
         "secureboot=enforced",
         "tpmunlock=ok"
       ]
-    },
-    {
-      "name": "secure-install-watch-1786130400",
-      "phase": "Succeeded",
-      "started": "2026-08-07T19:20:00Z",
-      "finished": "2026-08-07T19:20:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
     },
     {
       "name": "image-poll-snowfield-latest-1786128000",
