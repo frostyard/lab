@@ -388,7 +388,12 @@ spec:
               # encrypted root read-only and look rather than infer.
               if [[ -s "${RECOVERY_KEY}" ]] && cryptsetup open --readonly --key-file "${RECOVERY_KEY}" "${LOOP}p2" qa-root-ro 2>/dev/null; then
                 RM="$(mktemp -d)"
-                if mount -o ro /dev/mapper/qa-root-ro "${RM}" 2>/dev/null; then
+                # rescue=nologreplay: the guest is killed rather than shut
+                # down, so btrfs has a dirty tree-log and a read-only mount
+                # fails with "log replay required on RO media". Without this
+                # the mount silently failed and the whole inspection produced
+                # nothing -- for four runs.
+                if mount -t btrfs -o ro,rescue=nologreplay /dev/mapper/qa-root-ro "${RM}" 2>/dev/null; then
                   echo "--- installed root, top level ---"
                   ls -1 "${RM}" 2>/dev/null | head -20
                   echo "--- any bootc-secure-install.json on the root ---"
@@ -397,6 +402,12 @@ spec:
                   find "${RM}/var" -maxdepth 2 2>/dev/null | sed "s|${RM}|<root>|" | head -8
                   find "${RM}/state" -maxdepth 3 2>/dev/null | sed "s|${RM}|<root>|" | head -8
                   umount "${RM}" || true
+                else
+                  # An inner branch with no else is how this block vanished
+                  # without trace: cryptsetup succeeded, mount failed, and
+                  # neither the output nor the outer else ever appeared.
+                  echo "(opened the LUKS root but could not mount it)"
+                  blkid /dev/mapper/qa-root-ro 2>&1 | head -2
                 fi
                 rmdir "${RM}" 2>/dev/null || true
                 cryptsetup close qa-root-ro 2>/dev/null || true
