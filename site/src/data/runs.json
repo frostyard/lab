@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-07T22:30:20Z",
+  "generated": "2026-08-07T23:00:19Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -129,9 +129,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786141800",
+        "name": "publish-results-1786143600",
         "phase": "Running",
-        "started": "2026-08-07T22:30:00Z",
+        "started": "2026-08-07T23:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -149,10 +149,10 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786141200",
+        "name": "secure-install-watch-1786143600",
         "phase": "Succeeded",
-        "started": "2026-08-07T22:20:00Z",
-        "finished": "2026-08-07T22:20:10Z",
+        "started": "2026-08-07T23:00:00Z",
+        "finished": "2026-08-07T23:00:10Z",
         "durationSeconds": 10,
         "template": "watch",
         "kind": "other",
@@ -227,11 +227,50 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1786141800",
+      "name": "publish-results-1786143600",
       "phase": "Running",
-      "started": "2026-08-07T22:30:00Z",
+      "started": "2026-08-07T23:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786143600",
+      "phase": "Succeeded",
+      "started": "2026-08-07T23:00:00Z",
+      "finished": "2026-08-07T23:00:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786142400",
+      "phase": "Succeeded",
+      "started": "2026-08-07T22:40:00Z",
+      "finished": "2026-08-07T22:40:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786141800",
+      "phase": "Succeeded",
+      "started": "2026-08-07T22:30:00Z",
+      "finished": "2026-08-07T22:30:33Z",
+      "durationSeconds": 33,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -292,19 +331,6 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786138800",
-      "phase": "Succeeded",
-      "started": "2026-08-07T21:40:00Z",
-      "finished": "2026-08-07T21:40:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "publish-results-1786138200",
       "phase": "Succeeded",
       "started": "2026-08-07T21:30:00Z",
@@ -331,19 +357,6 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786137600",
-      "phase": "Succeeded",
-      "started": "2026-08-07T21:20:00Z",
-      "finished": "2026-08-07T21:20:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "image-poll-snow-latest-1786136400",
       "phase": "Failed",
       "started": "2026-08-07T21:00:00Z",
@@ -354,19 +367,6 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786136400",
-      "phase": "Succeeded",
-      "started": "2026-08-07T21:00:00Z",
-      "finished": "2026-08-07T21:00:32Z",
-      "durationSeconds": 32,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
