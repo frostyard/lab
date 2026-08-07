@@ -25,11 +25,13 @@ Updated 2026-08-05, end of day. If you read one section, read this one.
 | Published A/B disk artifact | 🟢 |
 | ISO boot, Secure Boot enforced | 🟢 |
 | bootc installer (mechanics) | 🟢 — first pass ever, today |
-| **bootc secure installer** | 🔴 **the one live front** |
+| **bootc secure installer** | 🟡 **installs and BOOTS**; failing on later harness assertions |
 | Registry digest poll, orphan GC | 🟢 |
 
-**Seven of eight lanes green.** The eighth is the secure install path, and it is
-the only thing actively being worked.
+**Seven of eight lanes green.** The eighth is the secure install path. As of
+2026-08-07 it **installs and boots** — Secure Boot enforced, measured UKI,
+lockdown active, TPM-unlocked LUKS root — and is now failing on assertions that
+run *inside a working system* rather than on getting one to exist.
 
 ### The one live front
 
@@ -59,7 +61,8 @@ next — none of them findable without running against real media:
 | 18 | ESP staged the **unsigned** `shimx64.efi`; firmware refuses it with `Access Denied` before shim runs | stage the `.signed` variants, and check for a signature table ([fisherman#26](https://github.com/frostyard/fisherman/pull/26)) |
 | 19 | reading the UKI's sections with `objcopy` (no outfile) **rewrote it in place and dropped its signature** — the installer unsigned its own kernel | read sections with `debug/pe` ([fisherman#28](https://github.com/frostyard/fisherman/pull/28)) |
 | 20 | live SSH intermittently unreachable with `ssh.socket` listening and `ssh.service` failed — **open, cause unknown** | diagnostics now unconditional ([dakota#20](https://github.com/frostyard/dakota-iso/pull/20)) |
-| 21 | the installed target boots the signed kernel, then drops to **emergency mode**: nothing unlocks the LUKS root | systemd 261 moved the `gpt-auto-root-luks` udev rule into `90-image-dissect.rules`, which dracut does not install ([snosi#520](https://github.com/frostyard/snosi/pull/520)) — **fix merged, awaiting a rebuilt image for proof** |
+| 21 | the installed target boots the signed kernel, then drops to **emergency mode**: nothing unlocks the LUKS root | systemd 261 moved the `gpt-auto-root-luks` udev rule into `90-image-dissect.rules`, which dracut does not install — force it in ([snosi#520](https://github.com/frostyard/snosi/pull/520)). **Proven: the target now boots.** |
+| 22 | harness read BLS entries from `/boot`, which bootc leaves unmounted unless it is using it | read them off the ESP, located by GPT type GUID ([snosi#524](https://github.com/frostyard/snosi/pull/524)) |
 
 ### The secure install now completes
 
@@ -250,6 +253,34 @@ no `root=`) it never takes the LUKS branch. That is the open question in
 [#519](https://github.com/frostyard/snosi/pull/519) add a build-time regression
 test that runs the embedded generator and requires the unit — scoped, explicitly,
 to *not* claim coverage of the production path.
+
+### The secure install boots
+
+**2026-08-07.** On the first published image carrying snosi#520, the lane
+installed a target and **booted it** — automatically, via the digest watcher,
+with nobody watching:
+
+```
+ok - Microsoft-only varstore rejects the unenrolled MOK stage
+ok - firmware Secure Boot is enforced
+ok - booted chain is a measured UKI
+ok - lockdown is integrity or confidentiality
+ok - kernel command line has a composefs binding without accepting raw root data
+ok - kernel command line contains no root or LUKS identifier
+```
+
+SSH was available 14 seconds after the enrolled boot. Every one of those
+assertions runs *inside the guest*, so each requires a live system whose
+encrypted root was unlocked by the TPM.
+
+That is the goal this lab was built to reach: **a snosi image that installs
+through the real external installer and then boots, under enforced Secure Boot,
+with a TPM-unlocked LUKS root.** Twenty-two blockers, across four repositories,
+none of them findable without running against real media.
+
+What remains are assertions about a working system — BLS entry shape, TPM token
+identity, provenance completeness, the runtime reconciler, update and rollback.
+Different work, and a much better class of problem.
 
 #### Blocker 21 — resolved: a udev rule that moved house
 
