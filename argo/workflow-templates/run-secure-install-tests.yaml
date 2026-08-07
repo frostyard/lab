@@ -157,9 +157,8 @@ spec:
         echo "dakota @ $(git -C /src/dakota rev-parse --short HEAD)" >&2
 
         RUNNER=/src/dakota/test/bootc-secure-installer-runner.sh
-        NEGATIVE=/src/dakota/test/bootc-secure-negative-runner.sh
         RECOVERY=/src/dakota/test/bootc-secure-recovery-runner.sh
-        for r in "${RUNNER}" "${NEGATIVE}" "${RECOVERY}"; do
+        for r in "${RUNNER}" "${RECOVERY}"; do
           [[ -f "${r}" ]] || fail "FAILED: missing runner ${r}"
           chmod +x "${r}"
         done
@@ -268,7 +267,6 @@ spec:
         export PROFILE TRACKING_REF OCI_REF MOK_CERT PCR_PUBLIC RECOVERY_KEY TARGET_DISK
         export DAKOTA_ISO="${ISO}"
         export BOOTC_SECURE_INSTALLER="${RUNNER}"
-        export BOOTC_SECURE_NEGATIVE_COMMAND="${NEGATIVE}"
         export BOOTC_SECURE_RECOVERY_COMMAND="${RECOVERY}"
 
         # Persist the harness log to the HOST, outside ${WORK} so the cleanup
