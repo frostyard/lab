@@ -11,6 +11,12 @@ const {
 
 // BASE_URL carries a trailing slash from Astro's `base`, so join without doubling.
 const asset = (p) => `${import.meta.env.BASE_URL.replace(/\/$/, '')}/${p}`;
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const page = (p = '') => `${base}/${p}`;
+const currentPath = Astro.url.pathname.replace(/\/+$/, '') || '/';
+const pipelineActive = currentPath === base;
+const hiveActive = currentPath === `${base}/hive`;
+const hiveConfigured = Boolean(import.meta.env.PUBLIC_HIVE_API_URL);
 ---
 <!doctype html>
 <html lang="en">
@@ -28,7 +34,13 @@ const asset = (p) => `${import.meta.env.BASE_URL.replace(/\/$/, '')}/${p}`;
           <span class="flake">❄</span>
           <span><strong>frostyard</strong><small>lab</small></span>
         </a>
-        <a class="source" href="https://github.com/frostyard/lab">Source ↗</a>
+        <div class="navlinks">
+          <a class:list={['navlink', { active: pipelineActive }]} href={page()}>Pipeline</a>
+          {hiveConfigured && (
+            <a class:list={['navlink', { active: hiveActive }]} href={page('hive/')}>Hive</a>
+          )}
+          <a class="source" href="https://github.com/frostyard/lab">Source ↗</a>
+        </div>
       </nav>
 
       <main class="main">
@@ -95,6 +107,16 @@ const asset = (p) => `${import.meta.env.BASE_URL.replace(/\/$/, '')}/${p}`;
     text-transform: uppercase;
   }
   .brand:hover strong { color: var(--ice); }
+  .navlinks { align-items: center; display: flex; gap: 7px; }
+  .navlink {
+    color: var(--text-muted);
+    font-size: var(--text-caption-size);
+    font-weight: 600;
+    padding: 6px 8px;
+    text-decoration: none;
+  }
+  .navlink:hover, .navlink.active { color: var(--ice); }
+  .navlink.active { border-bottom: 1px solid var(--sky); }
   .source {
     border: 1px solid var(--line);
     border-radius: var(--radius-pill);
@@ -178,5 +200,7 @@ const asset = (p) => `${import.meta.env.BASE_URL.replace(/\/$/, '')}/${p}`;
 
   @media (max-width: 640px) {
     .shell { padding: 0 var(--container-pad-mobile) 2.5rem; }
+    .navlink { padding-inline: 4px; }
+    .source { padding-inline: 9px; }
   }
 </style>

@@ -1,0 +1,26 @@
+# Argo CD Application for the public, sanitized Hive observer. Keep this
+# separate from frostyard-hive so an observer failure does not report Hive
+# itself as degraded.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: frostyard-hive-observer
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: lab
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/frostyard/lab
+    targetRevision: main
+    path: hive-observer
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: hive
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+      - ServerSideApply=true

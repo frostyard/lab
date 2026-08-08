@@ -386,8 +386,14 @@ Setting up a cluster from scratch: [`docs/ops/bootstrap.md`](docs/ops/bootstrap.
 showing per-lane status and recent run history:
 **<https://frostyard.github.io/lab/>**
 
-The data flow deliberately has no link between GitHub and the cluster in either
-direction:
+The `/lab/hive/` page adds a live, sanitized view of the Hive deployment.
+An observer in the `hive` namespace reads the internal dashboard API and
+publishes only aggregate health, queue, agent-state, repository, and usage
+data through Caddy. Its deployment and Caddy contract are documented in
+[`hive-observer/README.md`](hive-observer/README.md).
+
+The pipeline-results data flow deliberately has no link between GitHub and the
+cluster in either direction:
 
 ```
 publish-results CronWorkflow (in cluster)

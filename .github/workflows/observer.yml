@@ -1,0 +1,36 @@
+# Test the Hive observer's public contract without cluster credentials.
+name: observer
+
+on:
+  pull_request:
+    paths:
+      - 'hive-observer/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'pytest.ini'
+      - '.github/workflows/observer.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'hive-observer/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'pytest.ini'
+      - '.github/workflows/observer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0
+        with:
+          python-version: '3.13'
+      - run: python -m pip install pytest==8.4.2
+      - run: python -m pytest -q

@@ -1,0 +1,481 @@
+---
+import Layout from '../../layouts/Layout.astro';
+
+const apiBase = import.meta.env.PUBLIC_HIVE_API_URL?.replace(/\/$/, '') || '';
+const endpoint = apiBase ? `${apiBase}/v1/hive/overview` : '';
+---
+<Layout
+  title="Hive status · frostyard lab"
+  description="Sanitized operational status for the frostyard Hive agents"
+  eyebrow="AI agent orchestration · frostyard"
+  heading="Hive status"
+>
+  <div id="hive-overview" data-endpoint={endpoint}>
+    <section class="hero">
+      <div class="hero-kicker"><span></span>selfie cluster · hive v2</div>
+      <h2>Observe the fleet. <em>Keep control private.</em></h2>
+      <p>
+        A deliberately narrow view of Hive health, queue pressure, agent state, and aggregate
+        usage. Agent output, prompts, issue content, configuration, and credentials never leave
+        the cluster.
+      </p>
+    </section>
+
+    <div class="notice" data-role="notice" aria-live="polite">
+      <span class="notice-dot"></span>
+      <span data-role="notice-text">Loading live Hive status…</span>
+    </div>
+
+    <div class="dashboard" data-role="dashboard" hidden>
+      <div class="stats">
+        <div class="stat">
+          <span>Health</span>
+          <strong data-role="health">—</strong>
+          <small data-role="health-detail">deep checks</small>
+        </div>
+        <div class="stat">
+          <span>Governor</span>
+          <strong data-role="mode">—</strong>
+          <small>current scheduling mode</small>
+        </div>
+        <div class="stat">
+          <span>Queue</span>
+          <strong data-role="queue">—</strong>
+          <small>issues + pull requests</small>
+        </div>
+        <div class="stat">
+          <span>Agents</span>
+          <strong data-role="agent-count">—</strong>
+          <small data-role="agent-summary">enabled fleet</small>
+        </div>
+        <div class="stat">
+          <span>Estimated cost</span>
+          <strong data-role="cost">—</strong>
+          <small data-role="usage-window">rolling usage window</small>
+        </div>
+      </div>
+
+      <section class="group">
+        <div class="group-head">
+          <span class="idx">01</span>
+          <h3>Agents</h3>
+          <span class="rule"></span>
+          <span class="count" data-role="agent-group-count"></span>
+        </div>
+        <div class="cards" data-role="agents"></div>
+      </section>
+
+      <section class="grid-pair">
+        <article class="panel">
+          <div class="panel-head">
+            <h3>Repositories</h3>
+            <span>aggregate actionable queue</span>
+          </div>
+          <div class="tablewrap">
+            <table>
+              <thead><tr><th>Repository</th><th>Issues</th><th>PRs</th></tr></thead>
+              <tbody data-role="repositories"></tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="panel usage">
+          <div class="panel-head">
+            <h3>Token usage</h3>
+            <span data-role="usage-label">aggregate only</span>
+          </div>
+          <dl>
+            <div><dt>Input</dt><dd data-role="tokens-input">—</dd></div>
+            <div><dt>Output</dt><dd data-role="tokens-output">—</dd></div>
+            <div><dt>Cache read</dt><dd data-role="tokens-cache-read">—</dd></div>
+            <div><dt>Sessions</dt><dd data-role="sessions">—</dd></div>
+          </dl>
+          <p data-role="cost-disclaimer"></p>
+        </article>
+      </section>
+    </div>
+  </div>
+</Layout>
+
+<script>
+  import { fetchOverview } from '../../lib/hive-api.js';
+
+  const root = document.querySelector('#hive-overview');
+  const endpoint = root?.dataset.endpoint || '';
+  const notice = root?.querySelector('[data-role="notice"]');
+  const noticeText = root?.querySelector('[data-role="notice-text"]');
+  const dashboard = root?.querySelector('[data-role="dashboard"]');
+  let lastData = null;
+  let timer = null;
+
+  const field = (name) => root?.querySelector(`[data-role="${name}"]`);
+  const number = new Intl.NumberFormat();
+  const money = new Intl.NumberFormat(undefined, {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  });
+
+  function stateForAgent(agent) {
+    if (agent.paused || agent.offByCadence) return 'paused';
+    if (agent.state !== 'running') return 'danger';
+    return agent.activity === 'working' ? 'working' : 'ok';
+  }
+
+  function setNotice(data, localFailure = false) {
+    const failedSections = data.unavailableSections?.length
+      ? ` · partial: ${data.unavailableSections.join(', ')}`
+      : '';
+    const source = data.sourceTimestamp
+      ? new Date(data.sourceTimestamp).toLocaleString()
+      : 'timestamp unavailable';
+    notice.dataset.state = data.stale || localFailure ? 'warn' : 'ok';
+    noticeText.textContent = data.stale || localFailure
+      ? `Stale data from ${source}${failedSections}`
+      : `Live data from ${source}${failedSections}`;
+  }
+
+  function renderAgents(agents) {
+    const container = field('agents');
+    container.replaceChildren();
+    for (const agent of agents) {
+      const state = stateForAgent(agent);
+      const article = document.createElement('article');
+      article.className = `agent-card ${state}`;
+
+      const head = document.createElement('div');
+      head.className = 'agent-head';
+      const name = document.createElement('strong');
+      name.textContent = agent.displayName;
+      const badge = document.createElement('span');
+      badge.className = `badge ${state}`;
+      badge.textContent = agent.paused
+        ? 'paused'
+        : agent.offByCadence
+          ? 'cadence off'
+          : `${agent.state} · ${agent.activity}`;
+      head.append(name, badge);
+
+      const meta = document.createElement('p');
+      meta.textContent = agent.name;
+      article.append(head, meta);
+      container.append(article);
+    }
+  }
+
+  function renderRepositories(repositories) {
+    const body = field('repositories');
+    body.replaceChildren();
+    for (const repository of repositories) {
+      const row = document.createElement('tr');
+      for (const value of [repository.name, repository.issues, repository.pullRequests]) {
+        const cell = document.createElement('td');
+        cell.textContent = String(value);
+        row.append(cell);
+      }
+      body.append(row);
+    }
+  }
+
+  function render(data, localFailure = false) {
+    dashboard.hidden = false;
+    setNotice(data, localFailure);
+
+    field('health').textContent = data.health.status;
+    field('health').className = data.health.status === 'ok' ? 'ok' : 'warn';
+    const failedChecks = Object.values(data.health.checks).filter(
+      (state) => state === 'fail',
+    ).length;
+    field('health-detail').textContent = failedChecks
+      ? `${failedChecks} check${failedChecks === 1 ? '' : 's'} failing`
+      : `${Object.keys(data.health.checks).length} deep checks`;
+    field('mode').textContent = data.governor.mode;
+    field('queue').textContent = String(
+      data.governor.issues + data.governor.pullRequests,
+    );
+
+    const working = data.agents.filter(
+      (agent) => agent.activity === 'working',
+    ).length;
+    const paused = data.agents.filter(
+      (agent) => agent.paused || agent.offByCadence,
+    ).length;
+    field('agent-count').textContent = String(data.agents.length);
+    field('agent-summary').textContent = `${working} working · ${paused} paused`;
+    field('agent-group-count').textContent =
+      `${data.agents.length} agent${data.agents.length === 1 ? '' : 's'}`;
+
+    field('cost').textContent =
+      data.usage.estimatedCostUsd == null
+        ? '—'
+        : money.format(data.usage.estimatedCostUsd);
+    field('usage-window').textContent =
+      `${data.usage.lookbackHours}h aggregate estimate`;
+    field('usage-label').textContent = `${data.usage.lookbackHours} hour window`;
+    field('tokens-input').textContent = number.format(data.usage.inputTokens);
+    field('tokens-output').textContent = number.format(data.usage.outputTokens);
+    field('tokens-cache-read').textContent = number.format(
+      data.usage.cacheReadTokens,
+    );
+    field('sessions').textContent = number.format(data.usage.sessions);
+    field('cost-disclaimer').textContent = data.usage.disclaimer;
+
+    renderAgents(data.agents);
+    renderRepositories(data.repositories);
+  }
+
+  async function refresh() {
+    try {
+      const data = await fetchOverview(endpoint);
+      lastData = data;
+      render(data);
+    } catch (error) {
+      if (lastData) {
+        render({ ...lastData, stale: true }, true);
+      } else {
+        notice.dataset.state = 'danger';
+        noticeText.textContent =
+          error.code === 'not_configured'
+            ? 'Hive API is not configured for this deployment.'
+            : 'Hive status is currently unavailable.';
+      }
+    }
+  }
+
+  function schedule() {
+    clearInterval(timer);
+    if (!document.hidden) timer = setInterval(refresh, 30_000);
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) refresh();
+    schedule();
+  });
+  refresh();
+  schedule();
+</script>
+
+<style>
+  .hero {
+    background: var(--gradient-signal);
+    border: 1px solid var(--line-strong);
+    margin-bottom: 1rem;
+    padding: 1.4rem 1.5rem 1.5rem;
+  }
+  .hero-kicker {
+    align-items: center;
+    color: #93dff7;
+    display: flex;
+    font: 700 10px var(--font-mono);
+    gap: 7px;
+    letter-spacing: .12em;
+    margin-bottom: 9px;
+    text-transform: uppercase;
+  }
+  .hero-kicker span {
+    background: var(--sky);
+    border-radius: 50%;
+    height: 7px;
+    width: 7px;
+  }
+  .hero h2 {
+    font-size: clamp(1.35rem, 2.4vw, 1.75rem);
+    letter-spacing: -.045em;
+    line-height: 1.1;
+    margin: 0 0 .55rem;
+  }
+  .hero h2 em {
+    color: var(--ice);
+    font-family: var(--font-serif-accent);
+    font-weight: 400;
+  }
+  .hero p {
+    color: var(--text-dim);
+    font-size: var(--text-body-size);
+    line-height: 1.65;
+    margin: 0;
+    max-width: 68ch;
+  }
+  .notice {
+    align-items: center;
+    border: 1px solid var(--line);
+    color: var(--text-muted);
+    display: flex;
+    font: 700 10px var(--font-mono);
+    gap: 8px;
+    letter-spacing: .04em;
+    margin-bottom: 1rem;
+    padding: 8px 12px;
+  }
+  .notice-dot {
+    background: var(--text-muted);
+    border-radius: 50%;
+    height: 7px;
+    width: 7px;
+  }
+  .notice[data-state="ok"] .notice-dot { background: var(--state-ok); }
+  .notice[data-state="warn"] .notice-dot { background: var(--state-warn); }
+  .notice[data-state="danger"] .notice-dot { background: var(--state-danger); }
+  .stats {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    margin-bottom: 2rem;
+  }
+  .stat {
+    background: var(--gradient-card);
+    border: 1px solid var(--line);
+    display: grid;
+    gap: 3px;
+    padding: 11px 14px;
+  }
+  .stat > span {
+    color: var(--text-eyebrow);
+    font: 750 9px var(--font-mono);
+    letter-spacing: .12em;
+    text-transform: uppercase;
+  }
+  .stat strong {
+    font-size: 22px;
+    letter-spacing: -.04em;
+    text-transform: capitalize;
+  }
+  .stat strong.ok { color: var(--state-ok); }
+  .stat strong.warn { color: var(--state-warn); }
+  .stat small { color: var(--text-footer); font-size: 9.5px; }
+  .group { margin-bottom: 1.75rem; }
+  .group-head {
+    align-items: center;
+    display: flex;
+    gap: 10px;
+    margin-bottom: .7rem;
+  }
+  .idx { color: var(--sky); font: 400 10px var(--font-mono); }
+  .group-head h3 {
+    font-size: .78rem;
+    letter-spacing: .14em;
+    margin: 0;
+    text-transform: uppercase;
+  }
+  .rule { background: var(--line); flex: 1; height: 1px; }
+  .count { color: var(--text-footer); font: 400 10px var(--font-mono); }
+  .cards {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  }
+  :global(.agent-card) {
+    background: var(--gradient-card);
+    border: 1px solid var(--line);
+    border-left-color: var(--state-ok);
+    padding: 13px 15px;
+  }
+  :global(.agent-card.working) { border-left-color: var(--sky); }
+  :global(.agent-card.paused) { border-left-color: var(--state-warn); }
+  :global(.agent-card.danger) { border-left-color: var(--state-danger); }
+  :global(.agent-head) {
+    align-items: center;
+    display: flex;
+    gap: 10px;
+    justify-content: space-between;
+  }
+  :global(.agent-card p) {
+    color: var(--text-footer);
+    font: 400 10px var(--font-mono);
+    margin: .6rem 0 0;
+  }
+  :global(.badge) {
+    border: 1px solid var(--line-tag);
+    border-radius: var(--radius-tag);
+    color: var(--tag-text);
+    font: 700 9px var(--font-mono);
+    letter-spacing: .06em;
+    padding: 4px 7px;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  :global(.badge.ok) { color: var(--state-ok); }
+  :global(.badge.working) { color: var(--sky); }
+  :global(.badge.paused) { color: var(--state-warn); }
+  :global(.badge.danger) { color: var(--state-danger); }
+  .grid-pair {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: minmax(0, 1.25fr) minmax(18rem, .75fr);
+  }
+  .panel {
+    background: var(--gradient-card);
+    border: 1px solid var(--line);
+    overflow: hidden;
+  }
+  .panel-head {
+    align-items: center;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 14px;
+  }
+  .panel-head h3 { font-size: 13px; margin: 0; }
+  .panel-head span {
+    color: var(--text-footer);
+    font: 400 10px var(--font-mono);
+  }
+  .tablewrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; }
+  th {
+    color: var(--text-eyebrow);
+    font: 750 9px var(--font-mono);
+    letter-spacing: .12em;
+    padding: 8px 14px;
+    text-align: left;
+    text-transform: uppercase;
+  }
+  td {
+    border-top: 1px solid var(--line);
+    font-size: 11.5px;
+    padding: 9px 14px;
+  }
+  td:not(:first-child) {
+    color: var(--text-mono-accent);
+    font-family: var(--font-mono);
+  }
+  .usage dl {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    margin: 0;
+  }
+  .usage dl div { border-bottom: 1px solid var(--line); padding: 12px 14px; }
+  .usage dl div:nth-child(odd) { border-right: 1px solid var(--line); }
+  .usage dt {
+    color: var(--text-eyebrow);
+    font: 700 9px var(--font-mono);
+    letter-spacing: .1em;
+    text-transform: uppercase;
+  }
+  .usage dd {
+    font-size: 18px;
+    font-weight: 700;
+    margin: 4px 0 0;
+  }
+  .usage p {
+    color: var(--text-footer);
+    font-size: 10px;
+    line-height: 1.5;
+    margin: 0;
+    padding: 12px 14px;
+  }
+  @media (max-width: 900px) {
+    .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-pair { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 560px) {
+    .stats { grid-template-columns: 1fr; }
+    .hero { padding: 1.2rem 1.15rem 1.3rem; }
+    .panel-head {
+      align-items: flex-start;
+      flex-direction: column;
+      gap: 3px;
+    }
+  }
+</style>

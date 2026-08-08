@@ -1,0 +1,21 @@
+# LAN-only entry point for Caddy at 10.0.1.234. The observer also requires
+# Caddy's injected proxy token, so the raw address is not a public API.
+apiVersion: v1
+kind: Service
+metadata:
+  name: hive-observer
+  labels:
+    app: hive-observer
+    app.kubernetes.io/name: hive-observer
+    app.kubernetes.io/part-of: lab
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  loadBalancerSourceRanges:
+    - 10.0.1.234/32
+  selector:
+    app: hive-observer
+  ports:
+    - name: http
+      port: 3003
+      targetPort: http

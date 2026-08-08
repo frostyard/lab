@@ -37,8 +37,12 @@ jobs:
           cache-dependency-path: site/package-lock.json
       - run: npm ci
         working-directory: site
+      - run: npm test
+        working-directory: site
       - run: npm run build
         working-directory: site
+        env:
+          PUBLIC_HIVE_API_URL: ${{ vars.PUBLIC_HIVE_API_URL }}
       - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
       - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
         with:
