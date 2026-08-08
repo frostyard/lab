@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-08T01:30:18Z",
+  "generated": "2026-08-08T02:00:19Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -129,9 +129,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786152600",
+        "name": "publish-results-1786154400",
         "phase": "Running",
-        "started": "2026-08-08T01:30:00Z",
+        "started": "2026-08-08T02:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -149,11 +149,11 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786152000",
+        "name": "secure-install-watch-1786154400",
         "phase": "Succeeded",
-        "started": "2026-08-08T01:20:00Z",
-        "finished": "2026-08-08T01:20:30Z",
-        "durationSeconds": 30,
+        "started": "2026-08-08T02:00:00Z",
+        "finished": "2026-08-08T02:00:10Z",
+        "durationSeconds": 10,
         "template": "watch",
         "kind": "other",
         "label": "watch",
@@ -227,11 +227,50 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1786152600",
+      "name": "publish-results-1786154400",
       "phase": "Running",
-      "started": "2026-08-08T01:30:00Z",
+      "started": "2026-08-08T02:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786154400",
+      "phase": "Succeeded",
+      "started": "2026-08-08T02:00:00Z",
+      "finished": "2026-08-08T02:00:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786153200",
+      "phase": "Succeeded",
+      "started": "2026-08-08T01:40:00Z",
+      "finished": "2026-08-08T01:40:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786152600",
+      "phase": "Succeeded",
+      "started": "2026-08-08T01:30:00Z",
+      "finished": "2026-08-08T01:30:30Z",
+      "durationSeconds": 30,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -314,19 +353,6 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786149600",
-      "phase": "Succeeded",
-      "started": "2026-08-08T00:40:00Z",
-      "finished": "2026-08-08T00:40:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "publish-results-1786149000",
       "phase": "Succeeded",
       "started": "2026-08-08T00:30:00Z",
@@ -350,19 +376,6 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "14 passed, 6 skipped",
-      "checks": []
-    },
-    {
-      "name": "secure-install-watch-1786148400",
-      "phase": "Succeeded",
-      "started": "2026-08-08T00:20:00Z",
-      "finished": "2026-08-08T00:20:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
@@ -411,19 +424,6 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786147200",
-      "phase": "Succeeded",
-      "started": "2026-08-08T00:00:00Z",
-      "finished": "2026-08-08T00:00:32Z",
-      "durationSeconds": 32,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
