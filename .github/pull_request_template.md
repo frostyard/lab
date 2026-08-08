@@ -6,6 +6,11 @@
 
 - Closes #
 
+## Risk Classification
+
+- Tier: Low / Medium / High
+- Rationale:
+
 ## Testing
 
 - [ ] Not run (explain why)
