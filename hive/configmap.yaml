@@ -13,7 +13,7 @@ data:
   hive.yaml: |
     project:
       org: frostyard
-      repos: [snosi, testsuite, lab, updex]
+      repos: [snosi, updex]
       primary_repo: snosi
 
     agents:
