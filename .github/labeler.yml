@@ -1,0 +1,14 @@
+bug:
+  - '/\[bug\]|\b(bug|broken|crash(?:es|ed|ing)?|error|fail(?:s|ed|ing|ure)?|regression)\b/i'
+
+documentation:
+  - '/\b(docs?|documentation|readme|guide)\b/i'
+
+enhancement:
+  - '/\[feature\]|\b(feature request|enhancement|proposal)\b/i'
+
+question:
+  - '/\[question\]|\b(question|how (?:do|can|should|would)|what (?:is|are|does)|why (?:is|does|do)|can (?:i|we)|could (?:i|we))\b/i'
+
+acmm:
+  - '/\[ACMM L\d+\]|\bCriterion ID:\s*`?acmm:/i'

@@ -1,0 +1,22 @@
+# Apply existing repository labels to issues based on their title and body.
+name: issue labeler
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: github/issue-labeler@c1b0f9f52a63158c4adc09425e858e87b32e9685 # v3.4
+        with:
+          configuration-path: .github/labeler.yml
+          enable-versioned-regex: '0'
+          include-title: '1'
+          repo-token: ${{ github.token }}
