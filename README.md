@@ -359,7 +359,9 @@ lab/
 │   ├── namespaces.yaml
 │   └── orphan-pod-gc.yaml
 │
-├── docs/ops/bootstrap.md         # from-zero cluster setup
+├── docs/
+│   ├── ops/bootstrap.md          # from-zero cluster setup
+│   └── quality.md                # quality signals, evidence, and known gaps
 └── Justfile                      # operator wrappers
 ```
 
@@ -377,6 +379,9 @@ just refresh    # force Argo CD to re-read git now
 ```
 
 Setting up a cluster from scratch: [`docs/ops/bootstrap.md`](docs/ops/bootstrap.md).
+
+Repository quality signals and their current limits:
+[`docs/quality.md`](docs/quality.md).
 
 ---
 
