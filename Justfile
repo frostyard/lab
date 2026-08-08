@@ -137,3 +137,9 @@ site-build:
 # Serve the reporting site with live reload.
 site-dev:
     cd site && npm install && npm run dev
+
+# End-to-end tests against a real build of the reporting site.
+site-e2e:
+    npm install
+    npx playwright install --with-deps chromium
+    npm run test:e2e

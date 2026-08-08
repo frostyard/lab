@@ -34,6 +34,8 @@ or supporting docs/tooling (`docs/`, `Justfile`, `scripts/`, `site/`).
 - If you're changing an Argo `WorkflowTemplate` or `CronWorkflow`, validate
   the YAML locally (e.g. `argo lint`) before opening a PR, and describe what
   lane(s) are affected.
+- If you're changing the reporting site (`site/`), run the end-to-end suite
+  with `just site-e2e` (Playwright specs live in `e2e/`).
 - If you're changing docs, keep the tone and structure consistent with the
   existing files in `docs/`.
 - Update `docs/roadmap.md` if your change affects the status of a QA lane.
