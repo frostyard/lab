@@ -3,6 +3,9 @@
   "permissions": {
     "ask": [
       "Bash(argo submit *)",
+      "Bash(gh issue close *)",
+      "Bash(gh pr close *)",
+      "Bash(gh pr merge *)",
       "Bash(git push *)",
       "Bash(kubectl annotate *)",
       "Bash(kubectl apply *)",
