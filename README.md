@@ -383,6 +383,9 @@ Setting up a cluster from scratch: [`docs/ops/bootstrap.md`](docs/ops/bootstrap.
 Repository quality signals and their current limits:
 [`docs/quality.md`](docs/quality.md).
 
+Copilot review feedback automation and its repository setup:
+[`docs/automated-review.md`](docs/automated-review.md).
+
 ---
 
 ## Reporting
