@@ -39,6 +39,8 @@ or supporting docs/tooling (`docs/`, `Justfile`, `scripts/`, `site/`).
 - If you're changing docs, keep the tone and structure consistent with the
   existing files in `docs/`.
 - Update `docs/roadmap.md` if your change affects the status of a QA lane.
+- Use the [pull request review rubric](docs/review-rubric.md) to evaluate
+  correctness, GitOps ownership, evidence, safety, and validation consistently.
 
 ## Submitting a pull request
 
