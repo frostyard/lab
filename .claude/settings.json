@@ -11,5 +11,35 @@
       "Bash(git clean -f:*)"
     ],
     "disableBypassPermissionsMode": "disable"
+      "Bash(argo submit *)",
+      "Bash(gh issue close *)",
+      "Bash(gh pr close *)",
+      "Bash(gh pr merge *)",
+      "Bash(git push *)",
+      "Bash(kubectl annotate *)",
+      "Bash(kubectl apply *)",
+      "Bash(kubectl create *)",
+      "Bash(kubectl delete *)",
+      "Bash(kubectl patch *)",
+      "Bash(kubectl rollout *)",
+      "Bash(just hive-bootstrap*)",
+      "Bash(just hive-observer-bootstrap*)",
+      "Bash(just hive-update*)",
+      "Bash(just qa *)",
+      "Bash(just refresh*)",
+      "Bash(just setup-argocd*)",
+      "Bash(just smoke*)",
+      "Bash(rm *)"
+    ],
+    "deny": [
+      "Bash(git clean *)",
+      "Bash(git push *--force*)",
+      "Bash(git reset --hard*)",
+      "Bash(sudo *)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./**/.env)",
+      "Read(./**/.env.*)"
+    ]
   }
 }
