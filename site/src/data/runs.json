@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-08T04:00:22Z",
+  "generated": "2026-08-08T04:30:19Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -129,9 +129,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786161600",
+        "name": "publish-results-1786163400",
         "phase": "Running",
-        "started": "2026-08-08T04:00:00Z",
+        "started": "2026-08-08T04:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -149,11 +149,11 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786161600",
+        "name": "secure-install-watch-1786162800",
         "phase": "Succeeded",
-        "started": "2026-08-08T04:00:00Z",
-        "finished": "2026-08-08T04:00:20Z",
-        "durationSeconds": 20,
+        "started": "2026-08-08T04:20:00Z",
+        "finished": "2026-08-08T04:20:10Z",
+        "durationSeconds": 10,
         "template": "watch",
         "kind": "other",
         "label": "watch",
@@ -161,7 +161,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 5,
+      "runs": 4,
       "everGreen": true
     },
     {
@@ -227,11 +227,37 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1786161600",
+      "name": "publish-results-1786163400",
       "phase": "Running",
-      "started": "2026-08-08T04:00:00Z",
+      "started": "2026-08-08T04:30:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786162800",
+      "phase": "Succeeded",
+      "started": "2026-08-08T04:20:00Z",
+      "finished": "2026-08-08T04:20:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786161600",
+      "phase": "Succeeded",
+      "started": "2026-08-08T04:00:00Z",
+      "finished": "2026-08-08T04:00:34Z",
+      "durationSeconds": 34,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -358,45 +384,6 @@
       "started": "2026-08-08T03:00:00Z",
       "finished": "2026-08-08T03:00:32Z",
       "durationSeconds": 32,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "secure-install-watch-1786158000",
-      "phase": "Succeeded",
-      "started": "2026-08-08T03:00:00Z",
-      "finished": "2026-08-08T03:00:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "secure-install-watch-1786156800",
-      "phase": "Succeeded",
-      "started": "2026-08-08T02:40:00Z",
-      "finished": "2026-08-08T02:40:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786156200",
-      "phase": "Succeeded",
-      "started": "2026-08-08T02:30:00Z",
-      "finished": "2026-08-08T02:30:33Z",
-      "durationSeconds": 33,
       "template": "publish",
       "kind": "other",
       "label": "publish",
