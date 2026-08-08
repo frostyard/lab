@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-08T19:30:19Z",
+  "generated": "2026-08-08T20:00:20Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -80,16 +80,16 @@
       "label": "bootc secure installer",
       "kind": "install",
       "latest": {
-        "name": "snosi-secure-install-auto-nqjxv",
+        "name": "snosi-secure-install-auto-j6fw4",
         "phase": "Succeeded",
-        "started": "2026-08-08T18:40:11Z",
-        "finished": "2026-08-08T18:49:11Z",
-        "durationSeconds": 540,
+        "started": "2026-08-08T19:40:13Z",
+        "finished": "2026-08-08T19:47:28Z",
+        "durationSeconds": 435,
         "template": "run-secure-install-tests",
         "kind": "install",
         "label": "bootc secure installer",
         "trigger": "digest-watch",
-        "result": "secure install verified: cayo @ sha256:2ada5be86a47628aeaf8496ec2c67df6f6a9625ac57ba6a85273453e30a91575 (Secure Boot enforced, MOK enrolled, TPM unlock)",
+        "result": "secure install verified: cayo @ sha256:e1df2b8197af470ad1dcc03ae1133066bfb76d246a0edd693c0de34e5f93417c (Secure Boot enforced, MOK enrolled, TPM unlock)",
         "checks": [
           "assertions=18",
           "blocked=0",
@@ -101,7 +101,7 @@
           "tpmunlock=ok"
         ]
       },
-      "runs": 69,
+      "runs": 70,
       "everGreen": true
     },
     {
@@ -129,9 +129,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786217400",
+        "name": "publish-results-1786219200",
         "phase": "Running",
-        "started": "2026-08-08T19:30:00Z",
+        "started": "2026-08-08T20:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -149,11 +149,11 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786216800",
+        "name": "secure-install-watch-1786219200",
         "phase": "Succeeded",
-        "started": "2026-08-08T19:20:00Z",
-        "finished": "2026-08-08T19:20:10Z",
-        "durationSeconds": 10,
+        "started": "2026-08-08T20:00:00Z",
+        "finished": "2026-08-08T20:00:20Z",
+        "durationSeconds": 20,
         "template": "watch",
         "kind": "other",
         "label": "watch",
@@ -161,7 +161,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 4,
+      "runs": 5,
       "everGreen": true
     },
     {
@@ -227,11 +227,72 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1786217400",
+      "name": "publish-results-1786219200",
       "phase": "Running",
-      "started": "2026-08-08T19:30:00Z",
+      "started": "2026-08-08T20:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786219200",
+      "phase": "Succeeded",
+      "started": "2026-08-08T20:00:00Z",
+      "finished": "2026-08-08T20:00:20Z",
+      "durationSeconds": 20,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "snosi-secure-install-auto-j6fw4",
+      "phase": "Succeeded",
+      "started": "2026-08-08T19:40:13Z",
+      "finished": "2026-08-08T19:47:28Z",
+      "durationSeconds": 435,
+      "template": "run-secure-install-tests",
+      "kind": "install",
+      "label": "bootc secure installer",
+      "trigger": "digest-watch",
+      "result": "secure install verified: cayo @ sha256:e1df2b8197af470ad1dcc03ae1133066bfb76d246a0edd693c0de34e5f93417c (Secure Boot enforced, MOK enrolled, TPM unlock)",
+      "checks": [
+        "assertions=18",
+        "blocked=0",
+        "failed=0",
+        "media=published",
+        "profile=cayo",
+        "recovery=ok",
+        "secureboot=enforced",
+        "tpmunlock=ok"
+      ]
+    },
+    {
+      "name": "secure-install-watch-1786218000",
+      "phase": "Succeeded",
+      "started": "2026-08-08T19:40:00Z",
+      "finished": "2026-08-08T19:40:30Z",
+      "durationSeconds": 30,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786217400",
+      "phase": "Succeeded",
+      "started": "2026-08-08T19:30:00Z",
+      "finished": "2026-08-08T19:30:32Z",
+      "durationSeconds": 32,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -353,19 +414,6 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786213200",
-      "phase": "Succeeded",
-      "started": "2026-08-08T18:20:00Z",
-      "finished": "2026-08-08T18:20:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "orphan-pod-gc-1786213020",
       "phase": "Succeeded",
       "started": "2026-08-08T18:17:00Z",
@@ -402,19 +450,6 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786212000",
-      "phase": "Succeeded",
-      "started": "2026-08-08T18:00:00Z",
-      "finished": "2026-08-08T18:00:31Z",
-      "durationSeconds": 31,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
