@@ -80,6 +80,10 @@ def health_payload():
         "checks": {
             "ready": {"status": "pass", "detail": "private detail"},
             "github_auth": {"status": "fail", "detail": "private auth failure"},
+            "agents": {
+                "guide": {"status": "pass", "detail": "private agent detail"},
+                "scanner": {"status": "skip", "detail": "private skip detail"},
+            },
             "INVALID CHECK": {"status": "pass"},
         },
         "private": "must not pass through",
@@ -152,7 +156,7 @@ def test_health_preserves_only_safe_names_and_states():
 
     assert result == {
         "status": "degraded",
-        "checks": {"github_auth": "fail", "ready": "pass"},
+        "checks": {"agents": "pass", "github_auth": "fail", "ready": "pass"},
     }
 
 

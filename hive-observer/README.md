@@ -93,10 +93,12 @@ sudo ./install-caddy.sh
 ```
 
 The installer validates the combined configuration before replacing the live
-Caddyfile, keeps a timestamped backup, restarts Caddy so the environment file
-is loaded, and removes the staged secret. The observer applies a global
-120-request-per-minute limit because rate limiting is not part of a stock
-Caddy build.
+Caddyfile. Validation reads the existing Cloudflare token from the running
+Caddy systemd unit because `sudo` does not preserve service environments. The
+installer keeps a timestamped backup, restarts Caddy so the observer environment
+file is loaded, and removes the staged secret. The observer applies a global
+120-request-per-minute limit because rate limiting is not part of a stock Caddy
+build.
 
 Set the public API origin for the Pages build:
 

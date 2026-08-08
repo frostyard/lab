@@ -132,7 +132,20 @@ def sanitize_health(raw: Any) -> dict[str, Any]:
     for name, value in as_dict(payload.get("checks")).items():
         if not isinstance(name, str) or not CHECK_NAME_RE.fullmatch(name):
             continue
-        state = enum_value(as_dict(value).get("status"), ALLOWED_CHECK_STATES)
+        check = as_dict(value)
+        state = enum_value(check.get("status"), ALLOWED_CHECK_STATES)
+        if state == "unknown":
+            nested = [
+                enum_value(as_dict(child).get("status"), ALLOWED_CHECK_STATES)
+                for child in check.values()
+                if isinstance(child, dict)
+            ]
+            if "fail" in nested:
+                state = "fail"
+            elif "warn" in nested:
+                state = "warn"
+            elif "pass" in nested:
+                state = "pass"
         checks[name] = state
 
     return {

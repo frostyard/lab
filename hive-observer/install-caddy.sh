@@ -27,6 +27,20 @@ if ! grep -Fxq 'import /etc/caddy/hive-observer.caddy' "${candidate}"; then
   printf '\nimport /etc/caddy/hive-observer.caddy\n' >>"${candidate}"
 fi
 
+# sudo does not preserve the Caddy service's Cloudflare token. The imported
+# bespoke routes need it during validation, so recover that one named value
+# from the running unit without printing the service environment.
+if [[ -z ${CLOUDFLARE_API_TOKEN:-} ]]; then
+  service_environment=$(systemctl show caddy --property=Environment --value)
+  if [[ ${service_environment} =~ CLOUDFLARE_API_TOKEN=([A-Za-z0-9_-]+) ]]; then
+    export CLOUDFLARE_API_TOKEN=${BASH_REMATCH[1]}
+  fi
+fi
+if [[ -z ${CLOUDFLARE_API_TOKEN:-} ]]; then
+  echo "Caddy's CLOUDFLARE_API_TOKEN is unavailable for validation." >&2
+  exit 1
+fi
+
 set -a
 # shellcheck disable=SC1091
 source /etc/caddy/hive-observer.env
