@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-09T22:30:20Z",
+  "generated": "2026-08-09T23:00:20Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -129,9 +129,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786314600",
+        "name": "publish-results-1786316400",
         "phase": "Running",
-        "started": "2026-08-09T22:30:00Z",
+        "started": "2026-08-09T23:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -149,11 +149,11 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786314000",
+        "name": "secure-install-watch-1786316400",
         "phase": "Succeeded",
-        "started": "2026-08-09T22:20:00Z",
-        "finished": "2026-08-09T22:20:31Z",
-        "durationSeconds": 31,
+        "started": "2026-08-09T23:00:00Z",
+        "finished": "2026-08-09T23:00:10Z",
+        "durationSeconds": 10,
         "template": "watch",
         "kind": "other",
         "label": "watch",
@@ -227,11 +227,50 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1786314600",
+      "name": "publish-results-1786316400",
       "phase": "Running",
-      "started": "2026-08-09T22:30:00Z",
+      "started": "2026-08-09T23:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786316400",
+      "phase": "Succeeded",
+      "started": "2026-08-09T23:00:00Z",
+      "finished": "2026-08-09T23:00:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786315200",
+      "phase": "Succeeded",
+      "started": "2026-08-09T22:40:00Z",
+      "finished": "2026-08-09T22:40:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786314600",
+      "phase": "Succeeded",
+      "started": "2026-08-09T22:30:00Z",
+      "finished": "2026-08-09T22:30:32Z",
+      "durationSeconds": 32,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -292,19 +331,6 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786311600",
-      "phase": "Succeeded",
-      "started": "2026-08-09T21:40:00Z",
-      "finished": "2026-08-09T21:40:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "publish-results-1786311000",
       "phase": "Succeeded",
       "started": "2026-08-09T21:30:00Z",
@@ -331,19 +357,6 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786310400",
-      "phase": "Succeeded",
-      "started": "2026-08-09T21:20:00Z",
-      "finished": "2026-08-09T21:20:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "image-poll-snow-latest-1786309200",
       "phase": "Failed",
       "started": "2026-08-09T21:00:00Z",
@@ -354,19 +367,6 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786309200",
-      "phase": "Succeeded",
-      "started": "2026-08-09T21:00:00Z",
-      "finished": "2026-08-09T21:00:33Z",
-      "durationSeconds": 33,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
