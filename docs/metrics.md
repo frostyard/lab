@@ -27,3 +27,14 @@ GH_TOKEN="$(gh auth token)" node scripts/pr-metrics.mjs \
 
 Authentication is optional for public repositories but avoids GitHub's low
 unauthenticated API rate limit.
+
+## Auto-QA feedback policy
+
+`.github/auto-qa-tuning.json` defines the machine-readable policy for acting
+on the acceptance-rate signal. A window with fewer than ten closed pull
+requests holds the current policy. With enough data, a relative regression of
+ten percent or more routes the observed failure pattern to focused guidance or
+a targeted local check. Relaxation requires two consecutive improved windows.
+
+Required and security checks are never relaxed. Any policy adjustment must be
+reviewed through a pull request.
