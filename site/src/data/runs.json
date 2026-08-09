@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-09T06:00:20Z",
+  "generated": "2026-08-09T06:30:19Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -109,10 +109,10 @@
       "label": "Orphan pod GC",
       "kind": "maintenance",
       "latest": {
-        "name": "orphan-pod-gc-1786234620",
+        "name": "orphan-pod-gc-1786256220",
         "phase": "Succeeded",
-        "started": "2026-08-09T00:17:00Z",
-        "finished": "2026-08-09T00:17:10Z",
+        "started": "2026-08-09T06:17:00Z",
+        "finished": "2026-08-09T06:17:10Z",
         "durationSeconds": 10,
         "template": "orphan-pod-gc",
         "kind": "maintenance",
@@ -129,9 +129,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786255200",
+        "name": "publish-results-1786257000",
         "phase": "Running",
-        "started": "2026-08-09T06:00:00Z",
+        "started": "2026-08-09T06:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -149,10 +149,10 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786255200",
+        "name": "secure-install-watch-1786256400",
         "phase": "Succeeded",
-        "started": "2026-08-09T06:00:00Z",
-        "finished": "2026-08-09T06:00:10Z",
+        "started": "2026-08-09T06:20:00Z",
+        "finished": "2026-08-09T06:20:10Z",
         "durationSeconds": 10,
         "template": "watch",
         "kind": "other",
@@ -169,19 +169,19 @@
       "label": "Registry digest poll",
       "kind": "poll",
       "latest": {
-        "name": "image-poll-snow-latest-1786255200",
-        "phase": "Running",
-        "started": "2026-08-09T06:00:00Z",
-        "finished": null,
-        "durationSeconds": null,
+        "name": "image-poll-cayo-latest-1786256400",
+        "phase": "Succeeded",
+        "started": "2026-08-09T06:20:00Z",
+        "finished": "2026-08-09T06:21:30Z",
+        "durationSeconds": 90,
         "template": "image-poller",
         "kind": "poll",
         "label": "Registry digest poll",
         "trigger": "scheduled",
-        "result": null,
+        "result": "14 passed, 6 skipped",
         "checks": []
       },
-      "runs": 12,
+      "runs": 11,
       "everGreen": true
     },
     {
@@ -227,24 +227,76 @@
   ],
   "runs": [
     {
-      "name": "image-poll-snow-latest-1786255200",
+      "name": "publish-results-1786257000",
       "phase": "Running",
-      "started": "2026-08-09T06:00:00Z",
+      "started": "2026-08-09T06:30:00Z",
       "finished": null,
       "durationSeconds": null,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
       "trigger": "scheduled",
       "result": null,
       "checks": []
     },
     {
-      "name": "publish-results-1786255200",
-      "phase": "Running",
+      "name": "image-poll-cayo-latest-1786256400",
+      "phase": "Succeeded",
+      "started": "2026-08-09T06:20:00Z",
+      "finished": "2026-08-09T06:21:30Z",
+      "durationSeconds": 90,
+      "template": "image-poller",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": "14 passed, 6 skipped",
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786256400",
+      "phase": "Succeeded",
+      "started": "2026-08-09T06:20:00Z",
+      "finished": "2026-08-09T06:20:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "orphan-pod-gc-1786256220",
+      "phase": "Succeeded",
+      "started": "2026-08-09T06:17:00Z",
+      "finished": "2026-08-09T06:17:10Z",
+      "durationSeconds": 10,
+      "template": "orphan-pod-gc",
+      "kind": "maintenance",
+      "label": "Orphan pod GC",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "image-poll-snow-latest-1786255200",
+      "phase": "Failed",
       "started": "2026-08-09T06:00:00Z",
-      "finished": null,
-      "durationSeconds": null,
+      "finished": "2026-08-09T06:01:25Z",
+      "durationSeconds": 85,
+      "template": "image-poller",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": "19 passed, 1 failed",
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786255200",
+      "phase": "Succeeded",
+      "started": "2026-08-09T06:00:00Z",
+      "finished": "2026-08-09T06:00:34Z",
+      "durationSeconds": 34,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -340,32 +392,6 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786251600",
-      "phase": "Succeeded",
-      "started": "2026-08-09T05:00:00Z",
-      "finished": "2026-08-09T05:00:40Z",
-      "durationSeconds": 40,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786249800",
-      "phase": "Succeeded",
-      "started": "2026-08-09T04:30:00Z",
-      "finished": "2026-08-09T04:30:31Z",
-      "durationSeconds": 31,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "image-poll-snowfield-latest-1786246800",
       "phase": "Failed",
       "started": "2026-08-09T03:40:00Z",
@@ -412,19 +438,6 @@
         "secureboot=enforced",
         "tpmunlock=ok"
       ]
-    },
-    {
-      "name": "image-poll-snow-latest-1786244400",
-      "phase": "Failed",
-      "started": "2026-08-09T03:00:00Z",
-      "finished": "2026-08-09T03:01:23Z",
-      "durationSeconds": 83,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": "19 passed, 1 failed",
-      "checks": []
     },
     {
       "name": "snosi-secure-install-auto-6vgx2",
@@ -519,19 +532,6 @@
       ]
     },
     {
-      "name": "image-poll-cayo-latest-1786224000",
-      "phase": "Succeeded",
-      "started": "2026-08-08T21:20:00Z",
-      "finished": "2026-08-08T21:21:28Z",
-      "durationSeconds": 88,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": "14 passed, 6 skipped",
-      "checks": []
-    },
-    {
       "name": "snosi-secure-install-auto-j6fw4",
       "phase": "Succeeded",
       "started": "2026-08-08T19:40:13Z",
@@ -599,19 +599,6 @@
       "label": "bootc secure installer",
       "trigger": "digest-watch",
       "result": "No results generated",
-      "checks": []
-    },
-    {
-      "name": "orphan-pod-gc-1786191420",
-      "phase": "Succeeded",
-      "started": "2026-08-08T12:17:00Z",
-      "finished": "2026-08-08T12:17:10Z",
-      "durationSeconds": 10,
-      "template": "orphan-pod-gc",
-      "kind": "maintenance",
-      "label": "Orphan pod GC",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
