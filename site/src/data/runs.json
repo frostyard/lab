@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-09T13:30:19Z",
+  "generated": "2026-08-09T14:00:19Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -129,9 +129,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786282200",
+        "name": "publish-results-1786284000",
         "phase": "Running",
-        "started": "2026-08-09T13:30:00Z",
+        "started": "2026-08-09T14:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -149,10 +149,10 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786281600",
+        "name": "secure-install-watch-1786284000",
         "phase": "Succeeded",
-        "started": "2026-08-09T13:20:00Z",
-        "finished": "2026-08-09T13:20:10Z",
+        "started": "2026-08-09T14:00:00Z",
+        "finished": "2026-08-09T14:00:10Z",
         "durationSeconds": 10,
         "template": "watch",
         "kind": "other",
@@ -227,11 +227,50 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1786282200",
+      "name": "publish-results-1786284000",
       "phase": "Running",
-      "started": "2026-08-09T13:30:00Z",
+      "started": "2026-08-09T14:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786284000",
+      "phase": "Succeeded",
+      "started": "2026-08-09T14:00:00Z",
+      "finished": "2026-08-09T14:00:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786282800",
+      "phase": "Succeeded",
+      "started": "2026-08-09T13:40:00Z",
+      "finished": "2026-08-09T13:40:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786282200",
+      "phase": "Succeeded",
+      "started": "2026-08-09T13:30:00Z",
+      "finished": "2026-08-09T13:30:32Z",
+      "durationSeconds": 32,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -292,19 +331,6 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786279200",
-      "phase": "Succeeded",
-      "started": "2026-08-09T12:40:00Z",
-      "finished": "2026-08-09T12:40:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "publish-results-1786278600",
       "phase": "Succeeded",
       "started": "2026-08-09T12:30:00Z",
@@ -328,19 +354,6 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "14 passed, 6 skipped",
-      "checks": []
-    },
-    {
-      "name": "secure-install-watch-1786278000",
-      "phase": "Succeeded",
-      "started": "2026-08-09T12:20:00Z",
-      "finished": "2026-08-09T12:20:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
@@ -389,19 +402,6 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786276800",
-      "phase": "Succeeded",
-      "started": "2026-08-09T12:00:00Z",
-      "finished": "2026-08-09T12:00:31Z",
-      "durationSeconds": 31,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
