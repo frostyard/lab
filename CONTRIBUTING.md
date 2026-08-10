@@ -29,6 +29,29 @@ or supporting docs/tooling (`docs/`, `Justfile`, `scripts/`, `site/`).
    a failed run, docs). They are written for coding agents, but they double as
    a checklist for humans.
 
+## Running Python tests locally
+
+CI runs the pytest suite with Python 3.12 and 3.13. From the repository root,
+create an isolated environment, install the same pytest version as CI, and run
+the suite:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install pytest==8.4.2
+python -m pytest -q
+```
+
+`pytest.ini` discovers the tests under `tests/`. When changing
+`scripts/collect_runs.py`, you can run its focused tests during development:
+
+```bash
+python -m pytest -q tests/test_collect_runs.py
+```
+
+Run the full suite before opening a pull request. Changes to the agent
+governance policy also require `python3 policies/check_agent_governance.py`.
+
 ## Making changes
 
 - If you're changing an Argo `WorkflowTemplate` or `CronWorkflow`, validate
