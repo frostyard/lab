@@ -16,8 +16,21 @@ a Helm-managed CRD would be deleted along with its Application — taking every
 |---|---|
 | x86_64 host | `selfie`: 32 cores, 125 GiB RAM, 3.4 TiB free on `/var` |
 | k3s | v1.36.2+k3s1. Stock install; Traefik and local-path are fine as-is. |
-| `kubectl` on your workstation | Talking to the node over the network is enough — no step needs a shell on the host. |
-| `argo` CLI | Optional. Everything below works with plain `kubectl`. |
+| `kubectl` on your workstation | Talking to the node over the network is enough — no step needs a shell on the host. Use a release within one minor of the v1.36.2+k3s1 server (v1.35–v1.37). |
+| `just` on your workstation | Required for the documented `just ...` wrappers; use a maintained release. The underlying bootstrap commands can instead be run directly. |
+| Argo Workflows `argo` CLI on your workstation | Optional for bootstrap, but required by `just qa`, `just watch`, and `just logs` (including the first-run example below). Use v4.0.8 to match the installed Workflows CRDs/controller. This is not the Argo CD `argocd` CLI. |
+
+The wrappers use the current kubeconfig context rather than selecting a cluster
+or an Argo API endpoint. After copying the kubeconfig, confirm that it names the
+intended cluster and that your credentials can access both operator namespaces:
+
+```bash
+kubectl config current-context
+kubectl get namespaces argo argocd
+```
+
+See the [operator client and command mapping](../../README.md#operating-it) for
+which recipes invoke `kubectl` versus `argo`.
 
 On an image-based host (snosi, Bluefin) install k3s with
 `INSTALL_K3S_BIN_DIR=/var/usrlocal/bin` so the binary survives an OS update. On
@@ -139,9 +152,13 @@ All three Applications should read `Synced` / `Healthy`.
 ## 6. First run
 
 ```bash
-just smoke
-just logs
+just smoke  # kubectl
+just logs   # argo CLI
 ```
+
+`just logs` requires the v4.0.8 Argo Workflows CLI from the prerequisites. With
+only `kubectl`, use `just runs` to inspect workflow status and
+`kubectl logs -n argo <pod>` for a selected workflow pod instead.
 
 The lane pulls the image (several GB on a cold cluster — allow ~5 minutes),
 boots it as a nested systemd container, installs `python3-behave` inside it, and
