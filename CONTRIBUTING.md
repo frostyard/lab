@@ -59,3 +59,8 @@ lane, and the image/tag/suite combination if relevant.
 
 Be respectful and constructive. This is a small operational project; treat
 maintainers' and contributors' time accordingly.
+
+## License
+
+By contributing, you agree that your contributions will be licensed under the
+[MIT License](LICENSE) that covers this project.

@@ -470,3 +470,9 @@ serves the page.
   wall, with the same unhelpful error.
 - **No registry pull-through cache.** Every lane pulls from ghcr.io directly.
   Fine at three lanes on a 3-hour poll; revisit if lane count grows.
+
+---
+
+## License
+
+[MIT](LICENSE)
