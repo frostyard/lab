@@ -34,9 +34,13 @@ github:
   oauth_client_id: Ov23ligE2p0gjXg6xAUf
 
 dashboard:
-  # 3001 (upstream default, not the old k8s 3002) — the stock nginx gateway
-  # proxies hive:3001 and publishes it on the host.
-  port: 3001
+  # 3002 = the Go API (entrypoint HIVE_API_PORT default, what the container
+  # healthcheck probes). The node proxy takes 3001 (HIVE_PROXY_PORT), which
+  # the nginx gateway fronts on the host. Do NOT set 3001 here — the API
+  # then collides with the proxy and the healthcheck port goes dead.
+  # (Upstream's hive.yaml.example says 3001; that contradicts its own
+  # entrypoint/compose healthcheck defaults.)
+  port: 3002
   auth_token: ${HIVE_DASHBOARD_TOKEN}
   # First entry is the owner (read-write); later entries default to viewer.
   authorized_users: [bketelsen:owner]
