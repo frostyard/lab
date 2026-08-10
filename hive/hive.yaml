@@ -1,0 +1,49 @@
+# Hive seed config, bind-mounted at /etc/hive/hive.yaml (upstream layout).
+# The running process may rewrite it on dashboard Save, so the selfie checkout
+# can drift from git — that's expected; after first boot the dashboard's
+# overlay on the data volume (/data/hive.yaml.dashboard) wins anyway. Change
+# runtime settings through the dashboard, not this file.
+project:
+  org: frostyard
+  repos: [snosi, testsuite, lab, updex, chairlift, pilothouse]
+  primary_repo: snosi
+
+agents:
+  guide:
+    enabled: true
+    backend: copilot
+    model: claude-sonnet-4-6
+  scanner:
+    enabled: true
+    backend: copilot
+    model: claude-sonnet-4-6
+
+governor:
+  eval_interval_s: 300
+  modes:
+    idle: { threshold: 0,  guide: 4h, scanner: 4h }
+    busy: { threshold: 10, guide: 2h, scanner: 2h }
+
+github:
+  app_id: 4518769
+  installation_id: 151997502
+  app_slug: frostyard-hive
+  key_file: /secrets/gh-app-key.pem
+  forge: github.com
+  # Public device-flow OAuth client for dashboard sign-in (no secret).
+  oauth_client_id: Ov23ligE2p0gjXg6xAUf
+
+dashboard:
+  # 3001 (upstream default, not the old k8s 3002) — the stock nginx gateway
+  # proxies hive:3001 and publishes it on the host.
+  port: 3001
+  auth_token: ${HIVE_DASHBOARD_TOKEN}
+  # First entry is the owner (read-write); later entries default to viewer.
+  authorized_users: [bketelsen:owner]
+  # No hub auth proxy in front of this spoke — direct device-flow login.
+  hub_proxied: false
+
+hub:
+  enabled: false
+
+acmm_level: 2

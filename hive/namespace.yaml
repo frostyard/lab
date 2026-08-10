@@ -1,7 +1,0 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: hive
-  labels:
-    app: hive
-    app.kubernetes.io/part-of: lab

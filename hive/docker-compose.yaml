@@ -1,0 +1,72 @@
+# Verbatim from upstream v2/docker-compose.yaml (kubestellar/hive, branch v2)
+# except: the build block is omitted (no source tree in this repo — use the
+# published image) and HIVE_ID pins the instance id carried over from the
+# previous deployment. Deployed by hand on selfie (git pull + docker compose
+# up -d); this directory is no longer part of any Argo application.
+services:
+  gateway:
+    image: nginx:alpine
+    container_name: hive-gateway
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+      - "7681:7681"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - gateway-upstream:/etc/nginx/upstream
+    depends_on:
+      hive:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:3001/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  hive:
+    image: ghcr.io/kubestellar/hive:v2-latest
+    container_name: hive
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    expose:
+      - "3001"
+      - "3002"
+      - "7681"
+    volumes:
+      - ./hive.yaml:/etc/hive/hive.yaml
+      - hive-data:/data
+      - ./secrets:/secrets:ro
+    environment:
+      - HIVE_ID=frostyard
+      - HIVE_GITHUB_TOKEN=${HIVE_GITHUB_TOKEN}
+      - HIVE_DASHBOARD_TOKEN=${HIVE_DASHBOARD_TOKEN}
+      - NTFY_SERVER=${NTFY_SERVER}
+      - NTFY_TOPIC=${NTFY_TOPIC}
+      - HIVE_LEVEL=${HIVE_LEVEL:-}
+      - HIVE_REPO=${HIVE_REPO:-}
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:3002/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+
+  watchtower:
+    image: containrrr/watchtower
+    container_name: hive-watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_POLL_INTERVAL=60
+      - WATCHTOWER_LABEL_ENABLE=true
+    profiles:
+      - auto-update
+
+volumes:
+  hive-data:
+  gateway-upstream:
