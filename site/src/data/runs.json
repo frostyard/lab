@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-10T16:00:20Z",
+  "generated": "2026-08-10T16:30:19Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -53,11 +53,11 @@
       "label": "bootc installer (mechanics)",
       "kind": "install",
       "latest": {
-        "name": "snosi-bootc-install-fvd4n",
+        "name": "snosi-bootc-install-fkplf",
         "phase": "Succeeded",
-        "started": "2026-08-05T17:08:06Z",
-        "finished": "2026-08-05T17:11:28Z",
-        "durationSeconds": 202,
+        "started": "2026-08-10T16:10:49Z",
+        "finished": "2026-08-10T16:14:17Z",
+        "durationSeconds": 208,
         "template": "run-incus-bootc-install-tests",
         "kind": "install",
         "label": "bootc installer (mechanics)",
@@ -68,11 +68,11 @@
           "booted=ok",
           "failedunits=0",
           "image=ghcr.io/frostyard/snow:mechanics",
-          "osrelease=snow-20260805161157",
+          "osrelease=snow-20260810050914",
           "rootfs=overlay"
         ]
       },
-      "runs": 19,
+      "runs": 20,
       "everGreen": true
     },
     {
@@ -129,9 +129,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786377600",
+        "name": "publish-results-1786379400",
         "phase": "Running",
-        "started": "2026-08-10T16:00:00Z",
+        "started": "2026-08-10T16:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -149,11 +149,11 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786377600",
+        "name": "secure-install-watch-1786378800",
         "phase": "Succeeded",
-        "started": "2026-08-10T16:00:00Z",
-        "finished": "2026-08-10T16:00:20Z",
-        "durationSeconds": 20,
+        "started": "2026-08-10T16:20:00Z",
+        "finished": "2026-08-10T16:20:10Z",
+        "durationSeconds": 10,
         "template": "watch",
         "kind": "other",
         "label": "watch",
@@ -161,7 +161,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 5,
+      "runs": 4,
       "everGreen": true
     },
     {
@@ -227,11 +227,57 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1786377600",
+      "name": "publish-results-1786379400",
       "phase": "Running",
-      "started": "2026-08-10T16:00:00Z",
+      "started": "2026-08-10T16:30:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786378800",
+      "phase": "Succeeded",
+      "started": "2026-08-10T16:20:00Z",
+      "finished": "2026-08-10T16:20:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "snosi-bootc-install-fkplf",
+      "phase": "Succeeded",
+      "started": "2026-08-10T16:10:49Z",
+      "finished": "2026-08-10T16:14:17Z",
+      "durationSeconds": 208,
+      "template": "run-incus-bootc-install-tests",
+      "kind": "install",
+      "label": "bootc installer (mechanics)",
+      "trigger": "manual",
+      "result": "bootc installed and verified: ghcr.io/frostyard/snow:mechanics (secureboot=false)",
+      "checks": [
+        "backend=composefs",
+        "booted=ok",
+        "failedunits=0",
+        "image=ghcr.io/frostyard/snow:mechanics",
+        "osrelease=snow-20260810050914",
+        "rootfs=overlay"
+      ]
+    },
+    {
+      "name": "publish-results-1786377600",
+      "phase": "Succeeded",
+      "started": "2026-08-10T16:00:00Z",
+      "finished": "2026-08-10T16:00:34Z",
+      "durationSeconds": 34,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -344,19 +390,6 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786374000",
-      "phase": "Succeeded",
-      "started": "2026-08-10T15:00:00Z",
-      "finished": "2026-08-10T15:00:20Z",
-      "durationSeconds": 20,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "snosi-secure-install-auto-qq82l",
       "phase": "Succeeded",
       "started": "2026-08-10T14:40:12Z",
@@ -377,32 +410,6 @@
         "secureboot=enforced",
         "tpmunlock=ok"
       ]
-    },
-    {
-      "name": "secure-install-watch-1786372800",
-      "phase": "Succeeded",
-      "started": "2026-08-10T14:40:00Z",
-      "finished": "2026-08-10T14:40:30Z",
-      "durationSeconds": 30,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786372200",
-      "phase": "Succeeded",
-      "started": "2026-08-10T14:30:00Z",
-      "finished": "2026-08-10T14:30:36Z",
-      "durationSeconds": 36,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
     },
     {
       "name": "snosi-secure-install-auto-772nv",
