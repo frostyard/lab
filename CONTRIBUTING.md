@@ -32,17 +32,18 @@ or supporting docs/tooling (`docs/`, `Justfile`, `scripts/`, `site/`).
 ## Running Python tests locally
 
 CI runs the pytest suite with Python 3.12 and 3.13. From the repository root,
-create an isolated environment, install the same pytest version as CI, and run
-the suite:
+create an isolated environment, install the same test dependencies as CI, and
+run the suite:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install pytest==8.4.2
+python -m pip install -r requirements-test.txt
 python -m pytest -q
 ```
 
-`pytest.ini` discovers the tests under `tests/`. When changing
+`requirements-test.txt` pins pytest plus the offline YAML and Kubernetes 1.36
+schema validators. `pytest.ini` discovers the tests under `tests/`. When changing
 `scripts/collect_runs.py`, you can run its focused tests during development:
 
 ```bash
@@ -55,8 +56,8 @@ governance policy also require `python3 policies/check_agent_governance.py`.
 ## Making changes
 
 - If you're changing an Argo `WorkflowTemplate` or `CronWorkflow`, validate
-  the YAML locally (e.g. `argo lint`) before opening a PR, and describe what
-  lane(s) are affected.
+  the YAML with `python -m pytest -q` and `argo lint` before opening a PR, and
+  describe what lane(s) are affected.
 - If you're changing the reporting site (`site/`), run the end-to-end suite
   with `just site-e2e` (Playwright specs live in `e2e/`).
 - If you're changing docs, keep the tone and structure consistent with the

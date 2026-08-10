@@ -13,7 +13,7 @@ request's checks rather than these default-branch badges.
 | Signal | Status | What it establishes |
 |---|---|---|
 | Reporting site end to end | [![e2e status][e2e-badge]][e2e-workflow] | Playwright builds the reporting site and checks the rendered dashboard against the committed run data. |
-| Repository CI | [![CI status][ci-badge]][ci-workflow] | Python 3.12/3.13 run every pytest contract, including the deny-by-default agent-governance policy; Node.js 22 runs the reporting-site unit suite. |
+| Repository CI | [![CI status][ci-badge]][ci-workflow] | Python 3.12/3.13 run every pytest contract, including Kubernetes 1.36 manifest schemas, Argo wiring, and the deny-by-default agent-governance policy; Node.js 22 runs the reporting-site unit suite. |
 | Reporting site deployment | [![pages status][pages-badge]][pages-workflow] | The site unit tests and Astro build passed before the current GitHub Pages deployment. |
 
 The operational QA dashboard at <https://frostyard.github.io/lab/> is a
@@ -26,21 +26,24 @@ does not report whether this repository's code passed the checks above.
 |---|---|
 | `site/`, `e2e/`, or Playwright configuration | `just site-e2e`; run `cd site && npm test` when changing the API/data helpers. |
 | `scripts/`, `tests/`, or `policies/` | `python -m pytest -q`; for governance changes also run `python3 policies/check_agent_governance.py`. |
-| `argo/`, `manifests/`, `argocd/`, or Kubernetes resources | `argo lint` where applicable and `just validate` against a configured cluster. |
+| `argo/`, `manifests/`, `argocd/`, or Kubernetes resources | `python -m pytest -q` for offline schema and cross-resource contracts; also run `argo lint` where applicable and `just validate` against a configured cluster. |
 | Documentation | Commands and links resolve, and claims about lane status agree with `README.md` and `docs/roadmap.md`. |
 | Every pull request | Follow the [contributing guide](../CONTRIBUTING.md) and record the relevant result in the pull request's Testing section. |
 
 ## Known gaps
 
 - The E2E workflow runs on pull requests only when its path filters match. The
-  unfiltered CI workflow runs repository unit and policy tests on every pull
-  request, but it does not validate Kubernetes manifests against a cluster.
+  unfiltered CI workflow runs repository unit, policy, and offline manifest
+  tests on every pull request.
 - `.coverage-thresholds.json` currently sets every minimum to zero, and no
   workflow publishes a coverage result. Its presence is configuration, not an
   effective coverage gate.
-- `just validate` uses server-side dry runs against a live Kubernetes cluster.
-  CI has no cluster credentials, so manifest validation remains review
-  evidence supplied by the contributor.
+- CI rejects malformed or duplicate-key YAML, strictly validates built-in
+  resources against Kubernetes 1.36 schemas, and checks Argo references,
+  Argo CD ownership, RBAC, and image-poller state. It cannot execute Argo CRD
+  admission or cluster-specific policy without cluster credentials, so
+  `argo lint` and `just validate` remain additional review evidence for
+  manifest changes.
 - The Pages workflow runs after changes reach `main`; it is deployment
   evidence, not a pre-merge check.
 
