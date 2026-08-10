@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-10T07:30:19Z",
+  "generated": "2026-08-10T08:00:20Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -129,9 +129,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786347000",
+        "name": "publish-results-1786348800",
         "phase": "Running",
-        "started": "2026-08-10T07:30:00Z",
+        "started": "2026-08-10T08:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -149,11 +149,11 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786346400",
-        "phase": "Succeeded",
-        "started": "2026-08-10T07:20:00Z",
-        "finished": "2026-08-10T07:20:10Z",
-        "durationSeconds": 10,
+        "name": "secure-install-watch-1786348800",
+        "phase": "Running",
+        "started": "2026-08-10T08:00:00Z",
+        "finished": null,
+        "durationSeconds": null,
         "template": "watch",
         "kind": "other",
         "label": "watch",
@@ -161,7 +161,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 4,
+      "runs": 5,
       "everGreen": true
     },
     {
@@ -227,11 +227,50 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1786347000",
+      "name": "publish-results-1786348800",
       "phase": "Running",
-      "started": "2026-08-10T07:30:00Z",
+      "started": "2026-08-10T08:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786348800",
+      "phase": "Running",
+      "started": "2026-08-10T08:00:00Z",
+      "finished": null,
+      "durationSeconds": null,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786347600",
+      "phase": "Succeeded",
+      "started": "2026-08-10T07:40:00Z",
+      "finished": "2026-08-10T07:40:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786347000",
+      "phase": "Succeeded",
+      "started": "2026-08-10T07:30:00Z",
+      "finished": "2026-08-10T07:30:31Z",
+      "durationSeconds": 31,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -331,19 +370,6 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786342800",
-      "phase": "Succeeded",
-      "started": "2026-08-10T06:20:00Z",
-      "finished": "2026-08-10T06:20:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "orphan-pod-gc-1786342620",
       "phase": "Succeeded",
       "started": "2026-08-10T06:17:00Z",
@@ -367,19 +393,6 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786341600",
-      "phase": "Succeeded",
-      "started": "2026-08-10T06:00:00Z",
-      "finished": "2026-08-10T06:00:31Z",
-      "durationSeconds": 31,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
