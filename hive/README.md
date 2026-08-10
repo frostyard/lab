@@ -13,6 +13,7 @@ nothing syncs it automatically:
 ssh selfie
 git -C ~/lab pull
 cd ~/lab/hive
+cp -n hive.yaml.seed hive.yaml  # first deploy only — hive.yaml is untracked
 docker compose up -d            # add --profile auto-update for watchtower
 ```
 
@@ -49,36 +50,46 @@ lives only in `secrets/` on selfie. To rotate it: GitHub App settings →
 Generate a private key → replace `secrets/gh-app-key.pem` →
 `docker compose restart hive`.
 
-## Layout
+## Layout and deviations from upstream
 
-`docker-compose.yaml` is upstream's published file verbatim, except the
-source `build:` block is omitted (no source tree here) and `HIVE_ID=frostyard`
-pins the instance id so existing `hive/frostyard` repo labels stay stable.
-`HIVE_GITHUB_TOKEN` stays unset — auth is the App key. `deploy/nginx.conf` is
-vendored verbatim from upstream.
+`docker-compose.yaml` is upstream's published file plus deviations that each
+cover a breakage observed on this image (details in the compose file):
 
-## Known issues to watch (fixed by hand on k3s; unverified on compose)
+- source `build:` block omitted — published image only
+- `HIVE_ID=frostyard` pins the instance id so existing `hive/frostyard` repo
+  labels stay stable
+- entrypoint override: symlinks `/usr/bin/gh` → `/opt/hive/bin/gh-real`
+  (the image's `gh` wrapper hardcodes a path nothing installs; without it
+  every agent `gh` call dies) and repairs `/data` ownership on each start
+  (`chown 1001:1000`, group-writable + setgid on the shared trees — the
+  uid-1001 permissions watcher can't fix root-owned files itself)
 
-The k3s deployment carried two workarounds that are deliberately **not**
-ported. If the symptoms reappear, apply the deviation then:
+`HIVE_GITHUB_TOKEN` stays unset — auth is the App key. `deploy/nginx.conf`
+is vendored verbatim from upstream.
 
-- **Agent `gh` calls fail** ("gh CLI is not available", agents fall back to
-  the GitHub MCP under the wrong identity): the image's `gh` wrapper
-  hardcodes `/usr/bin/gh` but the binary lives at `/opt/hive/bin/gh-real`.
-  Check `docker exec hive ls -l /usr/bin/gh`; fix with
-  `docker exec hive ln -sf /opt/hive/bin/gh-real /usr/bin/gh` (or an
-  entrypoint override if it must survive container recreation).
-- **Cross-agent permission errors** on `/data/home` / `/data/beads` after
-  restarts (per-agent UIDs 2001+ vs the uid-1001 watcher): the k8s init
-  container ran `chown -R 1001:1000 /data` plus group-writable/setgid repair
-  on every start.
+Ports (learned the hard way — upstream's `hive.yaml.example` is wrong):
+the Go API serves on **3002** (`dashboard.port`, matches the entrypoint's
+`HIVE_API_PORT` and the container healthcheck); a node proxy serves the UI
+on **3001** (`HIVE_PROXY_PORT`), fronted by the nginx gateway on the host.
 
-## Config precedence — read before editing hive.yaml
+## Config: hive.yaml.seed vs hive.yaml
 
-`hive.yaml` is the **seed**; after first boot the dashboard's overlay on the
-data volume (`/data/hive.yaml.dashboard`) wins, and the process may rewrite
-the seed on dashboard Save (checkout drift on selfie is expected). Change
-agents/models/settings through the dashboard, not the file.
+`hive.yaml.seed` is the tracked seed. The deployed copy `hive.yaml` is
+**gitignored** (upstream's own layout): the running process rewrites it with
+env vars expanded — including the dashboard token in plaintext — so it must
+never be tracked. After first boot the overlay on the data volume
+(`/data/hive.yaml.runtime`) wins over the file anyway; change
+agents/models/settings through the dashboard. To force a reseed: stop the
+stack, wipe the `hive_hive-data` volume, re-copy the seed, start.
+
+## Security posture (differs from k3s)
+
+The k3s deployment exposed the Go API directly and required the bearer token
+on the LAN. The compose gateway instead fronts the node proxy, which
+**vouches for every request** (`X-Hive-Internal`) and injects the dashboard
+token into the served UI — anyone who can reach `10.0.1.200:3001` has full
+dashboard access. Upstream's compose model assumes a trusted network. Keep
+this on the trusted home LAN only; do not port-forward it.
 
 ## First-run checklist (dashboard at http://10.0.1.200:3001)
 

@@ -1,8 +1,10 @@
-# Hive seed config, bind-mounted at /etc/hive/hive.yaml (upstream layout).
-# The running process may rewrite it on dashboard Save, so the selfie checkout
-# can drift from git — that's expected; after first boot the dashboard's
-# overlay on the data volume (/data/hive.yaml.dashboard) wins anyway. Change
-# runtime settings through the dashboard, not this file.
+# Hive seed config. Copy to hive.yaml on selfie (cp -n hive.yaml.seed
+# hive.yaml) — the copy is bind-mounted at /etc/hive/hive.yaml and the
+# running process REWRITES it (env vars expanded, secrets inlined), which is
+# why hive.yaml itself is gitignored, matching upstream's layout where
+# hive.yaml is always an untracked local file. After first boot the
+# dashboard's overlay on the data volume (/data/hive.yaml.runtime) wins over
+# the file anyway; change runtime settings through the dashboard.
 project:
   org: frostyard
   repos: [snosi, testsuite, lab, updex, chairlift, pilothouse]

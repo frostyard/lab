@@ -1,8 +1,11 @@
-# Verbatim from upstream v2/docker-compose.yaml (kubestellar/hive, branch v2)
-# except: the build block is omitted (no source tree in this repo — use the
-# published image) and HIVE_ID pins the instance id carried over from the
-# previous deployment. Deployed by hand on selfie (git pull + docker compose
-# up -d); this directory is no longer part of any Argo application.
+# Based on upstream v2/docker-compose.yaml (kubestellar/hive, branch v2).
+# Deviations, each covering a breakage observed in this deployment:
+#   - build block omitted (no source tree in this repo — published image only)
+#   - HIVE_ID pins the instance id carried over from the k3s deployment
+#   - entrypoint override on the hive service: gh path bridge + /data
+#     permission repair (see comments there)
+# Deployed by hand on selfie (git pull + docker compose up -d); this
+# directory is no longer part of any Argo application.
 services:
   gateway:
     image: nginx:alpine
@@ -37,6 +40,28 @@ services:
       - ./hive.yaml:/etc/hive/hive.yaml
       - hive-data:/data
       - ./secrets:/secrets:ro
+    # Two fixes confirmed necessary on this image (both also carried by the
+    # old k3s deployment):
+    #   1. bin/gh-wrapper.sh (installed at /usr/local/bin/gh) hardcodes
+    #      REAL_GH=/usr/bin/gh but the real binary is at
+    #      /opt/hive/bin/gh-real and nothing links them — every agent `gh`
+    #      call dies at the wrapper's guard.
+    #   2. The entrypoint seeds /data as root, and the in-process permissions
+    #      watcher (uid 1001) can't chown root-owned trees — endless
+    #      "operation not permitted" warnings and broken cross-agent sharing
+    #      of /data/home and /data/beads between restarts.
+    # Overriding entrypoint discards the image CMD, so command is restated.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >-
+        ln -sf /opt/hive/bin/gh-real /usr/bin/gh;
+        chown -R 1001:1000 /data 2>/dev/null || true;
+        chmod -R g+rwX /data/home /data/beads /data/agents 2>/dev/null || true;
+        find /data/home /data/beads /data/agents -type d -exec chmod g+s {} + 2>/dev/null || true;
+        exec entrypoint.sh "$@"
+      - --
+    command: ["--config", "/etc/hive/hive.yaml"]
     environment:
       - HIVE_ID=frostyard
       - HIVE_GITHUB_TOKEN=${HIVE_GITHUB_TOKEN}
