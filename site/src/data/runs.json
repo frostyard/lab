@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-10T14:00:20Z",
+  "generated": "2026-08-10T14:30:22Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -80,16 +80,16 @@
       "label": "bootc secure installer",
       "kind": "install",
       "latest": {
-        "name": "snosi-secure-install-auto-mdwmr",
+        "name": "snosi-secure-install-auto-772nv",
         "phase": "Succeeded",
-        "started": "2026-08-10T11:40:12Z",
-        "finished": "2026-08-10T11:49:42Z",
-        "durationSeconds": 570,
+        "started": "2026-08-10T14:00:23Z",
+        "finished": "2026-08-10T14:07:41Z",
+        "durationSeconds": 438,
         "template": "run-secure-install-tests",
         "kind": "install",
         "label": "bootc secure installer",
         "trigger": "digest-watch",
-        "result": "secure install verified: cayo @ sha256:0f6a0a11d2bf4cd463212255114b674c891de9959fcfeafda57ab716db8d99db (Secure Boot enforced, MOK enrolled, TPM unlock)",
+        "result": "secure install verified: cayo @ sha256:98f20c1a790458f347eb70f7ac7b4a185598f3c08829e537638997dedac0e0c0 (Secure Boot enforced, MOK enrolled, TPM unlock)",
         "checks": [
           "assertions=18",
           "blocked=0",
@@ -101,7 +101,7 @@
           "tpmunlock=ok"
         ]
       },
-      "runs": 79,
+      "runs": 80,
       "everGreen": true
     },
     {
@@ -129,9 +129,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786370400",
+        "name": "publish-results-1786372200",
         "phase": "Running",
-        "started": "2026-08-10T14:00:00Z",
+        "started": "2026-08-10T14:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -149,11 +149,11 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786370400",
-        "phase": "Running",
-        "started": "2026-08-10T14:00:00Z",
-        "finished": null,
-        "durationSeconds": null,
+        "name": "secure-install-watch-1786371600",
+        "phase": "Succeeded",
+        "started": "2026-08-10T14:20:00Z",
+        "finished": "2026-08-10T14:20:10Z",
+        "durationSeconds": 10,
         "template": "watch",
         "kind": "other",
         "label": "watch",
@@ -161,7 +161,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 5,
+      "runs": 4,
       "everGreen": true
     },
     {
@@ -227,9 +227,9 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1786370400",
+      "name": "publish-results-1786372200",
       "phase": "Running",
-      "started": "2026-08-10T14:00:00Z",
+      "started": "2026-08-10T14:30:00Z",
       "finished": null,
       "durationSeconds": null,
       "template": "publish",
@@ -240,11 +240,59 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786370400",
-      "phase": "Running",
+      "name": "secure-install-watch-1786371600",
+      "phase": "Succeeded",
+      "started": "2026-08-10T14:20:00Z",
+      "finished": "2026-08-10T14:20:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "snosi-secure-install-auto-772nv",
+      "phase": "Succeeded",
+      "started": "2026-08-10T14:00:23Z",
+      "finished": "2026-08-10T14:07:41Z",
+      "durationSeconds": 438,
+      "template": "run-secure-install-tests",
+      "kind": "install",
+      "label": "bootc secure installer",
+      "trigger": "digest-watch",
+      "result": "secure install verified: cayo @ sha256:98f20c1a790458f347eb70f7ac7b4a185598f3c08829e537638997dedac0e0c0 (Secure Boot enforced, MOK enrolled, TPM unlock)",
+      "checks": [
+        "assertions=18",
+        "blocked=0",
+        "failed=0",
+        "media=published",
+        "profile=cayo",
+        "recovery=ok",
+        "secureboot=enforced",
+        "tpmunlock=ok"
+      ]
+    },
+    {
+      "name": "publish-results-1786370400",
+      "phase": "Succeeded",
       "started": "2026-08-10T14:00:00Z",
-      "finished": null,
-      "durationSeconds": null,
+      "finished": "2026-08-10T14:00:33Z",
+      "durationSeconds": 33,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786370400",
+      "phase": "Succeeded",
+      "started": "2026-08-10T14:00:00Z",
+      "finished": "2026-08-10T14:00:40Z",
+      "durationSeconds": 40,
       "template": "watch",
       "kind": "other",
       "label": "watch",
@@ -305,19 +353,6 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786366800",
-      "phase": "Succeeded",
-      "started": "2026-08-10T13:00:00Z",
-      "finished": "2026-08-10T13:00:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "image-poll-snowfield-latest-1786365600",
       "phase": "Failed",
       "started": "2026-08-10T12:40:00Z",
@@ -328,32 +363,6 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
-      "name": "secure-install-watch-1786365600",
-      "phase": "Succeeded",
-      "started": "2026-08-10T12:40:00Z",
-      "finished": "2026-08-10T12:40:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786365000",
-      "phase": "Succeeded",
-      "started": "2026-08-10T12:30:00Z",
-      "finished": "2026-08-10T12:30:34Z",
-      "durationSeconds": 34,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
