@@ -50,5 +50,17 @@ jobs:
           cache-dependency-path: site/package-lock.json
       - run: npm ci
         working-directory: site
+      # Node.js exits successfully when its test glob matches nothing.
+      - name: Assert unit test files exist
+        working-directory: site
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(test/*.test.mjs)
+          if (( ${#files[@]} == 0 )); then
+            echo "::error::No files match site/test/*.test.mjs; npm test would run zero tests"
+            exit 1
+          fi
+          echo "Found ${#files[@]} test file(s): ${files[*]}"
       - run: npm test
         working-directory: site
