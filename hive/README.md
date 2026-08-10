@@ -14,11 +14,15 @@ ssh selfie
 git -C ~/lab pull
 cd ~/lab/hive
 cp -n hive.yaml.seed hive.yaml  # first deploy only — hive.yaml is untracked
-docker compose up -d            # add --profile auto-update for watchtower
+docker compose up -d
 ```
 
 Dashboard: http://10.0.1.200:3002 (same port as the k3s days) · the nginx
 gateway (3001) and ttyd (7681) are bound to selfie's loopback only.
+
+Container images are pinned by digest. Update a digest in
+`docker-compose.yaml` through the normal review process before redeploying;
+the stack does not perform unattended image updates.
 
 ## Secrets (manual, never in git)
 
