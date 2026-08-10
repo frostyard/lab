@@ -11,9 +11,15 @@ services:
     image: nginx:alpine
     container_name: hive-gateway
     restart: unless-stopped
+    # Loopback only. The node proxy behind this gateway vouches for every API
+    # request (X-Hive-Internal) and hands the dashboard token to any visitor —
+    # and its blanket Bearer requirement on POST blocks the device-flow login
+    # that our authorized_users allowlist depends on. The LAN entrance is the
+    # Go API on 3002 (published on the hive service), which enforces per-user
+    # device-flow auth — the same posture the k3s deployment had.
     ports:
-      - "3001:3001"
-      - "7681:7681"
+      - "127.0.0.1:3001:3001"
+      - "127.0.0.1:7681:7681"
     volumes:
       - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
       - gateway-upstream:/etc/nginx/upstream
@@ -32,6 +38,11 @@ services:
     restart: unless-stopped
     cap_add:
       - NET_ADMIN
+    # 3002 = the Go API + dashboard UI with real auth (device-flow sessions,
+    # authorized_users allowlist) — the LAN-facing entrance, same port the
+    # k3s Service exposed.
+    ports:
+      - "3002:3002"
     expose:
       - "3001"
       - "3002"

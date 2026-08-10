@@ -17,7 +17,8 @@ cp -n hive.yaml.seed hive.yaml  # first deploy only — hive.yaml is untracked
 docker compose up -d            # add --profile auto-update for watchtower
 ```
 
-Dashboard: http://10.0.1.200:3001 · Terminal (ttyd): port 7681.
+Dashboard: http://10.0.1.200:3002 (same port as the k3s days) · the nginx
+gateway (3001) and ttyd (7681) are bound to selfie's loopback only.
 
 ## Secrets (manual, never in git)
 
@@ -68,9 +69,10 @@ cover a breakage observed on this image (details in the compose file):
 is vendored verbatim from upstream.
 
 Ports (learned the hard way — upstream's `hive.yaml.example` is wrong):
-the Go API serves on **3002** (`dashboard.port`, matches the entrypoint's
-`HIVE_API_PORT` and the container healthcheck); a node proxy serves the UI
-on **3001** (`HIVE_PROXY_PORT`), fronted by the nginx gateway on the host.
+the Go API + UI with real auth serve on **3002** (`dashboard.port`, matches
+the entrypoint's `HIVE_API_PORT` and the container healthcheck) — published
+on the LAN; a node proxy serves the UI on **3001** (`HIVE_PROXY_PORT`),
+fronted by the nginx gateway — loopback only, see below.
 
 ## Config: hive.yaml.seed vs hive.yaml
 
@@ -82,16 +84,21 @@ never be tracked. After first boot the overlay on the data volume
 agents/models/settings through the dashboard. To force a reseed: stop the
 stack, wipe the `hive_hive-data` volume, re-copy the seed, start.
 
-## Security posture (differs from k3s)
+## Security posture
 
-The k3s deployment exposed the Go API directly and required the bearer token
-on the LAN. The compose gateway instead fronts the node proxy, which
-**vouches for every request** (`X-Hive-Internal`) and injects the dashboard
-token into the served UI — anyone who can reach `10.0.1.200:3001` has full
-dashboard access. Upstream's compose model assumes a trusted network. Keep
-this on the trusted home LAN only; do not port-forward it.
+The LAN entrance is the Go API on 3002, which enforces per-user device-flow
+auth against the `authorized_users` allowlist — the same posture the k3s
+deployment had. The nginx gateway → node proxy path (3001) is bound to
+selfie's loopback only, for two reasons: the proxy **vouches for every API
+request** (`X-Hive-Internal`) and hands the dashboard token to any visitor,
+and its blanket Bearer requirement on POST blocks the device-flow login
+outright (`Login error: Unauthorized` before the GitHub redirect — the UI
+can't obtain the shared token on an allowlisted spoke, by design). Upstream's
+proxy model assumes an open, token-only spoke on a trusted network; ours is
+allowlisted. Reach 3001 via `ssh -L` if ever needed. Do not port-forward
+either port off the LAN.
 
-## First-run checklist (dashboard at http://10.0.1.200:3001)
+## First-run checklist (dashboard at http://10.0.1.200:3002)
 
 1. Sign in — GitHub device flow (allowlist: `bketelsen`).
 2. Settings → Copilot: run the device-flow login so agents get a
