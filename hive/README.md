@@ -59,11 +59,18 @@ cover a breakage observed on this image (details in the compose file):
 - source `build:` block omitted — published image only
 - `HIVE_ID=frostyard` pins the instance id so existing `hive/frostyard` repo
   labels stay stable
-- entrypoint override: symlinks `/usr/bin/gh` → `/opt/hive/bin/gh-real`
-  (the image's `gh` wrapper hardcodes a path nothing installs; without it
-  every agent `gh` call dies) and repairs `/data` ownership on each start
+- entrypoint override: repairs `/data` ownership on each start
   (`chown 1001:1000`, group-writable + setgid on the shared trees — the
   uid-1001 permissions watcher can't fix root-owned files itself)
+
+We previously also symlinked `/usr/bin/gh` → `/opt/hive/bin/gh-real`,
+reading the wrapper's hardcoded-but-absent `REAL_GH` path as an image bug.
+Upstream says the absence is deliberate: the wrapper's guard steers agent
+`gh` calls through the hive MITM proxy (App bot identity, per-agent scoping,
+audit), and a direct `gh` bypasses that control — do not restore the symlink
+([kubestellar/hive#3022](https://github.com/kubestellar/hive/issues/3022),
+comment 5246849016). Intermittent proxy 403s are a token-refresh issue on
+upstream's side, not a reason to bring it back.
 
 `HIVE_GITHUB_TOKEN` stays unset — auth is the App key. `deploy/nginx.conf`
 is vendored verbatim from upstream.
@@ -105,6 +112,7 @@ either port off the LAN.
    `COPILOT_GITHUB_TOKEN` (persisted on the `hive-data` volume, survives
    restarts).
 3. Confirm the ACMM level / agent roster.
-4. After the first agent kick, spot-check `gh` works as the App bot and
-   `/data` permissions hold across a `docker compose restart hive` — see
-   known issues above.
+4. After the first agent kick, spot-check `gh` works as the App bot
+   (through the hive proxy — direct `/usr/bin/gh` is deliberately absent)
+   and `/data` permissions hold across a `docker compose restart hive` —
+   see known issues above.

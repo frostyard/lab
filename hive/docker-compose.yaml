@@ -2,8 +2,8 @@
 # Deviations, each covering a breakage observed in this deployment:
 #   - build block omitted (no source tree in this repo — published image only)
 #   - HIVE_ID pins the instance id carried over from the k3s deployment
-#   - entrypoint override on the hive service: gh path bridge + /data
-#     permission repair (see comments there)
+#   - entrypoint override on the hive service: /data permission repair
+#     (see comments there)
 # Deployed by hand on selfie (git pull + docker compose up -d); this
 # directory is no longer part of any Argo application.
 services:
@@ -51,22 +51,21 @@ services:
       - ./hive.yaml:/etc/hive/hive.yaml
       - hive-data:/data
       - ./secrets:/secrets:ro
-    # Two fixes confirmed necessary on this image (both also carried by the
-    # old k3s deployment):
-    #   1. bin/gh-wrapper.sh (installed at /usr/local/bin/gh) hardcodes
-    #      REAL_GH=/usr/bin/gh but the real binary is at
-    #      /opt/hive/bin/gh-real and nothing links them — every agent `gh`
-    #      call dies at the wrapper's guard.
-    #   2. The entrypoint seeds /data as root, and the in-process permissions
-    #      watcher (uid 1001) can't chown root-owned trees — endless
-    #      "operation not permitted" warnings and broken cross-agent sharing
-    #      of /data/home and /data/beads between restarts.
+    # One fix confirmed necessary on this image (also carried by the old k3s
+    # deployment): the entrypoint seeds /data as root, and the in-process
+    # permissions watcher (uid 1001) can't chown root-owned trees — endless
+    # "operation not permitted" warnings and broken cross-agent sharing of
+    # /data/home and /data/beads between restarts.
+    # Do NOT symlink /usr/bin/gh → /opt/hive/bin/gh-real: the missing binary
+    # is deliberate — the wrapper's guard steers agent gh calls through the
+    # hive MITM proxy (App bot identity, per-agent scoping, audit), and a
+    # direct gh bypasses that control
+    # (kubestellar/hive#3022, comment 5246849016).
     # Overriding entrypoint discards the image CMD, so command is restated.
     entrypoint:
       - /bin/sh
       - -c
       - >-
-        ln -sf /opt/hive/bin/gh-real /usr/bin/gh;
         chown -R 1001:1000 /data 2>/dev/null || true;
         chmod -R g+rwX /data/home /data/beads /data/agents 2>/dev/null || true;
         find /data/home /data/beads /data/agents -type d -exec chmod g+s {} + 2>/dev/null || true;
