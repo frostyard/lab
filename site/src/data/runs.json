@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-10T09:30:19Z",
+  "generated": "2026-08-10T10:00:20Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -129,9 +129,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786354200",
+        "name": "publish-results-1786356000",
         "phase": "Running",
-        "started": "2026-08-10T09:30:00Z",
+        "started": "2026-08-10T10:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -149,10 +149,10 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786353600",
+        "name": "secure-install-watch-1786356000",
         "phase": "Succeeded",
-        "started": "2026-08-10T09:20:00Z",
-        "finished": "2026-08-10T09:20:10Z",
+        "started": "2026-08-10T10:00:00Z",
+        "finished": "2026-08-10T10:00:10Z",
         "durationSeconds": 10,
         "template": "watch",
         "kind": "other",
@@ -161,7 +161,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 4,
+      "runs": 5,
       "everGreen": true
     },
     {
@@ -169,16 +169,16 @@
       "label": "Registry digest poll",
       "kind": "poll",
       "latest": {
-        "name": "image-poll-cayo-latest-1786353600",
-        "phase": "Succeeded",
-        "started": "2026-08-10T09:20:00Z",
-        "finished": "2026-08-10T09:20:20Z",
-        "durationSeconds": 20,
+        "name": "image-poll-snowfield-latest-1786354800",
+        "phase": "Failed",
+        "started": "2026-08-10T09:40:00Z",
+        "finished": "2026-08-10T09:41:23Z",
+        "durationSeconds": 83,
         "template": "image-poller",
         "kind": "poll",
         "label": "Registry digest poll",
         "trigger": "scheduled",
-        "result": null,
+        "result": "19 passed, 1 failed",
         "checks": []
       },
       "runs": 11,
@@ -227,11 +227,63 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1786354200",
+      "name": "publish-results-1786356000",
       "phase": "Running",
-      "started": "2026-08-10T09:30:00Z",
+      "started": "2026-08-10T10:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786356000",
+      "phase": "Succeeded",
+      "started": "2026-08-10T10:00:00Z",
+      "finished": "2026-08-10T10:00:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "image-poll-snowfield-latest-1786354800",
+      "phase": "Failed",
+      "started": "2026-08-10T09:40:00Z",
+      "finished": "2026-08-10T09:41:23Z",
+      "durationSeconds": 83,
+      "template": "image-poller",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": "19 passed, 1 failed",
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786354800",
+      "phase": "Succeeded",
+      "started": "2026-08-10T09:40:00Z",
+      "finished": "2026-08-10T09:40:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786354200",
+      "phase": "Succeeded",
+      "started": "2026-08-10T09:30:00Z",
+      "finished": "2026-08-10T09:30:32Z",
+      "durationSeconds": 32,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -328,45 +380,6 @@
       "label": "publish",
       "trigger": "scheduled",
       "result": null,
-      "checks": []
-    },
-    {
-      "name": "secure-install-watch-1786350000",
-      "phase": "Succeeded",
-      "started": "2026-08-10T08:20:00Z",
-      "finished": "2026-08-10T08:20:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786348800",
-      "phase": "Succeeded",
-      "started": "2026-08-10T08:00:00Z",
-      "finished": "2026-08-10T08:00:32Z",
-      "durationSeconds": 32,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "image-poll-snowfield-latest-1786344000",
-      "phase": "Failed",
-      "started": "2026-08-10T06:40:00Z",
-      "finished": "2026-08-10T06:41:27Z",
-      "durationSeconds": 87,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": "19 passed, 1 failed",
       "checks": []
     },
     {
