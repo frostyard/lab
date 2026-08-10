@@ -7,7 +7,6 @@ content, or credentials.
 | Signal | Public surface | Freshness |
 |---|---|---|
 | QA lane status and run history | [Lab dashboard](https://frostyard.github.io/lab/) | Updated from the Argo workflow collector when run data changes |
-| Hive health, queues, agent states, repositories, and usage | [Hive dashboard](https://frostyard.github.io/lab/hive/) | Read live through the sanitized observer API |
 | Pull request acceptance and time to merge | [PR metrics workflow](https://github.com/frostyard/lab/actions/workflows/pr-metrics.yml) | Calculated every Monday or on demand |
 
 The QA dashboard is generated from `site/src/data/runs.json`. It reports the
@@ -15,10 +14,9 @@ latest state of each test lane and recent runs, including duration, trigger,
 result summary, and lane-specific checks. The collector reads Argo directly,
 so new workflow lanes appear without a separate reporting integration.
 
-The Hive dashboard exposes only the observer's aggregate contract. The
-internal Hive dashboard and individual session data are not publicly proxied;
-see [`hive-observer/README.md`](../../hive-observer/README.md) for the
-published fields and security boundary.
+Hive does not currently publish a public metrics surface. Its dashboard is
+internal; see [`hive/README.md`](../../hive/README.md) for the current
+deployment and security posture.
 
 ## Pull request acceptance
 

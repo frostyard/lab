@@ -381,7 +381,7 @@ Install these workstation clients:
 | Client | Version expectation | Used by |
 |---|---|---|
 | [`just`](https://just.systems/) | No project-specific version is pinned; use a maintained release that can parse this `Justfile`. | Every `just ...` command. |
-| [`kubectl`](https://kubernetes.io/docs/tasks/tools/) | Stay within the supported one-minor version skew of the v1.36.2+k3s1 server (v1.35–v1.37). | `setup-argocd`, `status`, `refresh`, `smoke`, `runs`, `validate`, and the `hive-*` wrappers. |
+| [`kubectl`](https://kubernetes.io/docs/tasks/tools/) | Stay within the supported one-minor version skew of the v1.36.2+k3s1 server (v1.35–v1.37). | `setup-argocd`, `status`, `refresh`, `smoke`, `runs`, and `validate`. |
 | [Argo Workflows CLI](https://argo-workflows.readthedocs.io/en/latest/walk-through/argo-cli/) (`argo`, not the Argo CD `argocd` CLI) | Use v4.0.8 to match the installed Workflows CRDs/controller. | `qa`, `watch`, and `logs`. |
 
 Both `kubectl` and `argo` use the current kubeconfig context and need access to
