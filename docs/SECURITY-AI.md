@@ -88,6 +88,12 @@ and validation that could not be run. Reviewers apply the
 safety, and validation criteria, and consult the live signals and known gaps in
 the [quality dashboard](quality.md).
 
+The executable [`policies/agent-governance.json`](../policies/agent-governance.json)
+contract fails closed if denied autonomous actions, GitOps and review controls,
+protected boundaries, or exception requirements are weakened. It supplements
+this policy and does not grant permissions; run
+`python3 policies/check_agent_governance.py` after changing it.
+
 Exceptions require a focused pull request documenting rationale, duration,
 compensating controls, and restoration steps, plus maintainer approval. An
 agent cannot approve its own exception. Emergency action outside GitOps belongs
