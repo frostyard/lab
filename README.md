@@ -394,12 +394,6 @@ Copilot review feedback automation and its repository setup:
 showing per-lane status and recent run history:
 **<https://frostyard.github.io/lab/>**
 
-The `/lab/hive/` page adds a live, sanitized view of the Hive deployment.
-An observer in the `hive` namespace reads the internal dashboard API and
-publishes only aggregate health, queue, agent-state, repository, and usage
-data through Caddy. Its deployment and Caddy contract are documented in
-[`hive-observer/README.md`](hive-observer/README.md).
-
 The pipeline-results data flow deliberately has no link between GitHub and the
 cluster in either direction:
 

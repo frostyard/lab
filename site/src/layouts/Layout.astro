@@ -15,8 +15,6 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const page = (p = '') => `${base}/${p}`;
 const currentPath = Astro.url.pathname.replace(/\/+$/, '') || '/';
 const pipelineActive = currentPath === base;
-const hiveActive = currentPath === `${base}/hive`;
-const hiveConfigured = Boolean(import.meta.env.PUBLIC_HIVE_API_URL);
 ---
 <!doctype html>
 <html lang="en">
@@ -36,9 +34,6 @@ const hiveConfigured = Boolean(import.meta.env.PUBLIC_HIVE_API_URL);
         </a>
         <div class="navlinks">
           <a class:list={['navlink', { active: pipelineActive }]} href={page()}>Pipeline</a>
-          {hiveConfigured && (
-            <a class:list={['navlink', { active: hiveActive }]} href={page('hive/')}>Hive</a>
-          )}
           <a class="source" href="https://github.com/frostyard/lab">Source ↗</a>
         </div>
       </nav>

@@ -24,14 +24,14 @@ does not report whether this repository's code passed the checks above.
 | Changed area | Expected evidence |
 |---|---|
 | `site/`, `e2e/`, or Playwright configuration | `just site-e2e`; run `cd site && npm test` when changing the API/data helpers. |
-| `hive-observer/`, `scripts/`, or `tests/` | `python -m pytest -q`. |
+| `scripts/` or `tests/` | `python -m pytest -q`. |
 | `argo/`, `manifests/`, `argocd/`, or Kubernetes resources | `argo lint` where applicable and `just validate` against a configured cluster. |
 | Documentation | Commands and links resolve, and claims about lane status agree with `README.md` and `docs/roadmap.md`. |
 | Every pull request | Follow the [contributing guide](../CONTRIBUTING.md) and record the relevant result in the pull request's Testing section. |
 
 ## Known gaps
 
-- The E2E and observer workflows run on pull requests only when their path
+- The E2E and pytest workflows run on pull requests only when their path
   filters match. Documentation and Kubernetes manifest changes currently have
   no repository-wide automated check.
 - `.coverage-thresholds.json` currently sets every minimum to zero, and no
