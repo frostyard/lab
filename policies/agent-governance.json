@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "defaultDecision": "deny",
+  "agentActions": {
+    "approveOwnException": "deny",
+    "forceReconciliation": "deny",
+    "mergePullRequest": "deny",
+    "modifyProtectedEnvironment": "deny",
+    "mutateCluster": "deny",
+    "publishResults": "deny",
+    "rotateCredentials": "deny",
+    "submitArgoWorkflow": "deny"
+  },
+  "changeControls": {
+    "gitOpsRequired": true,
+    "humanReviewRequired": true,
+    "pullRequestRequired": true,
+    "riskClassificationRequired": true,
+    "validationEvidenceRequired": true
+  },
+  "protectedBoundaries": [
+    "argo-cd-ownership",
+    "cluster-credentials",
+    "evidence-publication",
+    "image-digest-selection",
+    "kubernetes-rbac",
+    "quality-gates",
+    "secret-references",
+    "workflow-permissions"
+  ],
+  "exceptions": {
+    "compensatingControlsRequired": true,
+    "maintainerApprovalRequired": true,
+    "restorationPlanRequired": true
+  }
+}

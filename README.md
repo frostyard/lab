@@ -362,6 +362,7 @@ lab/
 ├── docs/
 │   ├── ops/bootstrap.md          # from-zero cluster setup
 │   └── quality.md                # quality signals, evidence, and known gaps
+├── policies/                     # executable agent-governance policy and checker
 └── Justfile                      # operator wrappers
 ```
 
@@ -411,6 +412,9 @@ Setting up a cluster from scratch: [`docs/ops/bootstrap.md`](docs/ops/bootstrap.
 
 Repository quality signals and their current limits:
 [`docs/quality.md`](docs/quality.md).
+
+The deny-by-default automated-contributor policy and its local validator:
+[`policies/`](policies/).
 
 Public aggregate dashboards and pull request metrics:
 [`docs/metrics/`](docs/metrics/).
