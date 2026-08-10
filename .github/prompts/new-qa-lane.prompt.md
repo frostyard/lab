@@ -33,8 +33,7 @@ fails.
 
 ## Check your work
 
+- `python -m pytest -q`
 - `just validate`
-- `pytest` if `scripts/` changed (coverage gates live in
-  `.coverage-thresholds.json`).
 - Describe in the PR what the lane proves and what it explicitly does *not*
   prove.

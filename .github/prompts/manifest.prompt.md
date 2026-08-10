@@ -31,6 +31,7 @@ Read first:
 
 ## Check your work
 
+- `python -m pytest -q` — offline schemas and cross-resource contracts.
 - `just validate` — server-side dry run against the live cluster.
 - `just status` — Applications and CronWorkflows still reconciled and healthy.
 - Note in the PR which Application (`frostyard-lab-infra`, `argo-workflows`)

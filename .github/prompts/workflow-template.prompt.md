@@ -34,6 +34,7 @@ Read first:
 
 ## Check your work
 
+- `python -m pytest -q` — offline schemas and cross-resource contracts.
 - `just validate` — server-side dry run of every manifest and template.
 - `argo lint argo/workflow-templates/<file>.yaml` if the CLI is available.
 - Say in the PR which lane(s) and which Application (`frostyard-lab`) are

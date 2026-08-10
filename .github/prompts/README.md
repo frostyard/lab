@@ -22,8 +22,8 @@ instructions in Markdown.
   `kubectl apply` is reverted on the next reconcile. Change the file in git.
 - `argo/workflow-templates/` is reconciled by the `frostyard-lab` Application;
   `manifests/` by `frostyard-lab-infra`. Say which one a change touches.
-- Validate before pushing: `just validate` (server-side dry run) for YAML,
-  `pytest` for `scripts/`.
+- Validate before pushing: `pytest` for offline manifest and script contracts,
+  plus `just validate` for a server-side YAML dry run.
 - Keep pull requests small and focused, per [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
 ## Adding a prompt

@@ -26,8 +26,8 @@ Apply the rows relevant to the pull request:
 
 | Area | Check |
 |---|---|
-| Argo workflows | Metadata and labels match neighboring templates; long-running work has `activeDeadlineSeconds`; registry work uses the `selfie-container-qa` semaphore; image inputs are digest-pinned; `just validate` or `argo lint` covers the YAML. |
-| Manifests and Argo CD | Resource ownership is not duplicated; bootstrap prerequisites remain distinct from reconciled resources; explanatory header comments still match the configuration; `just validate` covers the YAML. |
+| Argo workflows | Metadata and labels match neighboring templates; long-running work has `activeDeadlineSeconds`; registry work uses the `selfie-container-qa` semaphore; image inputs are digest-pinned; offline pytest contracts and `just validate` or `argo lint` cover the YAML. |
+| Manifests and Argo CD | Resource ownership is not duplicated; bootstrap prerequisites remain distinct from reconciled resources; explanatory header comments still match the configuration; offline pytest contracts and `just validate` cover the YAML. |
 | Scripts and observer | Errors are surfaced rather than converted into success-shaped output; external commands and API responses are bounded and checked; relevant `pytest` tests pass. |
 | Reporting site | Displayed status agrees with the collected data contract; empty and failure states remain clear; the site build or targeted Playwright tests pass. |
 | Documentation | Commands and paths exist, links resolve, prose is specific about limitations, and lane status agrees with both `README.md` and `docs/roadmap.md`. |

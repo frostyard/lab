@@ -7,6 +7,7 @@ Use this skill when changing or operating the QA pipeline.
   directly to the cluster.
 - Keep pipeline definitions in `argo/` and supporting cluster configuration in
   `manifests/`.
-- Validate manifest changes with `just validate` before submitting them.
+- Validate manifest changes with `python -m pytest -q` and `just validate`
+  before submitting them.
 - Use `just status`, `just runs`, and `just logs` to inspect the current
   pipeline state.

@@ -1,0 +1,3 @@
+pytest==8.4.2
+PyYAML==6.0.3
+kubernetes-validate==1.36.0
