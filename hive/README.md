@@ -14,11 +14,27 @@ ssh selfie
 git -C ~/lab pull
 cd ~/lab/hive
 cp -n hive.yaml.seed hive.yaml  # first deploy only — hive.yaml is untracked
-docker compose up -d            # add --profile auto-update for watchtower
+docker compose up -d --remove-orphans
 ```
 
 Dashboard: http://10.0.1.200:3002 (same port as the k3s days) · the nginx
 gateway (3001) and ttyd (7681) are bound to selfie's loopback only.
+
+Container images are pinned by digest and are updated through reviewed changes
+to `docker-compose.yaml`; the stack does not perform unattended image updates.
+Before changing a digest, inspect the intended release and confirm its index
+contains `linux/amd64`:
+
+```bash
+docker buildx imagetools inspect <image>:<tag>
+```
+
+After merging a digest update, deploy with `docker compose pull` followed by
+the `docker compose up` command above. The `--remove-orphans` option also
+removes the retired `hive-watchtower` container when upgrading an older
+checkout. Confirm `docker inspect hive-watchtower` reports that no such
+container exists after that migration. To roll back, restore the previous
+Git-recorded digest and redeploy it.
 
 ## Secrets (manual, never in git)
 
