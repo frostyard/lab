@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-10T13:00:22Z",
+  "generated": "2026-08-10T13:30:21Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -129,9 +129,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786366800",
+        "name": "publish-results-1786368600",
         "phase": "Running",
-        "started": "2026-08-10T13:00:00Z",
+        "started": "2026-08-10T13:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -149,10 +149,10 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786366800",
+        "name": "secure-install-watch-1786368000",
         "phase": "Succeeded",
-        "started": "2026-08-10T13:00:00Z",
-        "finished": "2026-08-10T13:00:10Z",
+        "started": "2026-08-10T13:20:00Z",
+        "finished": "2026-08-10T13:20:10Z",
         "durationSeconds": 10,
         "template": "watch",
         "kind": "other",
@@ -227,11 +227,37 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1786366800",
+      "name": "publish-results-1786368600",
       "phase": "Running",
-      "started": "2026-08-10T13:00:00Z",
+      "started": "2026-08-10T13:30:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786368000",
+      "phase": "Succeeded",
+      "started": "2026-08-10T13:20:00Z",
+      "finished": "2026-08-10T13:20:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786366800",
+      "phase": "Succeeded",
+      "started": "2026-08-10T13:00:00Z",
+      "finished": "2026-08-10T13:00:35Z",
+      "durationSeconds": 35,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -357,19 +383,6 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786363200",
-      "phase": "Succeeded",
-      "started": "2026-08-10T12:00:00Z",
-      "finished": "2026-08-10T12:00:37Z",
-      "durationSeconds": 37,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "snosi-secure-install-auto-mdwmr",
       "phase": "Succeeded",
       "started": "2026-08-10T11:40:12Z",
@@ -390,19 +403,6 @@
         "secureboot=enforced",
         "tpmunlock=ok"
       ]
-    },
-    {
-      "name": "publish-results-1786361400",
-      "phase": "Succeeded",
-      "started": "2026-08-10T11:30:00Z",
-      "finished": "2026-08-10T11:30:32Z",
-      "durationSeconds": 32,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
     },
     {
       "name": "image-poll-cayo-latest-1786353600",
