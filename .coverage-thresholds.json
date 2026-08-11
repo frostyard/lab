@@ -1,10 +1,10 @@
 {
   "$schema": "https://json.schemastore.org/coverage-thresholds.json",
-  "description": "Coverage gate thresholds for this repository, used by ACMM prerequisite checks and any future CI coverage tooling.",
+  "description": "Coverage gate thresholds for this repository, enforced by pytest and used by ACMM prerequisite checks.",
   "global": {
-    "statements": 0,
-    "branches": 0,
-    "functions": 0,
-    "lines": 0
+    "statements": 65,
+    "branches": 50,
+    "functions": 65,
+    "lines": 65
   }
 }

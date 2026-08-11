@@ -13,7 +13,7 @@ request's checks rather than these default-branch badges.
 | Signal | Status | What it establishes |
 |---|---|---|
 | Reporting site end to end | [![e2e status][e2e-badge]][e2e-workflow] | Playwright builds the reporting site and checks the rendered dashboard against the committed run data. |
-| Repository CI | [![CI status][ci-badge]][ci-workflow] | Python 3.12/3.13 run every pytest contract, including Kubernetes 1.36 manifest schemas, Argo wiring, workload resource bounds, and the deny-by-default agent-governance policy; Node.js 22 runs the reporting-site unit suite. |
+| Repository CI | [![CI status][ci-badge]][ci-workflow] | Python 3.12/3.13 run every pytest contract and enforce production Python coverage, including Kubernetes 1.36 manifest schemas, Argo wiring, workload resource bounds, and the deny-by-default agent-governance policy; Node.js 22 runs the reporting-site unit suite. |
 | Reporting site deployment | [![pages status][pages-badge]][pages-workflow] | The site unit tests and Astro build passed before the current GitHub Pages deployment. |
 | Advisory AI review | [![Claude review status][claude-review-badge]][claude-review-workflow] | For eligible same-repository pull requests, Claude checked the diff against the repository review and security guidance; its comments still require human verification. |
 
@@ -36,9 +36,6 @@ does not report whether this repository's code passed the checks above.
 - The E2E workflow runs on pull requests only when its path filters match. The
   unfiltered CI workflow runs repository unit, policy, and offline manifest
   tests on every pull request.
-- `.coverage-thresholds.json` currently sets every minimum to zero, and no
-  workflow publishes a coverage result. Its presence is configuration, not an
-  effective coverage gate.
 - CI rejects malformed or duplicate-key YAML, strictly validates built-in
   resources against Kubernetes 1.36 schemas, and checks Argo references,
   Argo CD ownership, workload CPU/memory bounds, RBAC, and image-poller state.
