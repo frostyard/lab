@@ -216,39 +216,35 @@ Note that `/var` ships as plain ext4 here, while `snosi-install --encrypt-var`
 produces a LUKS `/var`. The two paths genuinely produce different systems, so
 this lane and the install lane are not redundant.
 
-### The bootc install lane is red, and the failure is real
+### The bootc install lane is green
 
-`run-incus-bootc-install-tests` works — and it is reporting a genuine defect,
-not a harness problem:
+The 2026-08-10 rerun of `run-incus-bootc-install-tests` passed against the
+purpose-built mechanics image:
 
 ```
-bootc install to-disk --wipe --filesystem ext4 /dev/sda   → succeeds
-first boot of the installed system:
-  DEPEND  Dependency failed for sysroot.mount - Root Partition.
-  DEPEND  Dependency failed for initrd-root-fs.target
-  DEPEND  Dependency failed for bootc-root-setup.service
-  Reached target emergency.target - Emergency Mode.
+bootc installed and verified: ghcr.io/frostyard/snow:mechanics (secureboot=false)
+  backend=composefs
+  booted=ok
+  failedunits=0
+  rootfs=overlay
 ```
 
-`bootc install` reports success against `ghcr.io/frostyard/snow:latest`, but the
-resulting system's initrd cannot mount its root partition. The composefs karg
-is present on the kernel command line; the failure is in the initrd, before
-`bootc-root-setup.service` runs.
+The earlier emergency-mode result came from pointing the legacy mechanics
+installer at `snow:latest`, a `secureboot-capable=true` image that requires the
+external secure installer. That unsupported combination produced a UKI with no
+`root=` argument, so discovery fell through to `/dev/gpt-auto-root`. The lane
+now carries the same capability guard as snosi's CI. The reports based on the
+invalid combination, [frostyard/snosi#504](https://github.com/frostyard/snosi/issues/504)
+and [frostyard/snosi#505](https://github.com/frostyard/snosi/issues/505), are
+closed.
 
-Reproduced twice, with and without `--generic-image`, so it is not an artifact
-of how the lane invokes bootc. This is exactly the class of bug no container
-lane and no image-boot lane can see, and it is why the install lanes exist.
-
-Filed as [frostyard/snosi#504](https://github.com/frostyard/snosi/issues/504).
-The failing unit names `/dev/gpt-auto-root`, so root discovery is going through
-systemd's `gpt-auto-generator` and that device never appears.
-
-**Related:** the snow image ships no `/usr/lib/bootc/install/` configuration, so
-a plain `bootc install to-disk` fails with `No root filesystem specified` and
-the lane must pass `--filesystem ext4`. Fedora and Bluefin bootc images ship an
-install-configuration TOML that supplies this. Adding one to snosi would make
-the documented invocation work unmodified for users. Filed as
-[frostyard/snosi#505](https://github.com/frostyard/snosi/issues/505).
+A separate `/dev/gpt-auto-root-luks` failure in the secure install path was a
+real Forky/dracut defect: systemd 261 moved the gpt-auto udev rules into
+`90-image-dissect.rules`, which dracut did not copy into the initramfs.
+[frostyard/snosi#517](https://github.com/frostyard/snosi/issues/517) tracks the
+diagnosis; [frostyard/snosi#520](https://github.com/frostyard/snosi/pull/520)
+ships the rule and adds fail-closed artifact validation. The secure install lane
+subsequently passed 18/18 checks.
 
 ### Driving a guest with no agent and no SSH
 
