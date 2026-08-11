@@ -16,7 +16,8 @@ Nothing in this lab proves that yet. This is the path.
 
 ## Status at a glance
 
-Updated 2026-08-05, end of day. If you read one section, read this one.
+Updated 2026-08-10 after the latest digest-triggered runs. If you read one
+section, read this one.
 
 | Lane | State |
 |---|---|
@@ -24,26 +25,31 @@ Updated 2026-08-05, end of day. If you read one section, read this one.
 | Native A/B installer | 🟢 (Secure Boot off — Phase F) |
 | Published A/B disk artifact | 🟢 |
 | ISO boot, Secure Boot enforced | 🟢 |
-| bootc installer (mechanics) | 🟢 — first pass ever, today |
-| **bootc secure installer** | 🟢 **18/18, first green 2026-08-07** |
+| bootc installer (mechanics) | 🟢 — latest committed run `fkplf` |
+| **bootc secure installer** | 🔴 latest two runs fail assembly-compatibility validation; first 18/18 green 2026-08-07 |
 | Registry digest poll, orphan GC | 🟢 |
 
-**All eight lanes green.** The secure install path went green on 2026-08-07
+**Seven lanes are currently green; the secure lane has prior green evidence but
+is currently red.** The secure install path first went green on 2026-08-07
 (`snosi-secure-install-5dpkq`, 18 assertions, 0 failed, 0 blocked) against
 **published media and a published image** — `snow-live-latest.iso` and
-`cayo@sha256:b3375f6c`.
+`cayo@sha256:b3375f6c`. It passed repeatedly through
+`snosi-secure-install-auto-fwzbj` on 2026-08-10. The next two committed runs,
+`4pzln` and `s6mqq`, completed the bootc installation and then failed with
+`secure contract has unsupported assembly compatibility`. Their failure is not
+the resolved GPT-auto root-discovery defect.
 
-Proven end to end: install completes; boots under enforced Secure Boot with a
-measured, MOK-signed UKI; lockdown active; LUKS2/Btrfs root unlocked by a single
+Those successful runs proved end to end: install completes; boots under enforced
+Secure Boot with a measured, MOK-signed UKI; lockdown active; LUKS2/Btrfs root unlocked by a single
 signed-PCR-11 TPM token; Type #2-only BLS; composefs binding with no root or
 LUKS identifier on the kernel command line; complete non-secret provenance;
 bootc-managed deployment; the runtime ESP reconciler restoring only what was
 deliberately changed; an unattended TPM-unlock reboot; and both recovery paths
 — TPM replacement and recovery re-enrolment.
 
-**What green does NOT mean here.** The harness proves a good image installs and
-boots. It no longer proves a bad one is refused: the nine-case negative-fixture
-requirement was removed by decision on 2026-08-07
+**What those green runs do NOT mean here.** The harness proved a good image
+installs and boots. It no longer proves a bad one is refused: the nine-case
+negative-fixture requirement was removed by decision on 2026-08-07
 ([snosi#548](https://github.com/frostyard/snosi/pull/548),
 [dakota#31](https://github.com/frostyard/dakota-iso/pull/31)) rather than
 implemented. Six of those cases needed published, deliberately-broken, signed

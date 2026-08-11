@@ -133,24 +133,26 @@ the origin's ETag on every run — `snow-live-latest.iso` is a stable name whose
 bytes change, so caching on filename alone would pin the lane to a stale
 artifact.
 
-### The three VM lanes
+### The VM lanes
 
 | Template | Submit file | What it proves |
 |---|---|---|
 | `run-incus-vm-tests` | `snosi-vm-boot-test.yaml` | A published ISO boots under Secure Boot. The ISO is signed by a trusted chain, so this lane runs `secureboot=true`. |
 | `run-incus-disk-tests` | `snosi-disk-boot-test.yaml` | Fetches, signature-verifies and boots the published `*-ab.disk.raw.xz`. Green with Secure Boot off. |
 | `run-incus-install-tests` | `snosi-install-test.yaml` | **The native A/B installer** — partitioning, EROFS + dm-verity root, LUKS `/var`, TPM enrollment. |
-| `run-incus-bootc-install-tests` | `snosi-bootc-install-test.yaml` | **The bootc install path** — `bootc install to-disk` from the live ISO, then a real bootc host. |
+| `run-incus-bootc-install-tests` | `snosi-bootc-install-test.yaml` | **The bootc mechanics tier** — direct `bootc install to-disk` of a `secureboot-capable=false` mechanics image, then a real bootc host. |
+| `run-secure-install-tests` | `snosi-secure-install-test.yaml` | **The bootc secure tier** — the external Dakota/bootc-installer/Fisherman path, with Secure Boot enforced, MOK enrollment, LUKS root, and TPM unlock. |
 
-The two install lanes are the ones that matter most. Booting an image tests an
-artifact; only running an installer tests the thing that *creates* the on-disk
-layout — none of verity, LUKS, the A/B slots, or a bootc deployment exists in a
-shipped image at all.
+The three installer lanes are the ones that matter most. Booting an image tests
+an artifact; only running an installer tests the thing that *creates* the
+on-disk layout — none of verity, LUKS, the A/B slots, or a bootc deployment
+exists in a shipped image at all.
 
-snosi ships both install paths and they fail differently: native A/B is a
-signed sysupdate image with dm-verity, while bootc installs the OCI image
-itself and owns its own deployment layout. Neither lane substitutes for the
-other.
+snosi ships native A/B and bootc install paths, and bootc deliberately splits
+again into mechanics and secure tiers. Native A/B uses a signed sysupdate image
+with dm-verity; bootc owns its deployment layout; secure bootc assembly must go
+through the external recipe-driven installer. None of these lanes substitutes
+for another.
 
 The native A/B install lane is verified green against `cayo-ab`:
 
@@ -216,35 +218,48 @@ Note that `/var` ships as plain ext4 here, while `snosi-install --encrypt-var`
 produces a LUKS `/var`. The two paths genuinely produce different systems, so
 this lane and the install lane are not redundant.
 
-### The bootc install lane is green
+### The mechanics install is green; the secure lane has moved on
 
-The 2026-08-10 rerun of `run-incus-bootc-install-tests` passed against the
-purpose-built mechanics image:
+Corrected 2026-08-10 and re-run as `snosi-bootc-install-fkplf`. The mechanics
+lane installed the current `snow:mechanics` image and booted it successfully:
 
 ```
 bootc installed and verified: ghcr.io/frostyard/snow:mechanics (secureboot=false)
   backend=composefs
   booted=ok
   failedunits=0
+  osrelease=snow-20260810050914
   rootfs=overlay
 ```
 
-The earlier emergency-mode result came from pointing the legacy mechanics
-installer at `snow:latest`, a `secureboot-capable=true` image that requires the
-external secure installer. That unsupported combination produced a UKI with no
-`root=` argument, so discovery fell through to `/dev/gpt-auto-root`. The lane
-now carries the same capability guard as snosi's CI. The reports based on the
-invalid combination, [frostyard/snosi#504](https://github.com/frostyard/snosi/issues/504)
-and [frostyard/snosi#505](https://github.com/frostyard/snosi/issues/505), are
-closed.
+The old red result was a tier mismatch, not evidence that current bootc images
+could not install. The lane had aimed direct `bootc install to-disk` at
+`ghcr.io/frostyard/snow:latest`, a `secureboot-capable=true` assembly that must
+be installed by the external secure installer. The mechanics template now
+checks that label and rejects the combination as not applicable instead of
+building a misleading broken deployment. Snosi issues
+[#504](https://github.com/frostyard/snosi/issues/504) and
+[#505](https://github.com/frostyard/snosi/issues/505) were both closed as not
+planned after that diagnosis; the explicit `--filesystem` argument in the
+mechanics harness is deliberate.
 
-A separate `/dev/gpt-auto-root-luks` failure in the secure install path was a
-real Forky/dracut defect: systemd 261 moved the gpt-auto udev rules into
-`90-image-dissect.rules`, which dracut did not copy into the initramfs.
-[frostyard/snosi#517](https://github.com/frostyard/snosi/issues/517) tracks the
-diagnosis; [frostyard/snosi#520](https://github.com/frostyard/snosi/pull/520)
-ships the rule and adds fail-closed artifact validation. The secure install lane
-subsequently passed 18/18 checks.
+There was also a real `/dev/gpt-auto-root-luks` failure later in the **secure**
+path, but it had a different root cause. Forky systemd 261 moved the GPT-auto
+udev links from `99-systemd.rules` into `90-image-dissect.rules`, which dracut
+did not include in the UKI initrd. [snosi#520](https://github.com/frostyard/snosi/pull/520)
+ships that rule explicitly, and Snosi's secure artifact validation now rejects
+an initrd that cannot create the GPT-auto root link.
+
+The secure lane proved that repair repeatedly. Its latest successful committed
+run, `snosi-secure-install-auto-fwzbj`, verified 18/18 assertions on 2026-08-10
+with Secure Boot enforced, MOK enrolled, recovery available, and TPM unlock
+working. The next two digest-triggered runs (`4pzln` and `s6mqq`) are the current
+red status: both completed `bootc install`, then failed contract validation with
+`secure contract has unsupported assembly compatibility`. That is a new
+image/installer compatibility failure, not a recurrence of missing GPT-auto
+root discovery. See the
+[secure installer status and blocker history](docs/roadmap.md#status-at-a-glance)
+for the complete evidence and limits.
 
 ### Driving a guest with no agent and no SSH
 
@@ -266,7 +281,7 @@ Results come back on the serial console, which is the only channel that exists
 before a system is installed. The same mechanism carries the post-install
 assertions.
 
-### Secure Boot: a real gap, and it needs a decision
+### Native A/B Secure Boot remains a separate gap
 
 Booting a published `*-ab` disk image with `secureboot=true` fails:
 
@@ -279,9 +294,11 @@ has enrolled that MOK into a fresh firmware's db. Enrollment is a step the
 **installer** performs — and `snosi-install` stages it as a one-time
 MokManager prompt at first boot, which no unattended run can answer.
 
-So the install lane currently runs `--skip-mok` with `secureboot=false`. That
-covers everything the installer builds, but leaves the signed boot chain
-uncovered end to end. Two ways to close it:
+So the native A/B install lane currently runs `--skip-mok` with
+`secureboot=false`. That covers everything the native installer builds, but
+leaves its signed boot chain uncovered end to end. Successful external bootc
+secure runs have enforced Secure Boot, but they do not prove the native A/B
+path. Two ways to close that remaining native gap:
 
 1. **Lab-side.** Pre-seed the VM's OVMF variable store with the snosi MOK
    before first boot (e.g. `virt-fw-vars` against the per-instance
@@ -488,9 +505,11 @@ serves the page.
   console therefore goes to the workflow log rather than an artifact — 400
   lines on failure, 40 on success. Standing up an object store would let the
   whole console and the behave `results.json` be retained per run.
-- **The signed boot chain is not covered end to end.** Both install lanes run
-  `secureboot=false` because of the MOK gap above. Closing it is a decision,
-  not a task — see "Secure Boot: a real gap".
+- **The native A/B signed boot chain is not covered end to end.** Its install
+  lane runs `secureboot=false` because of the MOK gap above. Successful bootc
+  secure runs enforce Secure Boot, but that is a separate path; closing native
+  A/B coverage is still a decision — see "Native A/B Secure Boot remains a
+  separate gap".
 - **No A/B update or rollback coverage.** The install lane proves a system gets
   built correctly; it does not yet stage a `systemd-sysupdate` run, switch
   slots, and boot the other side. That is the natural next lane and the
