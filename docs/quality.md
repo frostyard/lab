@@ -13,7 +13,7 @@ request's checks rather than these default-branch badges.
 | Signal | Status | What it establishes |
 |---|---|---|
 | Reporting site end to end | [![e2e status][e2e-badge]][e2e-workflow] | Playwright builds the reporting site and checks the rendered dashboard against the committed run data. |
-| Repository CI | [![CI status][ci-badge]][ci-workflow] | Python 3.12/3.13 run every pytest contract, including Kubernetes 1.36 manifest schemas, Argo wiring, and the deny-by-default agent-governance policy; Node.js 22 runs the reporting-site unit suite. |
+| Repository CI | [![CI status][ci-badge]][ci-workflow] | Python 3.12/3.13 run every pytest contract, including Kubernetes 1.36 manifest schemas, Argo wiring, workload resource bounds, and the deny-by-default agent-governance policy; Node.js 22 runs the reporting-site unit suite. |
 | Reporting site deployment | [![pages status][pages-badge]][pages-workflow] | The site unit tests and Astro build passed before the current GitHub Pages deployment. |
 
 The operational QA dashboard at <https://frostyard.github.io/lab/> is a
@@ -40,7 +40,8 @@ does not report whether this repository's code passed the checks above.
   effective coverage gate.
 - CI rejects malformed or duplicate-key YAML, strictly validates built-in
   resources against Kubernetes 1.36 schemas, and checks Argo references,
-  Argo CD ownership, RBAC, and image-poller state. It cannot execute Argo CRD
+  Argo CD ownership, workload CPU/memory bounds, RBAC, and image-poller state.
+  It cannot execute Argo CRD
   admission or cluster-specific policy without cluster credentials, so
   `argo lint` and `just validate` remain additional review evidence for
   manifest changes.
