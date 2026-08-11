@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-11T02:30:20Z",
+  "generated": "2026-08-11T03:00:19Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -120,9 +120,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786415400",
+        "name": "publish-results-1786417200",
         "phase": "Running",
-        "started": "2026-08-11T02:30:00Z",
+        "started": "2026-08-11T03:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -140,11 +140,11 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786414800",
-        "phase": "Succeeded",
-        "started": "2026-08-11T02:20:00Z",
-        "finished": "2026-08-11T02:20:30Z",
-        "durationSeconds": 30,
+        "name": "secure-install-watch-1786417200",
+        "phase": "Running",
+        "started": "2026-08-11T03:00:00Z",
+        "finished": null,
+        "durationSeconds": null,
         "template": "watch",
         "kind": "other",
         "label": "watch",
@@ -152,7 +152,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 4,
+      "runs": 5,
       "everGreen": true
     },
     {
@@ -160,19 +160,19 @@
       "label": "Registry digest poll",
       "kind": "poll",
       "latest": {
-        "name": "image-poll-snowfield-latest-1786408800",
-        "phase": "Failed",
-        "started": "2026-08-11T00:40:00Z",
-        "finished": "2026-08-11T00:41:24Z",
-        "durationSeconds": 84,
+        "name": "image-poll-snow-latest-1786417200",
+        "phase": "Running",
+        "started": "2026-08-11T03:00:00Z",
+        "finished": null,
+        "durationSeconds": null,
         "template": "image-poller",
         "kind": "poll",
         "label": "Registry digest poll",
         "trigger": "scheduled",
-        "result": "19 passed, 1 failed",
+        "result": null,
         "checks": []
       },
-      "runs": 11,
+      "runs": 12,
       "everGreen": true
     },
     {
@@ -218,11 +218,63 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1786415400",
+      "name": "image-poll-snow-latest-1786417200",
       "phase": "Running",
-      "started": "2026-08-11T02:30:00Z",
+      "started": "2026-08-11T03:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "image-poller",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786417200",
+      "phase": "Running",
+      "started": "2026-08-11T03:00:00Z",
+      "finished": null,
+      "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786417200",
+      "phase": "Running",
+      "started": "2026-08-11T03:00:00Z",
+      "finished": null,
+      "durationSeconds": null,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786416000",
+      "phase": "Succeeded",
+      "started": "2026-08-11T02:40:00Z",
+      "finished": "2026-08-11T02:40:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786415400",
+      "phase": "Succeeded",
+      "started": "2026-08-11T02:30:00Z",
+      "finished": "2026-08-11T02:30:32Z",
+      "durationSeconds": 32,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -319,32 +371,6 @@
       "label": "bootc secure installer",
       "trigger": "digest-watch",
       "result": "FAILED: secure install harness exited 1 for cayo (full log: /var/lib/snosi-lab/secure/logs/snosi-secure-install-auto-dp82q.log)",
-      "checks": []
-    },
-    {
-      "name": "secure-install-watch-1786411200",
-      "phase": "Succeeded",
-      "started": "2026-08-11T01:20:00Z",
-      "finished": "2026-08-11T01:20:30Z",
-      "durationSeconds": 30,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786410000",
-      "phase": "Succeeded",
-      "started": "2026-08-11T01:00:00Z",
-      "finished": "2026-08-11T01:00:32Z",
-      "durationSeconds": 32,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
