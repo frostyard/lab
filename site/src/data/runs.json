@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-11T23:00:19Z",
+  "generated": "2026-08-11T23:30:18Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -120,9 +120,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786489200",
+        "name": "publish-results-1786491000",
         "phase": "Running",
-        "started": "2026-08-11T23:00:00Z",
+        "started": "2026-08-11T23:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -140,11 +140,11 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786489200",
-        "phase": "Running",
-        "started": "2026-08-11T23:00:00Z",
-        "finished": null,
-        "durationSeconds": null,
+        "name": "secure-install-watch-1786490400",
+        "phase": "Succeeded",
+        "started": "2026-08-11T23:20:00Z",
+        "finished": "2026-08-11T23:20:10Z",
+        "durationSeconds": 10,
         "template": "watch",
         "kind": "other",
         "label": "watch",
@@ -152,7 +152,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 5,
+      "runs": 4,
       "everGreen": true
     },
     {
@@ -218,9 +218,9 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1786489200",
+      "name": "publish-results-1786491000",
       "phase": "Running",
-      "started": "2026-08-11T23:00:00Z",
+      "started": "2026-08-11T23:30:00Z",
       "finished": null,
       "durationSeconds": null,
       "template": "publish",
@@ -231,11 +231,37 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786489200",
-      "phase": "Running",
+      "name": "secure-install-watch-1786490400",
+      "phase": "Succeeded",
+      "started": "2026-08-11T23:20:00Z",
+      "finished": "2026-08-11T23:20:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786489200",
+      "phase": "Succeeded",
       "started": "2026-08-11T23:00:00Z",
-      "finished": null,
-      "durationSeconds": null,
+      "finished": "2026-08-11T23:00:31Z",
+      "durationSeconds": 31,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786489200",
+      "phase": "Succeeded",
+      "started": "2026-08-11T23:00:00Z",
+      "finished": "2026-08-11T23:00:20Z",
+      "durationSeconds": 20,
       "template": "watch",
       "kind": "other",
       "label": "watch",
@@ -296,19 +322,6 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786485600",
-      "phase": "Succeeded",
-      "started": "2026-08-11T22:00:00Z",
-      "finished": "2026-08-11T22:00:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "image-poll-snowfield-latest-1786484400",
       "phase": "Failed",
       "started": "2026-08-11T21:40:00Z",
@@ -319,32 +332,6 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
-      "name": "secure-install-watch-1786484400",
-      "phase": "Succeeded",
-      "started": "2026-08-11T21:40:00Z",
-      "finished": "2026-08-11T21:40:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786483800",
-      "phase": "Succeeded",
-      "started": "2026-08-11T21:30:00Z",
-      "finished": "2026-08-11T21:30:33Z",
-      "durationSeconds": 33,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
