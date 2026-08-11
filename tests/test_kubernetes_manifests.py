@@ -425,6 +425,37 @@ def test_workflows_have_service_accounts_and_bounded_defaults(manifests):
             assert cron_spec.get("schedules"), manifest.source
 
 
+def test_workload_containers_declare_cpu_and_memory_bounds(manifests):
+    checked = 0
+    for manifest in manifests:
+        for node, _ in walk_dicts(manifest.body):
+            if "image" not in node:
+                continue
+
+            checked += 1
+            image = node["image"]
+            assert isinstance(image, str) and image, (
+                f"{manifest.source} has a container without an image"
+            )
+            resources = node.get("resources")
+            assert isinstance(resources, dict), (
+                f"{manifest.source} image {image!r} has no resource bounds"
+            )
+            for bound in ("requests", "limits"):
+                quantities = resources.get(bound)
+                assert isinstance(quantities, dict), (
+                    f"{manifest.source} image {image!r} has no resource {bound}"
+                )
+                for resource in ("cpu", "memory"):
+                    quantity = quantities.get(resource)
+                    assert isinstance(quantity, str) and quantity, (
+                        f"{manifest.source} image {image!r} has no "
+                        f"{bound}.{resource}"
+                    )
+
+    assert checked > 0, "no workload containers were resource-policy validated"
+
+
 def test_rbac_rules_and_bindings_remain_least_privilege(manifests):
     roles = {
         manifest.body["metadata"]["name"]: manifest.body
