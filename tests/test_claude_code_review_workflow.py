@@ -29,13 +29,22 @@ def test_claude_review_workflow_is_pinned_and_least_privilege():
     assert "actions: write" not in workflow
     assert "id-token: write" not in workflow
 
+    assert "id: credentials" in workflow
+    assert "::warning title=Claude review skipped::" in workflow
+    assert 'echo "available=false" >>"$GITHUB_OUTPUT"' in workflow
+    assert workflow.count(
+        "if: steps.credentials.outputs.available == 'true'"
+    ) == 2
+    assert workflow.count("        run: |") == 1
+    assert workflow.index("id: credentials") < workflow.index(
+        "Checkout pull request"
+    )
     assert "persist-credentials: false" in workflow
     assert f"anthropics/claude-code-action@{ACTION_SHA}" in workflow
     assert not re.search(r"anthropics/claude-code-action@v", workflow)
     assert "anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}" in workflow
     assert "docs/review-rubric.md" in workflow
     assert f'--allowedTools "{ALLOWED_TOOLS}"' in workflow
-    assert "        run:" not in workflow
 
 
 def test_claude_review_documents_secret_and_trust_boundary():
@@ -48,5 +57,7 @@ def test_claude_review_documents_secret_and_trust_boundary():
         "contents: read",
         "pull-requests: write",
         "pull_request_target",
+        "skips checkout and review without failing",
+        "Invalid credentials and action failures remain failed",
     ):
         assert required_text in documentation
