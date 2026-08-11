@@ -7,8 +7,12 @@ required) so they can run anywhere, including CI.
 from __future__ import annotations
 
 import importlib.util
+import json
+import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = REPO_ROOT / "scripts" / "collect_runs.py"
@@ -112,3 +116,68 @@ def test_output_param_finds_named_parameter():
 
 def test_output_param_handles_missing_outputs():
     assert collect_runs.output_param({}, "result") is None
+
+
+def test_kubectl_returns_stdout_and_surfaces_command_failure(monkeypatch):
+    completed = subprocess.CompletedProcess(
+        ["kubectl"], returncode=0, stdout='{"items": []}', stderr=""
+    )
+    monkeypatch.setattr(collect_runs.subprocess, "run", lambda *args, **kwargs: completed)
+
+    assert collect_runs.kubectl("get", "workflows") == '{"items": []}'
+
+    failed = subprocess.CompletedProcess(
+        ["kubectl"], returncode=1, stdout="", stderr="cluster unavailable\n"
+    )
+    monkeypatch.setattr(collect_runs.subprocess, "run", lambda *args, **kwargs: failed)
+
+    with pytest.raises(
+        RuntimeError,
+        match=r"kubectl get workflows failed: cluster unavailable",
+    ):
+        collect_runs.kubectl("get", "workflows")
+
+
+def test_main_writes_capped_sorted_runs_and_lane_rollups(tmp_path, monkeypatch):
+    workflows = [
+        make_workflow(
+            name="latest-failure",
+            phase="Failed",
+            started="2026-08-10T12:00:00Z",
+            finished="2026-08-10T12:01:00Z",
+        ),
+        make_workflow(
+            name="earlier-success",
+            phase="Succeeded",
+            started="2026-08-10T11:00:00Z",
+            finished="2026-08-10T11:01:00Z",
+        ),
+    ]
+    workflows.extend(
+        make_workflow(
+            name=f"other-{index}",
+            template_ref=f"other-{index}",
+            started=f"2026-08-09T{index // 60:02d}:{index % 60:02d}:00Z",
+            finished=f"2026-08-09T{index // 60:02d}:{index % 60:02d}:30Z",
+        )
+        for index in range(collect_runs.MAX_RUNS)
+    )
+    monkeypatch.setattr(
+        collect_runs,
+        "kubectl",
+        lambda *args: json.dumps({"items": workflows}),
+    )
+    output = tmp_path / "nested" / "runs.json"
+    monkeypatch.setattr(sys, "argv", ["collect_runs.py", str(output)])
+
+    assert collect_runs.main() == 0
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert len(payload["runs"]) == collect_runs.MAX_RUNS
+    assert payload["runs"][0]["name"] == "latest-failure"
+    lane = next(
+        item for item in payload["lanes"] if item["template"] == "run-container-tests"
+    )
+    assert lane["latest"]["name"] == "latest-failure"
+    assert lane["runs"] == 2
+    assert lane["everGreen"] is True
