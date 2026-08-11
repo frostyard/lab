@@ -86,7 +86,10 @@ Agent-authored pull requests must identify scope, risk, validation performed,
 and validation that could not be run. Reviewers apply the
 [PR review rubric](review-rubric.md), including its GitOps ownership, evidence,
 safety, and validation criteria, and consult the live signals and known gaps in
-the [quality dashboard](quality.md).
+the [quality dashboard](quality.md). The
+[Claude review workflow](claude-code-review.md) may add advisory findings to
+eligible pull requests, but its model output is untrusted and cannot approve a
+change or replace deterministic checks and human review.
 
 The executable [`policies/agent-governance.json`](../policies/agent-governance.json)
 contract fails closed if denied autonomous actions, GitOps and review controls,
