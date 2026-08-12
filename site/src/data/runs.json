@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-12T18:30:20Z",
+  "generated": "2026-08-12T19:00:23Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -80,19 +80,19 @@
       "label": "bootc secure installer",
       "kind": "install",
       "latest": {
-        "name": "snosi-secure-install-auto-qcrrj",
-        "phase": "Failed",
-        "started": "2026-08-12T15:00:12Z",
-        "finished": "2026-08-12T16:10:34Z",
-        "durationSeconds": 4222,
+        "name": "snosi-secure-install-auto-hdn57",
+        "phase": "Running",
+        "started": "2026-08-12T19:00:22Z",
+        "finished": null,
+        "durationSeconds": null,
         "template": "run-secure-install-tests",
         "kind": "install",
         "label": "bootc secure installer",
         "trigger": "digest-watch",
-        "result": "FAILED: secure install harness exited 1 for cayo (full log: /var/lib/snosi-lab/secure/logs/snosi-secure-install-auto-qcrrj.log)",
+        "result": null,
         "checks": []
       },
-      "runs": 92,
+      "runs": 93,
       "everGreen": true
     },
     {
@@ -100,19 +100,25 @@
       "label": "firn installer matrix",
       "kind": "install",
       "latest": {
-        "name": "firn-bootc-sb-test-nfcn8",
-        "phase": "Running",
-        "started": "2026-08-12T18:10:43Z",
-        "finished": null,
-        "durationSeconds": null,
+        "name": "firn-ab-btrfs-kbqsc",
+        "phase": "Succeeded",
+        "started": "2026-08-12T16:55:50Z",
+        "finished": "2026-08-12T17:08:37Z",
+        "durationSeconds": 767,
         "template": "run-firn-install-tests",
         "kind": "install",
         "label": "firn installer matrix",
         "trigger": "manual",
-        "result": null,
-        "checks": []
+        "result": "installed and booted: ab/snow/none/sb=false",
+        "checks": [
+          "booted=ok",
+          "luks=absent",
+          "osrelease=snow",
+          "rootfs=erofs",
+          "verity=ok"
+        ]
       },
-      "runs": 3,
+      "runs": 2,
       "everGreen": true
     },
     {
@@ -140,9 +146,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786559400",
+        "name": "publish-results-1786561200",
         "phase": "Running",
-        "started": "2026-08-12T18:30:00Z",
+        "started": "2026-08-12T19:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -160,11 +166,11 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786558800",
-        "phase": "Succeeded",
-        "started": "2026-08-12T18:20:00Z",
-        "finished": "2026-08-12T18:20:10Z",
-        "durationSeconds": 10,
+        "name": "secure-install-watch-1786561200",
+        "phase": "Running",
+        "started": "2026-08-12T19:00:00Z",
+        "finished": null,
+        "durationSeconds": null,
         "template": "watch",
         "kind": "other",
         "label": "watch",
@@ -172,7 +178,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 4,
+      "runs": 5,
       "everGreen": true
     },
     {
@@ -180,16 +186,16 @@
       "label": "Registry digest poll",
       "kind": "poll",
       "latest": {
-        "name": "image-poll-cayo-latest-1786558800",
-        "phase": "Succeeded",
-        "started": "2026-08-12T18:20:00Z",
-        "finished": "2026-08-12T18:20:20Z",
-        "durationSeconds": 20,
+        "name": "image-poll-snowfield-latest-1786560000",
+        "phase": "Failed",
+        "started": "2026-08-12T18:40:00Z",
+        "finished": "2026-08-12T18:41:23Z",
+        "durationSeconds": 83,
         "template": "image-poller",
         "kind": "poll",
         "label": "Registry digest poll",
         "trigger": "scheduled",
-        "result": null,
+        "result": "19 passed, 1 failed",
         "checks": []
       },
       "runs": 11,
@@ -238,11 +244,76 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1786559400",
+      "name": "snosi-secure-install-auto-hdn57",
       "phase": "Running",
-      "started": "2026-08-12T18:30:00Z",
+      "started": "2026-08-12T19:00:22Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "run-secure-install-tests",
+      "kind": "install",
+      "label": "bootc secure installer",
+      "trigger": "digest-watch",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786561200",
+      "phase": "Running",
+      "started": "2026-08-12T19:00:00Z",
+      "finished": null,
+      "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786561200",
+      "phase": "Running",
+      "started": "2026-08-12T19:00:00Z",
+      "finished": null,
+      "durationSeconds": null,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "image-poll-snowfield-latest-1786560000",
+      "phase": "Failed",
+      "started": "2026-08-12T18:40:00Z",
+      "finished": "2026-08-12T18:41:23Z",
+      "durationSeconds": 83,
+      "template": "image-poller",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": "19 passed, 1 failed",
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786560000",
+      "phase": "Succeeded",
+      "started": "2026-08-12T18:40:00Z",
+      "finished": "2026-08-12T18:40:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786559400",
+      "phase": "Succeeded",
+      "started": "2026-08-12T18:30:00Z",
+      "finished": "2026-08-12T18:30:32Z",
+      "durationSeconds": 32,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -286,19 +357,6 @@
       "kind": "maintenance",
       "label": "Orphan pod GC",
       "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "firn-bootc-sb-test-nfcn8",
-      "phase": "Running",
-      "started": "2026-08-12T18:10:43Z",
-      "finished": null,
-      "durationSeconds": null,
-      "template": "run-firn-install-tests",
-      "kind": "install",
-      "label": "firn installer matrix",
-      "trigger": "manual",
       "result": null,
       "checks": []
     },
@@ -368,32 +426,6 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786555200",
-      "phase": "Succeeded",
-      "started": "2026-08-12T17:20:00Z",
-      "finished": "2026-08-12T17:20:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786554000",
-      "phase": "Succeeded",
-      "started": "2026-08-12T17:00:00Z",
-      "finished": "2026-08-12T17:00:33Z",
-      "durationSeconds": 33,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "firn-ab-btrfs-kbqsc",
       "phase": "Succeeded",
       "started": "2026-08-12T16:55:50Z",
@@ -411,19 +443,6 @@
         "rootfs=erofs",
         "verity=ok"
       ]
-    },
-    {
-      "name": "image-poll-snowfield-latest-1786549200",
-      "phase": "Failed",
-      "started": "2026-08-12T15:40:00Z",
-      "finished": "2026-08-12T15:41:21Z",
-      "durationSeconds": 81,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": "19 passed, 1 failed",
-      "checks": []
     },
     {
       "name": "image-poll-cayo-latest-1786548000",
