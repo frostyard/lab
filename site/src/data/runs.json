@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-12T13:00:20Z",
+  "generated": "2026-08-12T13:30:18Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -109,7 +109,7 @@
         "kind": "install",
         "label": "firn installer matrix",
         "trigger": "manual",
-        "result": null,
+        "result": "FAILED: installed system did not boot/report (ab/cayo/none/sb=false) \u2014 for an encrypted cell this is an unlock failure",
         "checks": []
       },
       "runs": 2,
@@ -140,9 +140,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786539600",
+        "name": "publish-results-1786541400",
         "phase": "Running",
-        "started": "2026-08-12T13:00:00Z",
+        "started": "2026-08-12T13:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -160,11 +160,11 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786539600",
-        "phase": "Running",
-        "started": "2026-08-12T13:00:00Z",
-        "finished": null,
-        "durationSeconds": null,
+        "name": "secure-install-watch-1786540800",
+        "phase": "Succeeded",
+        "started": "2026-08-12T13:20:00Z",
+        "finished": "2026-08-12T13:20:10Z",
+        "durationSeconds": 10,
         "template": "watch",
         "kind": "other",
         "label": "watch",
@@ -172,7 +172,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 5,
+      "runs": 4,
       "everGreen": true
     },
     {
@@ -238,9 +238,9 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1786539600",
+      "name": "publish-results-1786541400",
       "phase": "Running",
-      "started": "2026-08-12T13:00:00Z",
+      "started": "2026-08-12T13:30:00Z",
       "finished": null,
       "durationSeconds": null,
       "template": "publish",
@@ -251,11 +251,37 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786539600",
-      "phase": "Running",
+      "name": "secure-install-watch-1786540800",
+      "phase": "Succeeded",
+      "started": "2026-08-12T13:20:00Z",
+      "finished": "2026-08-12T13:20:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786539600",
+      "phase": "Succeeded",
       "started": "2026-08-12T13:00:00Z",
-      "finished": null,
-      "durationSeconds": null,
+      "finished": "2026-08-12T13:00:32Z",
+      "durationSeconds": 32,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786539600",
+      "phase": "Succeeded",
+      "started": "2026-08-12T13:00:00Z",
+      "finished": "2026-08-12T13:00:20Z",
+      "durationSeconds": 20,
       "template": "watch",
       "kind": "other",
       "label": "watch",
@@ -273,7 +299,7 @@
       "kind": "install",
       "label": "firn installer matrix",
       "trigger": "manual",
-      "result": null,
+      "result": "FAILED: installed system did not boot/report (ab/cayo/none/sb=false) \u2014 for an encrypted cell this is an unlock failure",
       "checks": []
     },
     {
@@ -381,19 +407,6 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786536000",
-      "phase": "Succeeded",
-      "started": "2026-08-12T12:00:00Z",
-      "finished": "2026-08-12T12:00:20Z",
-      "durationSeconds": 20,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "firn-encbootc-confirm-4vmdf",
       "phase": "Failed",
       "started": "2026-08-12T11:46:32Z",
@@ -404,32 +417,6 @@
       "label": "firn installer matrix",
       "trigger": "manual",
       "result": "FAILED: installed system did not boot/report (bootc/snow/tpm2-luks-passphrase/sb=true) \u2014 for an encrypted cell this is an unlock failure",
-      "checks": []
-    },
-    {
-      "name": "secure-install-watch-1786534800",
-      "phase": "Succeeded",
-      "started": "2026-08-12T11:40:00Z",
-      "finished": "2026-08-12T11:40:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786534200",
-      "phase": "Succeeded",
-      "started": "2026-08-12T11:30:00Z",
-      "finished": "2026-08-12T11:30:32Z",
-      "durationSeconds": 32,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
