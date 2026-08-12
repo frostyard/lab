@@ -1,0 +1,65 @@
+# Submit file: the firn install matrix — drive `firn install` unattended in a
+# VM across a representative set of (family x image x encryption x secure-boot)
+# cells, then boot each result and assert it came up.
+#
+#   kubectl create -f argo/firn-install-test.yaml
+#
+# firn is the single snosi installer (core ADR-0027/0028). This lane is its
+# analogue of snosi-install-test: only an install produces the partitioning,
+# encryption, TPM enrollment, and boot entries under test — none of it appears
+# in a published image.
+#
+# Cells fan out with withItems but SERIALIZE on the snosi-vm-qa semaphore
+# (one VM at a time), so the full matrix runs back-to-back — budget hours, not
+# minutes. Trim the list for a quick smoke run.
+#
+# Matrix (12 cells): every bootc encryption mode (none, luks-passphrase,
+# tpm2-luks, tpm2-luks-passphrase) and every ab mode (none, luks, tpm2-luks),
+# Secure Boot on and off in both families, cayo + snow throughout, snowfield
+# once. The bootc x tpm2-luks* cells are the highest-value ones: "installed AND
+# booted" is exactly what exercises the encrypted-boot unlock that firn ADR-0012
+# left unproven.
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: firn-install-matrix-
+  namespace: argo
+  labels:
+    app.kubernetes.io/part-of: lab
+    snosi.io/trigger: manual
+spec:
+  serviceAccountName: argo
+  entrypoint: main
+  # 12 cells serialized on the VM semaphore; allow a full day.
+  activeDeadlineSeconds: 86400
+  templates:
+    - name: main
+      dag:
+        tasks:
+          - name: cell
+            withItems:
+              # `product` is the image axis (cayo|snow|snowfield); named to
+              # avoid the manifest test's `image:`-key = container heuristic.
+              # --- bootc: all four encryption modes, SB on and off ---
+              - { family: "bootc", product: "cayo",      encryption: "none",                 secureboot: "false" }
+              - { family: "bootc", product: "cayo",      encryption: "tpm2-luks",            secureboot: "false" }
+              - { family: "bootc", product: "snow",      encryption: "luks-passphrase",      secureboot: "false" }
+              - { family: "bootc", product: "snow",      encryption: "tpm2-luks",            secureboot: "false" }
+              - { family: "bootc", product: "snow",      encryption: "tpm2-luks-passphrase", secureboot: "true"  }
+              - { family: "bootc", product: "snow",      encryption: "none",                 secureboot: "true"  }
+              - { family: "bootc", product: "snowfield", encryption: "tpm2-luks-passphrase", secureboot: "true"  }
+              # --- ab: all three encryption modes, SB on and off (MOK when on) ---
+              - { family: "ab",    product: "cayo",      encryption: "none",                 secureboot: "false" }
+              - { family: "ab",    product: "cayo",      encryption: "tpm2-luks",            secureboot: "true"  }
+              - { family: "ab",    product: "snow",      encryption: "luks",                 secureboot: "false" }
+              - { family: "ab",    product: "snow",      encryption: "tpm2-luks",            secureboot: "true"  }
+              - { family: "ab",    product: "snow",      encryption: "none",                 secureboot: "true"  }
+            templateRef:
+              name: run-firn-install-tests
+              template: run-firn-install-tests
+            arguments:
+              parameters:
+                - { name: family,     value: "{{item.family}}" }
+                - { name: image,      value: "{{item.product}}" }
+                - { name: encryption, value: "{{item.encryption}}" }
+                - { name: secureboot, value: "{{item.secureboot}}" }
