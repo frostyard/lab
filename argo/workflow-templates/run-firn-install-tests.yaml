@@ -62,14 +62,14 @@ spec:
       - name: varfs
         value: "ext4"
       # Secure Boot ON and genuinely enforced (Microsoft KEK/db untouched).
-      # For ab + secureboot the snosi MOK is pre-seeded into the guest varstore
-      # below and the recipe uses mok = "skip" (unattended MokManager cannot be
-      # answered). This pre-seed is only legitimate for ab because firn actually
-      # stages the ab MOK via mokutil (internal/abimg/mok.go). bootc + Secure
-      # Boot is NOT exercised here: firn does not yet stage the bootc ESP secure
-      # chain or enroll its MOK (secure-install schema-1 gap, firn roadmap Phase
-      # 4), so those matrix cells are held out rather than faked green with a
-      # pre-seed. See argo/firn-install-test.yaml's PENDING block.
+      # ab + secureboot: the snosi MOK is pre-seeded into the guest varstore
+      # below and the recipe uses mok = "skip" (ab installs stage no boot chain).
+      # bootc + secureboot: mok = "enroll" -- firn stages the shim -> MOK-signed
+      # systemd-boot -> MokManager ESP chain and runs mokutil (secure-install
+      # schema-1, firn ADR-0014); the lane completes enrollment host-side after
+      # install (virt-fw-vars --add-mok + clear MokNew), the MokManager keypress
+      # stand-in. NOT a pre-seed masquerade: the boot succeeds only if the staged
+      # chain is firn's. Proven end to end 2026-08-12.
       - name: secureboot
         value: "false"
       - name: vm-cpus
@@ -265,7 +265,7 @@ spec:
         # host-side after install, so the value is never typed -- but firn
         # validates its presence. Created in the guest so it never crosses SMBIOS.
         if [ "${FAMILY}" = bootc ] && [ "${SECUREBOOT}" = true ]; then
-          LC_ALL=C tr -dc A-Za-z0-9 </dev/urandom | head -c 16 > /run/firn-qa-mok.pass
+          openssl rand -hex 8 > /run/firn-qa-mok.pass
           chmod 600 /run/firn-qa-mok.pass
         fi
 
