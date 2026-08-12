@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-12T22:00:20Z",
+  "generated": "2026-08-12T22:30:23Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -100,16 +100,16 @@
       "label": "firn installer matrix",
       "kind": "install",
       "latest": {
-        "name": "firn-bootc-sb-test-2qzrx",
-        "phase": "Succeeded",
-        "started": "2026-08-12T21:06:03Z",
-        "finished": "2026-08-12T21:11:21Z",
-        "durationSeconds": 318,
+        "name": "firn-install-matrix-sz9rv",
+        "phase": "Running",
+        "started": "2026-08-12T22:06:58Z",
+        "finished": null,
+        "durationSeconds": null,
         "template": "run-firn-install-tests",
         "kind": "install",
         "label": "firn installer matrix",
         "trigger": "manual",
-        "result": "installed and booted: bootc/cayo/none/sb=true",
+        "result": "installed and booted: bootc/cayo/none/sb=false",
         "checks": [
           "bootc=bootc_1.16.7",
           "booted=ok",
@@ -118,7 +118,7 @@
           "rootfs=overlay"
         ]
       },
-      "runs": 5,
+      "runs": 6,
       "everGreen": true
     },
     {
@@ -146,9 +146,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786572000",
+        "name": "publish-results-1786573800",
         "phase": "Running",
-        "started": "2026-08-12T22:00:00Z",
+        "started": "2026-08-12T22:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -166,11 +166,11 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786572000",
-        "phase": "Running",
-        "started": "2026-08-12T22:00:00Z",
-        "finished": null,
-        "durationSeconds": null,
+        "name": "secure-install-watch-1786573200",
+        "phase": "Succeeded",
+        "started": "2026-08-12T22:20:00Z",
+        "finished": "2026-08-12T22:20:10Z",
+        "durationSeconds": 10,
         "template": "watch",
         "kind": "other",
         "label": "watch",
@@ -178,7 +178,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 5,
+      "runs": 4,
       "everGreen": true
     },
     {
@@ -244,9 +244,9 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1786572000",
+      "name": "publish-results-1786573800",
       "phase": "Running",
-      "started": "2026-08-12T22:00:00Z",
+      "started": "2026-08-12T22:30:00Z",
       "finished": null,
       "durationSeconds": null,
       "template": "publish",
@@ -257,11 +257,56 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786572000",
+      "name": "secure-install-watch-1786573200",
+      "phase": "Succeeded",
+      "started": "2026-08-12T22:20:00Z",
+      "finished": "2026-08-12T22:20:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "firn-install-matrix-sz9rv",
       "phase": "Running",
-      "started": "2026-08-12T22:00:00Z",
+      "started": "2026-08-12T22:06:58Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "run-firn-install-tests",
+      "kind": "install",
+      "label": "firn installer matrix",
+      "trigger": "manual",
+      "result": "installed and booted: bootc/cayo/none/sb=false",
+      "checks": [
+        "bootc=bootc_1.16.7",
+        "booted=ok",
+        "luks=absent",
+        "osrelease=cayo",
+        "rootfs=overlay"
+      ]
+    },
+    {
+      "name": "publish-results-1786572000",
+      "phase": "Succeeded",
+      "started": "2026-08-12T22:00:00Z",
+      "finished": "2026-08-12T22:00:32Z",
+      "durationSeconds": 32,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786572000",
+      "phase": "Succeeded",
+      "started": "2026-08-12T22:00:00Z",
+      "finished": "2026-08-12T22:00:20Z",
+      "durationSeconds": 20,
       "template": "watch",
       "kind": "other",
       "label": "watch",
@@ -372,45 +417,6 @@
       "started": "2026-08-12T21:00:00Z",
       "finished": "2026-08-12T21:00:35Z",
       "durationSeconds": 35,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "secure-install-watch-1786568400",
-      "phase": "Succeeded",
-      "started": "2026-08-12T21:00:00Z",
-      "finished": "2026-08-12T21:00:20Z",
-      "durationSeconds": 20,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "secure-install-watch-1786567200",
-      "phase": "Succeeded",
-      "started": "2026-08-12T20:40:00Z",
-      "finished": "2026-08-12T20:40:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786566600",
-      "phase": "Succeeded",
-      "started": "2026-08-12T20:30:00Z",
-      "finished": "2026-08-12T20:30:34Z",
-      "durationSeconds": 34,
       "template": "publish",
       "kind": "other",
       "label": "publish",
