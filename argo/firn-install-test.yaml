@@ -13,12 +13,20 @@
 # (one VM at a time), so the full matrix runs back-to-back — budget hours, not
 # minutes. Trim the list for a quick smoke run.
 #
-# Matrix (12 cells): every bootc encryption mode (none, luks-passphrase,
-# tpm2-luks, tpm2-luks-passphrase) and every ab mode (none, luks, tpm2-luks),
-# Secure Boot on and off in both families, cayo + snow throughout, snowfield
-# once. The bootc x tpm2-luks* cells are the highest-value ones: "installed AND
-# booted" is exactly what exercises the encrypted-boot unlock that firn ADR-0012
-# left unproven.
+# Matrix (9 active cells): every bootc encryption mode (none, luks-passphrase,
+# tpm2-luks, tpm2-luks-passphrase) with Secure Boot OFF, and every ab mode
+# (none, luks, tpm2-luks) with Secure Boot on and off, cayo + snow throughout,
+# snowfield once. The bootc x tpm2-luks* cells are the highest-value ones:
+# "installed AND booted" is exactly what exercises the encrypted-boot unlock
+# that firn ADR-0012 left unproven.
+#
+# bootc + Secure Boot is deliberately NOT in the active matrix (see the PENDING
+# block below). firn does not yet stage the ESP secure chain or enroll the MOK
+# for bootc (firn "secure-install schema-1" gap, roadmap Phase 4). The lab could
+# force those cells green with a `virt-fw-vars --add-mok` pre-seed, but that
+# fakes the enrolled end-state and would masquerade as a real pass while the
+# installer feature is absent -- exactly the secure-boot corner we do not cut.
+# The ab MOK pre-seed is legitimate: firn DOES stage the ab MOK via mokutil.
 apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
@@ -40,14 +48,21 @@ spec:
             withItems:
               # `product` is the image axis (cayo|snow|snowfield); named to
               # avoid the manifest test's `image:`-key = container heuristic.
-              # --- bootc: all four encryption modes, SB on and off ---
+              # --- bootc: all four encryption modes, Secure Boot OFF ---
               - { family: "bootc", product: "cayo",      encryption: "none",                 secureboot: "false" }
               - { family: "bootc", product: "cayo",      encryption: "tpm2-luks",            secureboot: "false" }
               - { family: "bootc", product: "snow",      encryption: "luks-passphrase",      secureboot: "false" }
               - { family: "bootc", product: "snow",      encryption: "tpm2-luks",            secureboot: "false" }
-              - { family: "bootc", product: "snow",      encryption: "tpm2-luks-passphrase", secureboot: "true"  }
-              - { family: "bootc", product: "snow",      encryption: "none",                 secureboot: "true"  }
-              - { family: "bootc", product: "snowfield", encryption: "tpm2-luks-passphrase", secureboot: "true"  }
+              # --- PENDING firn secure-install schema-1 (roadmap Phase 4) ------
+              # bootc + Secure Boot. Re-enable once firn stages the ESP secure
+              # chain (Debian shim -> MOK-signed systemd-boot -> MokManager) and
+              # runs mokutil MOK enrollment for bootc, so first boot enrolls the
+              # MOK for real instead of a lab pre-seed faking it. Until then a
+              # green here would be false. Cells held out:
+              #   { family: "bootc", product: "snow",      encryption: "tpm2-luks-passphrase", secureboot: "true" }
+              #   { family: "bootc", product: "snow",      encryption: "none",                 secureboot: "true" }
+              #   { family: "bootc", product: "snowfield", encryption: "tpm2-luks-passphrase", secureboot: "true" }
+              # ----------------------------------------------------------------
               # --- ab: all three encryption modes, SB on and off (MOK when on) ---
               - { family: "ab",    product: "cayo",      encryption: "none",                 secureboot: "false" }
               - { family: "ab",    product: "cayo",      encryption: "tpm2-luks",            secureboot: "true"  }

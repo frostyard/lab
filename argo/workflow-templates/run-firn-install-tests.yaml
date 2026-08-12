@@ -57,13 +57,14 @@ spec:
       - name: encryption
         value: "none"
       # Secure Boot ON and genuinely enforced (Microsoft KEK/db untouched).
-      # For BOTH families under secureboot the snosi MOK is pre-seeded into the
-      # guest varstore below and the recipe uses mok = "skip" (unattended
-      # MokManager cannot be answered). The snow/cayo bootc images are
-      # secureboot-capable=true and boot shim -> MOK-signed systemd-boot -> UKI
-      # (shared/bootc-secure), so bootc needs the SAME mok-2026 cert as ab; the
-      # firmware/shim rejects the MOK-signed second stage without it
-      # ("Access Denied -- rejected by Secure Boot", matrix 2026-08-12).
+      # For ab + secureboot the snosi MOK is pre-seeded into the guest varstore
+      # below and the recipe uses mok = "skip" (unattended MokManager cannot be
+      # answered). This pre-seed is only legitimate for ab because firn actually
+      # stages the ab MOK via mokutil (internal/abimg/mok.go). bootc + Secure
+      # Boot is NOT exercised here: firn does not yet stage the bootc ESP secure
+      # chain or enroll its MOK (secure-install schema-1 gap, firn roadmap Phase
+      # 4), so those matrix cells are held out rather than faked green with a
+      # pre-seed. See argo/firn-install-test.yaml's PENDING block.
       - name: secureboot
         value: "false"
       - name: vm-cpus
@@ -135,10 +136,10 @@ spec:
         echo "=== firn install matrix cell: ${CELL} ===" >&2
         apt-get update -qq
         apt-get install -y -qq --no-install-recommends ca-certificates curl >/dev/null
-        if [[ "${SECUREBOOT}" == "true" ]]; then
-          # Secure Boot (both families): pre-seed the snosi MOK so the guest
-          # trusts the MOK-signed second stage (ab: shim->systemd-boot;
-          # bootc: secureboot-capable image, same mok-2026 cert).
+        if [[ "${SECUREBOOT}" == "true" && "${FAMILY}" == "ab" ]]; then
+          # ab + Secure Boot: pre-seed the snosi MOK into the guest varstore.
+          # (Legitimate because firn stages the ab MOK via mokutil; bootc + SB
+          # is held out of the matrix until firn implements schema-1.)
           apt-get install -y -qq --no-install-recommends git gcc python3 python3-dev libc6-dev python3-pip >/dev/null
           pip install --quiet --break-system-packages virt-firmware
           command -v virt-fw-vars >/dev/null || { echo "virt-fw-vars unavailable" >&2; exit 1; }
@@ -284,8 +285,8 @@ spec:
           source="${ISO_PATH}" boot.priority=10 readonly=true
         incus config set "${VM}" raw.qemu="-smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.firn-qa-install.service=${U_B64} -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.multi-user.target=${D_B64}"
 
-        # ── Secure Boot (both families): pre-enroll the snosi MOK ─────────────
-        if [[ "${SECUREBOOT}" == "true" ]]; then
+        # ── Secure Boot (ab only): pre-enroll the snosi MOK into the varstore ─
+        if [[ "${SECUREBOOT}" == "true" && "${FAMILY}" == "ab" ]]; then
           echo "Pre-enrolling the snosi MOK into the guest varstore..." >&2
           git clone -q --depth 1 https://github.com/frostyard/snosi.git /src/snosi
           MOK_CERT=/src/snosi/shared/native-ab/keys/mok-2026.crt
