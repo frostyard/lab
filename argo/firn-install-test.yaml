@@ -13,24 +13,24 @@
 # (one VM at a time), so the full matrix runs back-to-back — budget hours, not
 # minutes. Trim the list for a quick smoke run.
 #
-# Matrix (7 active cells): the AUTO-UNLOCKABLE encryption modes only -- none
-# and tpm2-luks (TPM auto-unlock) -- for both families, cayo + snow, Secure
-# Boot on/off (ab). Interactive-unlock modes (ab `luks`, bootc
-# `luks-passphrase`) are held out: they prompt for a key/passphrase at boot,
-# which an unattended lab cannot answer, so they can never pass here (see the
-# INTERACTIVE-UNLOCK notes by the cells). The bootc x tpm2-luks cells are the
-# highest-value ones: "installed AND booted" exercises the encrypted-boot
+# Matrix (10 active cells): the AUTO-UNLOCKABLE encryption modes -- none,
+# tpm2-luks, tpm2-luks-passphrase (all TPM auto-unlock) -- for both families,
+# cayo + snow + snowfield, Secure Boot on/off. Interactive-unlock modes (ab
+# `luks`, bootc `luks-passphrase`) are held out: they prompt for a key/passphrase
+# at boot, which an unattended lab cannot answer, so they can never pass here
+# (see the INTERACTIVE-UNLOCK notes by the cells). The bootc x tpm2-luks cells
+# are the highest-value ones: "installed AND booted" exercises the encrypted-boot
 # unlock firn ADR-0012 left unproven. The /var filesystem defaults to ext4;
 # the run-firn-install-tests `varfs` axis switches ab cells to btrfs to
 # exercise snosi PR #705 (firn ADR-0013) -- validated via a one-off run.
 #
-# bootc + Secure Boot is deliberately NOT in the active matrix (see the PENDING
-# block below). firn does not yet stage the ESP secure chain or enroll the MOK
-# for bootc (firn "secure-install schema-1" gap, roadmap Phase 4). The lab could
-# force those cells green with a `virt-fw-vars --add-mok` pre-seed, but that
-# fakes the enrolled end-state and would masquerade as a real pass while the
-# installer feature is absent -- exactly the secure-boot corner we do not cut.
-# The ab MOK pre-seed is legitimate: firn DOES stage the ab MOK via mokutil.
+# bootc + Secure Boot IS in the active matrix as of 2026-08-12: firn implements
+# secure-install schema-1 (ADR-0014) -- it stages the shim -> MOK-signed
+# systemd-boot -> MokManager ESP chain and runs mokutil. The lane completes
+# enrollment host-side after install (virt-fw-vars --add-mok + clear MokNew),
+# the MokManager keypress stand-in. This is NOT a pre-seed masquerade: the boot
+# only succeeds if the staged chain is firn's, so a green is real. The ab MOK
+# pre-seed (mok = "skip") is likewise legitimate -- ab installs stage no chain.
 apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
@@ -62,16 +62,16 @@ spec:
               # The lab has no console-input path, so it would hang at the
               # prompt -- a failure that proves nothing. Held out:
               #   { family: "bootc", product: "snow", encryption: "luks-passphrase", secureboot: "false" }
-              # --- PENDING firn secure-install schema-1 (roadmap Phase 4) ------
-              # bootc + Secure Boot. Re-enable once firn stages the ESP secure
-              # chain (Debian shim -> MOK-signed systemd-boot -> MokManager) and
-              # runs mokutil MOK enrollment for bootc, so first boot enrolls the
-              # MOK for real instead of a lab pre-seed faking it. Until then a
-              # green here would be false. Cells held out:
-              #   { family: "bootc", product: "snow",      encryption: "tpm2-luks-passphrase", secureboot: "true" }
-              #   { family: "bootc", product: "snow",      encryption: "none",                 secureboot: "true" }
-              #   { family: "bootc", product: "snowfield", encryption: "tpm2-luks-passphrase", secureboot: "true" }
-              # ----------------------------------------------------------------
+              # --- bootc + Secure Boot (real path, firn secure-install schema-1) ---
+              # firn stages the ESP chain (shim -> MOK-signed systemd-boot ->
+              # MokManager) and runs mokutil (mok = "enroll"); the lane completes
+              # enrollment host-side after install (virt-fw-vars --add-mok + clear
+              # MokNew) -- the MokManager keypress stand-in, NOT a pre-seed. The
+              # boot only succeeds if the staged chain is firn's, so a green is
+              # real (firn ADR-0014; proven cayo/none/sb 2026-08-12).
+              - { family: "bootc", product: "snow",      encryption: "none",                 secureboot: "true"  }
+              - { family: "bootc", product: "snow",      encryption: "tpm2-luks-passphrase", secureboot: "true"  }
+              - { family: "bootc", product: "snowfield", encryption: "tpm2-luks-passphrase", secureboot: "true"  }
               # --- ab: auto-unlockable encryption modes, SB on and off (MOK when on) ---
               - { family: "ab",    product: "cayo",      encryption: "none",                 secureboot: "false" }
               - { family: "ab",    product: "cayo",      encryption: "tpm2-luks",            secureboot: "true"  }
