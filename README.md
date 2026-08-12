@@ -81,7 +81,11 @@ Argo CD reconciles
 
 WorkflowTemplates are never applied by hand. `selfHeal: true` reverts a manual
 `kubectl apply` on the next reconcile, so git is the only way to change a
-pipeline.
+pipeline. The Application split and its hand-applied bootstrap boundary are
+recorded in
+[ADR-0001](docs/adr/0001-two-argocd-applications-and-hand-applied-bootstrap.md);
+the digest-gated trigger flow in
+[ADR-0002](docs/adr/0002-digest-gated-qa-with-compare-and-swap-state.md).
 
 ---
 
@@ -306,7 +310,10 @@ systemd[1]: Acquired 2 regular credentials, 0 untrusted credentials.
 
 Results come back on the serial console, which is the only channel that exists
 before a system is installed. The same mechanism carries the post-install
-assertions.
+assertions. The protocol is recorded in
+[ADR-0005](docs/adr/0005-console-marker-protocol-for-agentless-guests.md);
+how the lanes reach the host's incus daemon at all is
+[ADR-0006](docs/adr/0006-host-daemon-access-by-mount-never-ssh.md).
 
 ### Native A/B Secure Boot remains a separate gap
 
@@ -399,7 +406,8 @@ lab/
 │   ├── namespaces.yaml
 │   └── orphan-pod-gc.yaml
 │
-├── docs/
+├── docs/                         # see docs/README.md for the full index
+│   ├── adr/                      # repo-local decision records
 │   ├── ops/bootstrap.md          # from-zero cluster setup
 │   └── quality.md                # quality signals, evidence, and known gaps
 ├── policies/                     # executable agent-governance policy and checker
@@ -484,7 +492,10 @@ git push main
 ```
 
 The collector reads the Kubernetes API rather than being wired into each lane,
-so a lane added tomorrow appears with no reporting change. It skips the commit
+so a lane added tomorrow appears with no reporting change
+([ADR-0004](docs/adr/0004-one-way-evidence-pipeline.md); the `unproven`
+lane state it carries is
+[ADR-0003](docs/adr/0003-unproven-is-distinct-from-failed.md)). It skips the commit
 when only the generation timestamp moved, so an idle cluster does not push a
 commit every 30 minutes.
 

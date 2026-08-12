@@ -902,9 +902,11 @@ produced two false findings in a week.
 - [x] **A2.** Establish that the bootc lane was aimed at the wrong image tier;
       add the capability guard snosi's own CI uses.
 - [x] **A3.** Close #504 and #505 as invalid, with evidence.
-- [ ] **A4.** *First-green requirement*: a lane that has never once succeeded
+- [x] **A4.** *First-green requirement*: a lane that has never once succeeded
       reports `unproven`, not `Failed`. This is the control that would have
-      caught both bugs, and it is cheap.
+      caught both bugs, and it is cheap. Implemented in the collector and
+      dashboard; recorded as
+      [ADR-0003](adr/0003-unproven-is-distinct-from-failed.md).
 - [x] **A5.** Audited every lane for the `pipefail` shape and for assertions
       that can only ever fail. **Four instances total**, all fixed:
       the disk lane's SIGPIPE inversion, the bootc lane's union pipeline, the
