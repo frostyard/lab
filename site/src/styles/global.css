@@ -1,5 +1,5 @@
 /* Frostyard design system entry point. The token files are copied verbatim from
-   frostyard/design-system — edit them there and re-copy, never patch in place. */
+   frostyard/core (.agents/skills/frostyard-design/tokens/) — edit them there and re-copy, never patch in place. */
 @import "./tokens/colors.css";
 @import "./tokens/typography.css";
 @import "./tokens/spacing.css";

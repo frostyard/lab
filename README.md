@@ -467,7 +467,7 @@ that what `runs.json` contains is what the dashboard renders. Run it with `just
 site-e2e`; CI runs it via `.github/workflows/e2e.yml`.
 
 The page is styled with the [frostyard design
-system](https://github.com/frostyard/design-system), following its Pilothouse
+system](https://github.com/frostyard/core/tree/main/.agents/skills/frostyard-design), following its Pilothouse
 dashboard language: ink surfaces, hairline separation, square corners, cold
 ice/sky accents, mono kickers. `site/src/styles/tokens/` is copied **verbatim**
 from that repo — change tokens there and re-copy rather than patching them here,
