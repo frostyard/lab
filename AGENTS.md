@@ -8,3 +8,9 @@ This repository is the GitOps-driven QA pipeline for snosi bootc images.
 - Validate Argo YAML changes with the existing project tooling where practical.
 - Keep documentation tone and structure consistent with the existing files in `docs/`.
 - Preserve the deny-by-default controls in `policies/agent-governance.json`; validate policy changes with `python3 policies/check_agent_governance.py` and the focused pytest contract.
+
+## Org-wide decisions
+
+Org-level conventions this repo follows are recorded as ADRs in
+frostyard/core — see [docs/org-adrs.md](docs/org-adrs.md) for the list that
+binds this repo. Change the ADR (in core) before changing behavior it covers.
