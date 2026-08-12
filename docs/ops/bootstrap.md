@@ -6,7 +6,9 @@ step is idempotent; re-running the whole guide against a live cluster is safe.
 The split to keep in mind: **CRDs and the `argo` namespace are prerequisites,
 not GitOps-managed resources.** Argo CD Applications sync with `prune: true`, so
 a Helm-managed CRD would be deleted along with its Application — taking every
-`Workflow` object in the cluster with it.
+`Workflow` object in the cluster with it. The Application layout and this
+boundary are recorded in
+[ADR-0001](../adr/0001-two-argocd-applications-and-hand-applied-bootstrap.md).
 
 ---
 

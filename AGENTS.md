@@ -9,6 +9,14 @@ This repository is the GitOps-driven QA pipeline for snosi bootc images.
 - Keep documentation tone and structure consistent with the existing files in `docs/`.
 - Preserve the deny-by-default controls in `policies/agent-governance.json`; validate policy changes with `python3 policies/check_agent_governance.py` and the focused pytest contract.
 
+## Documentation rules
+
+`docs/` follows core's four-category shape — see the table and conventions
+in [docs/README.md](docs/README.md). New docs start from their category's
+`TEMPLATE.md` and get indexed there. A repo-local decision gets an ADR in
+`docs/adr/` (next free number); an org-wide one gets an ADR in
+frostyard/core plus a line in [docs/org-adrs.md](docs/org-adrs.md).
+
 ## Org-wide decisions
 
 Org-level conventions this repo follows are recorded as ADRs in
