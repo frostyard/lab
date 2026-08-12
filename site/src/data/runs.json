@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-12T23:00:21Z",
+  "generated": "2026-08-12T23:30:20Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -101,10 +101,10 @@
       "kind": "install",
       "latest": {
         "name": "firn-install-matrix-sz9rv",
-        "phase": "Running",
+        "phase": "Succeeded",
         "started": "2026-08-12T22:06:58Z",
-        "finished": null,
-        "durationSeconds": null,
+        "finished": "2026-08-12T23:06:10Z",
+        "durationSeconds": 3552,
         "template": "run-firn-install-tests",
         "kind": "install",
         "label": "firn installer matrix",
@@ -146,9 +146,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786575600",
+        "name": "publish-results-1786577400",
         "phase": "Running",
-        "started": "2026-08-12T23:00:00Z",
+        "started": "2026-08-12T23:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -166,11 +166,11 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786575600",
+        "name": "secure-install-watch-1786576800",
         "phase": "Succeeded",
-        "started": "2026-08-12T23:00:00Z",
-        "finished": "2026-08-12T23:00:20Z",
-        "durationSeconds": 20,
+        "started": "2026-08-12T23:20:00Z",
+        "finished": "2026-08-12T23:20:10Z",
+        "durationSeconds": 10,
         "template": "watch",
         "kind": "other",
         "label": "watch",
@@ -178,7 +178,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 5,
+      "runs": 4,
       "everGreen": true
     },
     {
@@ -244,11 +244,37 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1786575600",
+      "name": "publish-results-1786577400",
       "phase": "Running",
-      "started": "2026-08-12T23:00:00Z",
+      "started": "2026-08-12T23:30:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786576800",
+      "phase": "Succeeded",
+      "started": "2026-08-12T23:20:00Z",
+      "finished": "2026-08-12T23:20:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786575600",
+      "phase": "Succeeded",
+      "started": "2026-08-12T23:00:00Z",
+      "finished": "2026-08-12T23:00:34Z",
+      "durationSeconds": 34,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -310,10 +336,10 @@
     },
     {
       "name": "firn-install-matrix-sz9rv",
-      "phase": "Running",
+      "phase": "Succeeded",
       "started": "2026-08-12T22:06:58Z",
-      "finished": null,
-      "durationSeconds": null,
+      "finished": "2026-08-12T23:06:10Z",
+      "durationSeconds": 3552,
       "template": "run-firn-install-tests",
       "kind": "install",
       "label": "firn installer matrix",
@@ -341,19 +367,6 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786572000",
-      "phase": "Succeeded",
-      "started": "2026-08-12T22:00:00Z",
-      "finished": "2026-08-12T22:00:20Z",
-      "durationSeconds": 20,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "image-poll-snowfield-latest-1786570800",
       "phase": "Failed",
       "started": "2026-08-12T21:40:00Z",
@@ -364,32 +377,6 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
-      "name": "secure-install-watch-1786570800",
-      "phase": "Succeeded",
-      "started": "2026-08-12T21:40:00Z",
-      "finished": "2026-08-12T21:40:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786570200",
-      "phase": "Succeeded",
-      "started": "2026-08-12T21:30:00Z",
-      "finished": "2026-08-12T21:30:32Z",
-      "durationSeconds": 32,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
