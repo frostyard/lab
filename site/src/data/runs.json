@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-12T15:00:21Z",
+  "generated": "2026-08-12T15:30:19Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -109,7 +109,7 @@
         "kind": "install",
         "label": "firn installer matrix",
         "trigger": "manual",
-        "result": "FAILED: firn install did not complete (ab/cayo/none/sb=false)",
+        "result": "FAILED: firn install did not complete (ab/cayo/tpm2-luks/sb=true)",
         "checks": []
       },
       "runs": 2,
@@ -140,9 +140,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786546800",
+        "name": "publish-results-1786548600",
         "phase": "Running",
-        "started": "2026-08-12T15:00:00Z",
+        "started": "2026-08-12T15:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -160,11 +160,11 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786546800",
-        "phase": "Running",
-        "started": "2026-08-12T15:00:00Z",
-        "finished": null,
-        "durationSeconds": null,
+        "name": "secure-install-watch-1786548000",
+        "phase": "Succeeded",
+        "started": "2026-08-12T15:20:00Z",
+        "finished": "2026-08-12T15:20:10Z",
+        "durationSeconds": 10,
         "template": "watch",
         "kind": "other",
         "label": "watch",
@@ -172,7 +172,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 5,
+      "runs": 4,
       "everGreen": true
     },
     {
@@ -180,19 +180,19 @@
       "label": "Registry digest poll",
       "kind": "poll",
       "latest": {
-        "name": "image-poll-snow-latest-1786546800",
-        "phase": "Running",
-        "started": "2026-08-12T15:00:00Z",
-        "finished": null,
-        "durationSeconds": null,
+        "name": "image-poll-cayo-latest-1786548000",
+        "phase": "Succeeded",
+        "started": "2026-08-12T15:20:00Z",
+        "finished": "2026-08-12T15:21:30Z",
+        "durationSeconds": 90,
         "template": "image-poller",
         "kind": "poll",
         "label": "Registry digest poll",
         "trigger": "scheduled",
-        "result": null,
+        "result": "14 passed, 6 skipped",
         "checks": []
       },
-      "runs": 12,
+      "runs": 11,
       "everGreen": true
     },
     {
@@ -220,23 +220,62 @@
       "label": "Published A/B disk artifact",
       "kind": "vm",
       "latest": {
-        "name": "snosi-disk-boot-jn5v2",
-        "phase": "Succeeded",
-        "started": "2026-08-05T15:08:28Z",
-        "finished": "2026-08-05T15:09:13Z",
-        "durationSeconds": 45,
+        "name": "diag-disk-sboff-zcgbn",
+        "phase": "Failed",
+        "started": "2026-08-05T13:52:35Z",
+        "finished": "2026-08-05T14:00:38Z",
+        "durationSeconds": 483,
         "template": "run-incus-disk-tests",
         "kind": "vm",
         "label": "Published A/B disk artifact",
         "trigger": "manual",
-        "result": "booted: cayo-ab 20260805095840 reached 'Reached target' (secureboot=false, signature verified)",
+        "result": "FAILED: cayo-ab 20260805095840 never reached 'Reached target' in 420s (state=RUNNING)",
         "checks": []
       },
-      "runs": 4,
-      "everGreen": true
+      "runs": 3,
+      "everGreen": false
     }
   ],
   "runs": [
+    {
+      "name": "publish-results-1786548600",
+      "phase": "Running",
+      "started": "2026-08-12T15:30:00Z",
+      "finished": null,
+      "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "image-poll-cayo-latest-1786548000",
+      "phase": "Succeeded",
+      "started": "2026-08-12T15:20:00Z",
+      "finished": "2026-08-12T15:21:30Z",
+      "durationSeconds": 90,
+      "template": "image-poller",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": "14 passed, 6 skipped",
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786548000",
+      "phase": "Succeeded",
+      "started": "2026-08-12T15:20:00Z",
+      "finished": "2026-08-12T15:20:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
     {
       "name": "snosi-secure-install-auto-qcrrj",
       "phase": "Running",
@@ -252,23 +291,23 @@
     },
     {
       "name": "image-poll-snow-latest-1786546800",
-      "phase": "Running",
+      "phase": "Failed",
       "started": "2026-08-12T15:00:00Z",
-      "finished": null,
-      "durationSeconds": null,
+      "finished": "2026-08-12T15:01:22Z",
+      "durationSeconds": 82,
       "template": "image-poller",
       "kind": "poll",
       "label": "Registry digest poll",
       "trigger": "scheduled",
-      "result": null,
+      "result": "19 passed, 1 failed",
       "checks": []
     },
     {
       "name": "publish-results-1786546800",
-      "phase": "Running",
+      "phase": "Succeeded",
       "started": "2026-08-12T15:00:00Z",
-      "finished": null,
-      "durationSeconds": null,
+      "finished": "2026-08-12T15:00:34Z",
+      "durationSeconds": 34,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -278,10 +317,10 @@
     },
     {
       "name": "secure-install-watch-1786546800",
-      "phase": "Running",
+      "phase": "Succeeded",
       "started": "2026-08-12T15:00:00Z",
-      "finished": null,
-      "durationSeconds": null,
+      "finished": "2026-08-12T15:00:30Z",
+      "durationSeconds": 30,
       "template": "watch",
       "kind": "other",
       "label": "watch",
@@ -342,19 +381,6 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786543200",
-      "phase": "Succeeded",
-      "started": "2026-08-12T14:00:00Z",
-      "finished": "2026-08-12T14:00:20Z",
-      "durationSeconds": 20,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "firn-ab-ext4-9mhxb",
       "phase": "Running",
       "started": "2026-08-12T13:47:11Z",
@@ -364,33 +390,7 @@
       "kind": "install",
       "label": "firn installer matrix",
       "trigger": "manual",
-      "result": "FAILED: firn install did not complete (ab/cayo/none/sb=false)",
-      "checks": []
-    },
-    {
-      "name": "secure-install-watch-1786542000",
-      "phase": "Succeeded",
-      "started": "2026-08-12T13:40:00Z",
-      "finished": "2026-08-12T13:40:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786541400",
-      "phase": "Succeeded",
-      "started": "2026-08-12T13:30:00Z",
-      "finished": "2026-08-12T13:30:31Z",
-      "durationSeconds": 31,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
+      "result": "FAILED: firn install did not complete (ab/cayo/tpm2-luks/sb=true)",
       "checks": []
     },
     {
@@ -433,19 +433,6 @@
       "checks": []
     },
     {
-      "name": "image-poll-snow-latest-1786536000",
-      "phase": "Failed",
-      "started": "2026-08-12T12:00:00Z",
-      "finished": "2026-08-12T12:01:26Z",
-      "durationSeconds": 86,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
       "name": "firn-encbootc-confirm-4vmdf",
       "phase": "Failed",
       "started": "2026-08-12T11:46:32Z",
@@ -469,19 +456,6 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": null,
-      "checks": []
-    },
-    {
-      "name": "image-poll-cayo-latest-1786515600",
-      "phase": "Succeeded",
-      "started": "2026-08-12T06:20:00Z",
-      "finished": "2026-08-12T06:21:29Z",
-      "durationSeconds": 89,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": "14 passed, 6 skipped",
       "checks": []
     },
     {
@@ -2079,19 +2053,6 @@
       "label": "bootc installer (mechanics)",
       "trigger": "manual",
       "result": "NOT APPLICABLE: ghcr.io/frostyard/snow:latest is secureboot-capable=true. bootc install to-disk is the mechanics tier and requires secureboot-capable=false; this image needs the external secure installer. See docs/roadmap.md.",
-      "checks": []
-    },
-    {
-      "name": "snosi-disk-boot-jn5v2",
-      "phase": "Succeeded",
-      "started": "2026-08-05T15:08:28Z",
-      "finished": "2026-08-05T15:09:13Z",
-      "durationSeconds": 45,
-      "template": "run-incus-disk-tests",
-      "kind": "vm",
-      "label": "Published A/B disk artifact",
-      "trigger": "manual",
-      "result": "booted: cayo-ab 20260805095840 reached 'Reached target' (secureboot=false, signature verified)",
       "checks": []
     },
     {
