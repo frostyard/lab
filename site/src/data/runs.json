@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-12T20:00:19Z",
+  "generated": "2026-08-12T20:30:21Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -100,11 +100,11 @@
       "label": "firn installer matrix",
       "kind": "install",
       "latest": {
-        "name": "firn-bootc-sb-test-tmtj8",
+        "name": "firn-bootc-sb-test-49dx7",
         "phase": "Failed",
-        "started": "2026-08-12T19:33:43Z",
-        "finished": "2026-08-12T19:37:01Z",
-        "durationSeconds": 198,
+        "started": "2026-08-12T20:17:33Z",
+        "finished": "2026-08-12T20:22:00Z",
+        "durationSeconds": 267,
         "template": "run-firn-install-tests",
         "kind": "install",
         "label": "firn installer matrix",
@@ -112,7 +112,7 @@
         "result": "FAILED: firn install did not complete (bootc/cayo/none/sb=true)",
         "checks": []
       },
-      "runs": 3,
+      "runs": 4,
       "everGreen": true
     },
     {
@@ -140,9 +140,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786564800",
+        "name": "publish-results-1786566600",
         "phase": "Running",
-        "started": "2026-08-12T20:00:00Z",
+        "started": "2026-08-12T20:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -160,10 +160,10 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786564800",
+        "name": "secure-install-watch-1786566000",
         "phase": "Succeeded",
-        "started": "2026-08-12T20:00:00Z",
-        "finished": "2026-08-12T20:00:10Z",
+        "started": "2026-08-12T20:20:00Z",
+        "finished": "2026-08-12T20:20:10Z",
         "durationSeconds": 10,
         "template": "watch",
         "kind": "other",
@@ -238,11 +238,50 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1786564800",
+      "name": "publish-results-1786566600",
       "phase": "Running",
-      "started": "2026-08-12T20:00:00Z",
+      "started": "2026-08-12T20:30:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786566000",
+      "phase": "Succeeded",
+      "started": "2026-08-12T20:20:00Z",
+      "finished": "2026-08-12T20:20:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "firn-bootc-sb-test-49dx7",
+      "phase": "Failed",
+      "started": "2026-08-12T20:17:33Z",
+      "finished": "2026-08-12T20:22:00Z",
+      "durationSeconds": 267,
+      "template": "run-firn-install-tests",
+      "kind": "install",
+      "label": "firn installer matrix",
+      "trigger": "manual",
+      "result": "FAILED: firn install did not complete (bootc/cayo/none/sb=true)",
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786564800",
+      "phase": "Succeeded",
+      "started": "2026-08-12T20:00:00Z",
+      "finished": "2026-08-12T20:00:32Z",
+      "durationSeconds": 32,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -342,19 +381,6 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786561200",
-      "phase": "Succeeded",
-      "started": "2026-08-12T19:00:00Z",
-      "finished": "2026-08-12T19:00:40Z",
-      "durationSeconds": 40,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "image-poll-snowfield-latest-1786560000",
       "phase": "Failed",
       "started": "2026-08-12T18:40:00Z",
@@ -417,19 +443,6 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786557600",
-      "phase": "Succeeded",
-      "started": "2026-08-12T18:00:00Z",
-      "finished": "2026-08-12T18:00:32Z",
-      "durationSeconds": 32,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
