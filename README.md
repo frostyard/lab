@@ -142,6 +142,31 @@ artifact.
 | `run-incus-install-tests` | `snosi-install-test.yaml` | **The native A/B installer** — partitioning, EROFS + dm-verity root, LUKS `/var`, TPM enrollment. |
 | `run-incus-bootc-install-tests` | `snosi-bootc-install-test.yaml` | **The bootc mechanics tier** — direct `bootc install to-disk` of a `secureboot-capable=false` mechanics image, then a real bootc host. |
 | `run-secure-install-tests` | `snosi-secure-install-test.yaml` | **The bootc secure tier** — the external Dakota/bootc-installer/Fisherman path, with Secure Boot enforced, MOK enrollment, LUKS root, and TPM unlock. |
+| `run-firn-install-tests` | `firn-install-test.yaml` | **The firn install matrix** — `firn`, the single installer (core ADR-0027/0028), driven from its ISO across a fan-out of (family × image × encryption × secure-boot) cells, each from nothing to installed-and-booted. |
+
+#### The firn install matrix
+
+`firn` replaces both fisherman (bootc) and snosi-install (native A/B) as the one
+snosi installer. This lane is its analogue of the native-install lane, but a
+**matrix**: one `run-firn-install-tests` invocation is a single cell (`family`,
+`image`, `encryption`, `secureboot`), and `firn-install-test.yaml` fans out a
+representative 12-cell set with `withItems`. It generates a recipe TOML per cell
+in the guest, drives `firn install <recipe> --confirm <disk> --json-progress`,
+then boots the result — for encrypted cells, **booting is the unlock proof**.
+Cells serialize on the `snosi-vm-qa` semaphore (one VM at a time), so the full
+matrix runs back-to-back; trim the `withItems` list for a smoke run.
+
+The matrix covers every bootc encryption mode (`none`, `luks-passphrase`,
+`tpm2-luks`, `tpm2-luks-passphrase`) and every ab mode (`none`, `luks`,
+`tpm2-luks`), Secure Boot on and off in both families (ab pre-seeds the snosi
+MOK into the guest varstore, exactly as the native lane does), cayo + snow
+throughout, snowfield once. The `bootc × tpm2-luks*` cells are the point: they
+exercise the encrypted-boot unlock firn ADR-0012 installed but left unproven.
+
+Before its first run this lane needs the real published **firn ISO URL**
+(`iso-url` input — the current default is a placeholder pending snosi's
+promote-iso publication path) and a confirmation of the ISO's A/B pubring path
+(`pubring-path`, default `/usr/lib/snosi/os-update-pubring.gpg`).
 
 The three installer lanes are the ones that matter most. Booting an image tests
 an artifact; only running an installer tests the thing that *creates* the

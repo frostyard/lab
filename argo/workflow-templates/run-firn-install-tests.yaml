@@ -1,0 +1,398 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: run-firn-install-tests
+  namespace: argo
+  annotations:
+    description: |
+      Runs firn — the single snosi installer — unattended in a VM for one
+      matrix cell (family x image x encryption x secure-boot), then boots the
+      result and asserts on what it produced.
+
+      This is the firn analogue of run-incus-install-tests (native A/B): an
+      empty UEFI VM + vTPM boots the firn installer ISO, a generated recipe
+      TOML drives `firn install` non-interactively, and the installed system
+      is booted to prove it came up (for encrypted cells, coming up IS the
+      TPM/passphrase-unlock proof). One cell per invocation; the matrix is a
+      fan-out in firn-install-test.yaml.
+
+      Driving a guest with no agent and no SSH: systemd reads SMBIOS type-11
+      credentials, so the lane injects the install unit + a multi-user.target
+      drop-in and the guest installs itself at boot. Progress returns on the
+      serial console — the only channel that exists before the disk is written.
+  labels:
+    app.kubernetes.io/component: vm-test-runner
+    app.kubernetes.io/part-of: snosi-test-suite
+spec:
+  templates:
+  - name: run-firn-install-tests
+    nodeSelector:
+      node-role.kubernetes.io/control-plane: "true"
+    activeDeadlineSeconds: 7200
+    synchronization:
+      semaphores:
+      - configMapKeyRef:
+          name: workflow-semaphores
+          key: snosi-vm-qa
+    inputs:
+      parameters:
+      # The single firn installer ISO (ADR-0010), successor to the native
+      # installer ISO. Published by snosi's promote-iso; confirm the exact
+      # "latest" URL against the snosi publication contract before first run.
+      - name: iso-url
+        value: "https://repository.frostyard.org/isos/firn/snosi-installer-latest-x86-64.iso"
+      # Install family — recipe [image] family. bootc | ab. Never inferred.
+      - name: family
+        value: "bootc"
+      # Bare image name: cayo | snow | snowfield. bootc -> ref
+      # ghcr.io/frostyard/<image>:latest; ab -> product "<image>-ab".
+      - name: image
+        value: "cayo"
+      # recipe [security] encryption. The valid set differs by family
+      # (internal/recipe/validate.go):
+      #   bootc: none | luks-passphrase | tpm2-luks | tpm2-luks-passphrase
+      #   ab:    none | luks | tpm2-luks
+      - name: encryption
+        value: "none"
+      # Secure Boot ON and genuinely enforced (Microsoft KEK/db untouched).
+      # For ab + secureboot the snosi MOK is pre-seeded into the guest varstore
+      # below and the recipe uses mok = "skip" (unattended MokManager cannot be
+      # answered). bootc images boot via the Debian-signed shim chain.
+      - name: secureboot
+        value: "false"
+      - name: vm-cpus
+        value: "4"
+      # 8GiB: bootc pulls the OCI image; firn redirects the podman store to the
+      # target disk on the RAM ISO (ADR-0012), but keep headroom for the guest.
+      - name: vm-memory
+        value: "8GiB"
+      # 40GiB: snow bootc + deployment coexist with the transfer store during
+      # install (ADR-0012 space note).
+      - name: target-disk-size
+        value: "40GiB"
+      # Where the ISO ships the A/B index verification keyring (ab family only).
+      - name: pubring-path
+        value: "/usr/lib/snosi/os-update-pubring.gpg"
+      - name: iso-boot-timeout-seconds
+        value: "420"
+      - name: install-timeout-seconds
+        value: "2400"
+      - name: installed-boot-timeout-seconds
+        value: "600"
+    outputs:
+      parameters:
+      - name: result
+        valueFrom:
+          path: /tmp/results/result-summary.txt
+          default: "No results generated"
+      - name: checks
+        valueFrom:
+          path: /tmp/results/checks.txt
+          default: "no checks recorded"
+    script:
+      image: docker.io/library/debian:trixie-slim
+      securityContext:
+        runAsUser: 0
+      resources:
+        requests: { cpu: "1", memory: 1Gi }
+        limits: { cpu: "4", memory: 4Gi }
+      env:
+      - { name: PATH, value: "/usr/incus/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" }
+      - { name: LD_LIBRARY_PATH, value: "/usr/incus/lib" }
+      - { name: ISO_URL,    value: "{{inputs.parameters.iso-url}}" }
+      - { name: FAMILY,     value: "{{inputs.parameters.family}}" }
+      - { name: IMAGE,      value: "{{inputs.parameters.image}}" }
+      - { name: ENC,        value: "{{inputs.parameters.encryption}}" }
+      - { name: SECUREBOOT, value: "{{inputs.parameters.secureboot}}" }
+      - { name: PUBRING,    value: "{{inputs.parameters.pubring-path}}" }
+      - { name: VM_CPUS,    value: "{{inputs.parameters.vm-cpus}}" }
+      - { name: VM_MEMORY,  value: "{{inputs.parameters.vm-memory}}" }
+      - { name: TARGET_DISK_SIZE, value: "{{inputs.parameters.target-disk-size}}" }
+      - { name: ISO_BOOT_TIMEOUT, value: "{{inputs.parameters.iso-boot-timeout-seconds}}" }
+      - { name: INSTALL_TIMEOUT,  value: "{{inputs.parameters.install-timeout-seconds}}" }
+      - { name: INSTALLED_BOOT_TIMEOUT, value: "{{inputs.parameters.installed-boot-timeout-seconds}}" }
+      - { name: DEBIAN_FRONTEND, value: noninteractive }
+      volumeMounts:
+      - { name: incus-pools, mountPath: /var/lib/incus/storage-pools }
+      - { name: incus-bin,  mountPath: /usr/incus, readOnly: true }
+      - { name: incus-sock, mountPath: /var/lib/incus/unix.socket }
+      - { name: iso-cache,  mountPath: /var/lib/snosi-lab/iso }
+      - { name: results,    mountPath: /tmp/results }
+      command: [bash]
+      source: |
+        set -euo pipefail
+        mkdir -p /tmp/results /var/lib/snosi-lab/iso
+        CELL="${FAMILY}/${IMAGE}/${ENC}/sb=${SECUREBOOT}"
+        echo "=== firn install matrix cell: ${CELL} ===" >&2
+        apt-get update -qq
+        apt-get install -y -qq --no-install-recommends ca-certificates curl >/dev/null
+        if [[ "${SECUREBOOT}" == "true" && "${FAMILY}" == "ab" ]]; then
+          # ab + Secure Boot: pre-seed the snosi MOK into the guest varstore.
+          # (bootc boots via the Debian-signed shim chain and needs no MOK.)
+          apt-get install -y -qq --no-install-recommends git gcc python3 python3-dev libc6-dev python3-pip >/dev/null
+          pip install --quiet --break-system-packages virt-firmware
+          command -v virt-fw-vars >/dev/null || { echo "virt-fw-vars unavailable" >&2; exit 1; }
+        fi
+
+        VM="fq-$(echo '{{workflow.name}}' | tail -c 40 | tr -cd 'a-z0-9-' | sed 's/^-*//')"
+        cleanup() {
+          rc=$?
+          echo "--- teardown ${VM} ---" >&2
+          incus delete --force "${VM}" >/dev/null 2>&1 || true
+          exit "${rc}"
+        }
+        trap cleanup EXIT
+
+        M_BEGIN="FIRN_QA__INSTALL_BEGIN"
+        M_OK="FIRN_QA__INSTALL_OK"
+        M_FAIL="FIRN_QA__INSTALL_FAIL"
+        M_CHECK="FIRN_QA__CHECK"
+        M_DONE="FIRN_QA__CHECKS_DONE"
+
+        console_log() { incus console "${VM}" --show-log 2>/dev/null || true; }
+        wait_for() {  # marker, timeout, label, [failure-marker]
+          local marker="$1" budget="$2" label="$3" deadline=$(( SECONDS + $2 ))
+          while (( SECONDS < deadline )); do
+            if console_log | grep -qaF "${marker}"; then
+              echo "  [${label}] saw ${marker}" >&2; return 0
+            fi
+            if [[ -n "${4:-}" ]] && console_log | grep -qaF "$4"; then
+              echo "  [${label}] saw failure marker $4" >&2; return 1
+            fi
+            sleep 10
+          done
+          echo "  [${label}] timed out after ${budget}s waiting for ${marker}" >&2
+          return 1
+        }
+
+        # ── ISO ──────────────────────────────────────────────────────────────
+        RESOLVED="$(curl -sSLI -o /dev/null -w '%{url_effective}' --max-time 60 "${ISO_URL}")"
+        ISO_NAME="$(basename "${RESOLVED%%\?*}")"
+        ISO_PATH="/var/lib/snosi-lab/iso/${ISO_NAME}"
+        if [[ -s "${ISO_PATH}" ]]; then
+          echo "Installer ISO cached: ${ISO_NAME}" >&2
+        else
+          echo "Downloading ${ISO_NAME}..." >&2
+          curl -fSL --max-time 3600 -o "${ISO_PATH}.part" "${RESOLVED}"
+          mv "${ISO_PATH}.part" "${ISO_PATH}"
+        fi
+
+        # ── the unit the guest will run ──────────────────────────────────────
+        # The recipe is generated IN the guest: the target disk is only knowable
+        # there. FAMILY/IMAGE/ENC/SECUREBOOT/PUBRING are baked in as literals
+        # (pod-side expansion); DISK and $? are escaped for guest evaluation.
+        INSTALL_SH=$(cat <<SCRIPT
+        #!/bin/bash
+        exec > >(tee /dev/console) 2>&1
+        echo "${M_BEGIN}"
+        set -x
+        # Target = the one writable disk. The installer ISO is attached
+        # read-only, so it is RO=1 (or a rom) and excluded.
+        DISK=\$(lsblk -dnpo NAME,RO,TYPE | awk '\$3=="disk" && \$2=="0"{print \$1; exit}')
+        if [ -z "\${DISK}" ]; then
+          echo "${M_FAIL} no writable target disk:"; lsblk -o NAME,RO,TYPE,SIZE; exit 1
+        fi
+        echo "target disk: \${DISK}"
+
+        # ── generate the recipe for this cell ──
+        {
+          echo 'version = 1'
+          echo '[image]'
+          if [ "${FAMILY}" = bootc ]; then
+            echo 'family = "bootc"'
+            echo 'ref = "ghcr.io/frostyard/${IMAGE}:latest"'
+          else
+            echo 'family = "ab"'
+            echo 'product = "${IMAGE}-ab"'
+          fi
+          echo '[target]'
+          echo "disk = \"\${DISK}\""
+          if [ "${FAMILY}" = bootc ]; then
+            echo 'filesystem = "btrfs"'
+            echo 'btrfs_subvolumes = true'
+          else
+            echo 'var_filesystem = "btrfs"'
+          fi
+          echo '[security]'
+          echo 'encryption = "${ENC}"'
+          case "${ENC}" in
+            *-passphrase) echo 'passphrase_file = "/run/firn-qa-pass.txt"' ;;
+          esac
+          if [ "${FAMILY}" = ab ] && [ "${SECUREBOOT}" = true ]; then
+            echo 'mok = "skip"'
+          fi
+          echo '[system]'
+          echo 'hostname = "firn-qa"'
+        } > /run/firn-qa-recipe.toml
+        echo "--- recipe ---"; cat /run/firn-qa-recipe.toml
+
+        case "${ENC}" in
+          *-passphrase) printf 'firn-qa-passphrase' > /run/firn-qa-pass.txt; chmod 600 /run/firn-qa-pass.txt ;;
+        esac
+
+        # ── flags ──
+        TPM=off; case "${ENC}" in tpm2*) TPM=on ;; esac
+        SBF=off; [ "${SECUREBOOT}" = true ] && SBF=on
+        PUB=""; [ "${FAMILY}" = ab ] && PUB="--pubring ${PUBRING}"
+
+        if firn install /run/firn-qa-recipe.toml \
+             --confirm "\${DISK}" \
+             --uefi on --secure-boot "\${SBF}" --tpm "\${TPM}" \
+             \${PUB} --json-progress; then
+          echo "${M_OK}"
+        else
+          echo "${M_FAIL} rc=\$?"
+          exit 1
+        fi
+        SCRIPT
+        )
+        INSTALL_B64="$(printf '%s' "${INSTALL_SH}" | base64 -w0)"
+
+        UNIT="[Unit]
+        Description=firn QA unattended install
+        After=live-ready.service network-online.target
+        Wants=network-online.target
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        StandardOutput=journal+console
+        StandardError=journal+console
+        ExecStart=/bin/bash -c 'echo ${INSTALL_B64} | base64 -d > /run/qa-install.sh; chmod +x /run/qa-install.sh; /run/qa-install.sh'"
+        DROPIN="[Unit]
+        Wants=firn-qa-install.service"
+        U_B64="$(printf '%s' "${UNIT}"   | base64 -w0)"
+        D_B64="$(printf '%s' "${DROPIN}" | base64 -w0)"
+
+        # ── create and run ───────────────────────────────────────────────────
+        echo "Creating VM (secureboot=${SECUREBOOT}, target ${TARGET_DISK_SIZE})..." >&2
+        incus init "${VM}" --empty --vm \
+          -c "security.secureboot=${SECUREBOOT}" \
+          -c "limits.cpu=${VM_CPUS}" -c "limits.memory=${VM_MEMORY}" \
+          -d "root,size=${TARGET_DISK_SIZE}"
+        incus config device add "${VM}" vtpm tpm
+        incus config device add "${VM}" installer disk \
+          source="${ISO_PATH}" boot.priority=10 readonly=true
+        incus config set "${VM}" raw.qemu="-smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.firn-qa-install.service=${U_B64} -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.multi-user.target=${D_B64}"
+
+        # ── Secure Boot (ab): pre-enroll the snosi MOK into the varstore ──────
+        if [[ "${SECUREBOOT}" == "true" && "${FAMILY}" == "ab" ]]; then
+          echo "Pre-enrolling the snosi MOK into the guest varstore..." >&2
+          git clone -q --depth 1 https://github.com/frostyard/snosi.git /src/snosi
+          MOK_CERT=/src/snosi/shared/native-ab/keys/mok-2026.crt
+          [[ -f "${MOK_CERT}" ]] || { echo "MOK certificate missing from the snosi checkout" >&2; exit 1; }
+          incus start "${VM}"
+          NVRAM=""
+          for _ in $(seq 1 30); do
+            candidate="/var/lib/incus/storage-pools/lab/virtual-machines/${VM}/qemu.nvram"
+            [[ -e "${candidate}" ]] && { NVRAM="${candidate}"; break; }
+            sleep 2
+          done
+          incus stop "${VM}" --force >/dev/null 2>&1 || true
+          [[ -n "${NVRAM}" ]] || { echo "guest varstore never appeared" >&2; exit 1; }
+          MOK_GUID="$(python3 -c 'import uuid; print(uuid.uuid4())')"
+          virt-fw-vars --inplace "${NVRAM}" --add-mok "${MOK_GUID}" "${MOK_CERT}" \
+            || { echo "virt-fw-vars could not enroll the MOK" >&2; exit 1; }
+          virt-fw-vars -i "${NVRAM}" -p 2>&1 | grep -q MokList \
+            || { echo "varstore has no MokList after injection" >&2; exit 1; }
+          echo "MOK enrolled into $(basename "${NVRAM}") as owner ${MOK_GUID}" >&2
+        fi
+
+        incus start "${VM}"
+        echo "Waiting for the installer to start..." >&2
+        if ! wait_for "${M_BEGIN}" "${ISO_BOOT_TIMEOUT}" "iso-boot"; then
+          console_log | tail -n 400 >&2
+          printf '%s' "FAILED: firn installer never started from the ISO (${CELL})" > /tmp/results/result-summary.txt
+          exit 1
+        fi
+
+        echo "Installer running; waiting up to ${INSTALL_TIMEOUT}s..." >&2
+        if ! wait_for "${M_OK}" "${INSTALL_TIMEOUT}" "install" "${M_FAIL}"; then
+          echo "--- console tail (install failed) ---" >&2
+          console_log | tail -n 400 >&2
+          printf '%s' "FAILED: firn install did not complete (${CELL})" > /tmp/results/result-summary.txt
+          exit 1
+        fi
+        echo "Install reported success." >&2
+
+        # ── boot what was installed ──────────────────────────────────────────
+        # Detach the ISO so firmware falls through to the freshly written ESP.
+        # For encrypted cells, booting at all IS the TPM/passphrase-unlock proof.
+        incus stop "${VM}" --force
+        incus config device remove "${VM}" installer
+
+        CHECK_SH=$(cat <<SCRIPT
+        #!/bin/bash
+        exec > >(tee /dev/console) 2>&1
+        emit() { echo "${M_CHECK} \$1=\$2"; }
+        emit booted ok
+        emit rootfs "\$(findmnt -no FSTYPE / 2>/dev/null || echo unknown)"
+        emit osrelease "\$(. /etc/os-release 2>/dev/null; echo "\${IMAGE_ID:-unknown}")"
+        if lsblk -o FSTYPE 2>/dev/null | grep -qi crypto_LUKS; then emit luks present; else emit luks absent; fi
+        if [ "${FAMILY}" = bootc ]; then
+          emit bootc "\$(bootc --version 2>/dev/null | head -1 | tr ' ' '_' || echo absent)"
+        else
+          if veritysetup status "\$(findmnt -no SOURCE / | xargs -r basename)" >/dev/null 2>&1 \
+             || dmsetup table 2>/dev/null | grep -q verity; then emit verity ok; else emit verity MISSING; fi
+        fi
+        echo "${M_DONE}"
+        SCRIPT
+        )
+        C_B64="$(printf '%s' "${CHECK_SH}" | base64 -w0)"
+        CUNIT="[Unit]
+        Description=firn QA post-install checks
+        After=multi-user.target
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        StandardOutput=journal+console
+        StandardError=journal+console
+        ExecStart=/bin/bash -c 'echo ${C_B64} | base64 -d > /run/qa-check.sh; chmod +x /run/qa-check.sh; /run/qa-check.sh'"
+        CD="[Unit]
+        Wants=firn-qa-check.service"
+        CU_B64="$(printf '%s' "${CUNIT}" | base64 -w0)"
+        CD_B64="$(printf '%s' "${CD}"    | base64 -w0)"
+        incus config set "${VM}" raw.qemu="-smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.firn-qa-check.service=${CU_B64} -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.multi-user.target=${CD_B64}"
+
+        echo "Booting the installed system..." >&2
+        incus start "${VM}"
+        if ! wait_for "${M_DONE}" "${INSTALLED_BOOT_TIMEOUT}" "installed-boot"; then
+          echo "--- console tail (installed system did not report) ---" >&2
+          console_log | tail -n 400 >&2
+          printf '%s' "FAILED: installed system did not boot/report (${CELL}) — for an encrypted cell this is an unlock failure" \
+            > /tmp/results/result-summary.txt
+          exit 1
+        fi
+
+        # `|| true` is load-bearing (pipefail + set -e): see the native lane.
+        console_log | grep -aoE "${M_CHECK} [a-z]+=[^[:space:]]+" | sed "s/${M_CHECK} //" | sort -u \
+          > /tmp/results/checks.txt || true
+        echo "--- post-install checks ---" >&2
+        cat /tmp/results/checks.txt >&2
+
+        # ── judge ──
+        failed=""
+        grep -q "^osrelease=${IMAGE}$" /tmp/results/checks.txt || failed="${failed} wrong-image"
+        if [[ "${ENC}" != none ]]; then
+          grep -q '^luks=present$' /tmp/results/checks.txt || failed="${failed} luks-missing"
+        fi
+        if [[ "${FAMILY}" == ab ]]; then
+          grep -q '^verity=ok$'    /tmp/results/checks.txt || failed="${failed} verity"
+          grep -q '^rootfs=erofs$' /tmp/results/checks.txt || failed="${failed} rootfs-not-erofs"
+        else
+          grep -q '^bootc=absent$' /tmp/results/checks.txt && failed="${failed} bootc-absent"
+        fi
+
+        if [[ -n "${failed}" ]]; then
+          printf '%s' "FAILED: ${CELL} missing:${failed}" > /tmp/results/result-summary.txt
+          cat /tmp/results/result-summary.txt >&2
+          exit 1
+        fi
+        printf '%s' "installed and booted: ${CELL}" > /tmp/results/result-summary.txt
+        cat /tmp/results/result-summary.txt >&2
+    volumes:
+    # Writable: the MOK pre-seed edits this guest's own OVMF variable store.
+    - { name: incus-pools, hostPath: { path: /var/lib/incus/storage-pools, type: Directory } }
+    - { name: incus-bin,  hostPath: { path: /usr/incus, type: Directory } }
+    - { name: incus-sock, hostPath: { path: /var/lib/incus/unix.socket, type: Socket } }
+    - { name: iso-cache,  hostPath: { path: /var/lib/snosi-lab/iso, type: DirectoryOrCreate } }
+    - { name: results,    emptyDir: {} }
