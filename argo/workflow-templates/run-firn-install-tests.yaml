@@ -37,13 +37,10 @@ spec:
     inputs:
       parameters:
       # The single firn installer ISO (ADR-0010), successor to the native
-      # installer ISO. NOT YET CI-PUBLISHED as of 2026-08-11: snosi's
-      # build-native-images.yml still builds `--profile native-installer`
-      # (the old GTK installer) and publishes it to isos/native/v1/; the
-      # firn-installer profile exists but only `just firn-installer-iso`
-      # builds it, locally. Point this at the firn ISO's published URL once
-      # snosi's publication switches to `--profile firn-installer` (expected
-      # to reuse isos/native/v1/ as the successor URL).
+      # installer ISO — the published `-latest-` alias, redirected by the
+      # Cloudflare worker to the newest immutable snosi-installer_<ver>
+      # object. snosi's build-native-images.yml build-iso job publishes it
+      # (frostyard-firn from the apt repo; snosi PR #699).
       - name: iso-url
         value: "https://repository.frostyard.org/isos/native/v1/snosi-installer-latest-x86-64.iso"
       # Install family — recipe [image] family. bootc | ab. Never inferred.

@@ -163,14 +163,12 @@ MOK into the guest varstore, exactly as the native lane does), cayo + snow
 throughout, snowfield once. The `bootc × tpm2-luks*` cells are the point: they
 exercise the encrypted-boot unlock firn ADR-0012 installed but left unproven.
 
-Before its first run this lane needs a **published firn ISO**, which does not
-exist yet: as of 2026-08-11 snosi's `build-native-images.yml` still builds and
-publishes `--profile native-installer` (the old GTK installer), while the
-`firn-installer` profile is only built locally by `just firn-installer-iso`.
-Switching snosi's publication to `--profile firn-installer` (the ADR-0010
-successor) and pointing `iso-url` at it is the prerequisite. The A/B
-`pubring-path` is confirmed — snosi's firn-installer mkosi ships it at
-`/usr/lib/snosi/os-update-pubring.gpg`.
+The firn ISO is published by snosi's `build-native-images.yml` (build-iso →
+promote-iso), installing `firn` from the `frostyard-firn` apt package (snosi
+PR #699 switched the published installer from `native-installer` to
+`firn-installer`). `iso-url` points at the `snosi-installer-latest` alias; the
+A/B `pubring-path` is `/usr/lib/snosi/os-update-pubring.gpg` (shipped by the
+firn-installer mkosi).
 
 The three installer lanes are the ones that matter most. Booting an image tests
 an artifact; only running an installer tests the thing that *creates* the
