@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-12T04:30:19Z",
+  "generated": "2026-08-12T05:00:20Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -80,19 +80,19 @@
       "label": "bootc secure installer",
       "kind": "install",
       "latest": {
-        "name": "snosi-secure-install-auto-vk6xt",
+        "name": "snosi-secure-install-auto-4f4rl",
         "phase": "Failed",
-        "started": "2026-08-12T04:00:21Z",
-        "finished": "2026-08-12T04:01:43Z",
-        "durationSeconds": 82,
+        "started": "2026-08-12T04:40:11Z",
+        "finished": "2026-08-12T04:41:34Z",
+        "durationSeconds": 83,
         "template": "run-secure-install-tests",
         "kind": "install",
         "label": "bootc secure installer",
         "trigger": "digest-watch",
-        "result": "FAILED: secure install harness exited 1 for cayo (full log: /var/lib/snosi-lab/secure/logs/snosi-secure-install-auto-vk6xt.log)",
+        "result": "FAILED: secure install harness exited 1 for cayo (full log: /var/lib/snosi-lab/secure/logs/snosi-secure-install-auto-4f4rl.log)",
         "checks": []
       },
-      "runs": 90,
+      "runs": 91,
       "everGreen": true
     },
     {
@@ -120,9 +120,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786509000",
+        "name": "publish-results-1786510800",
         "phase": "Running",
-        "started": "2026-08-12T04:30:00Z",
+        "started": "2026-08-12T05:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -140,10 +140,10 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786508400",
+        "name": "secure-install-watch-1786510800",
         "phase": "Succeeded",
-        "started": "2026-08-12T04:20:00Z",
-        "finished": "2026-08-12T04:20:10Z",
+        "started": "2026-08-12T05:00:00Z",
+        "finished": "2026-08-12T05:00:10Z",
         "durationSeconds": 10,
         "template": "watch",
         "kind": "other",
@@ -218,11 +218,63 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1786509000",
+      "name": "publish-results-1786510800",
       "phase": "Running",
-      "started": "2026-08-12T04:30:00Z",
+      "started": "2026-08-12T05:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786510800",
+      "phase": "Succeeded",
+      "started": "2026-08-12T05:00:00Z",
+      "finished": "2026-08-12T05:00:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "snosi-secure-install-auto-4f4rl",
+      "phase": "Failed",
+      "started": "2026-08-12T04:40:11Z",
+      "finished": "2026-08-12T04:41:34Z",
+      "durationSeconds": 83,
+      "template": "run-secure-install-tests",
+      "kind": "install",
+      "label": "bootc secure installer",
+      "trigger": "digest-watch",
+      "result": "FAILED: secure install harness exited 1 for cayo (full log: /var/lib/snosi-lab/secure/logs/snosi-secure-install-auto-4f4rl.log)",
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786509600",
+      "phase": "Succeeded",
+      "started": "2026-08-12T04:40:00Z",
+      "finished": "2026-08-12T04:40:30Z",
+      "durationSeconds": 30,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786509000",
+      "phase": "Succeeded",
+      "started": "2026-08-12T04:30:00Z",
+      "finished": "2026-08-12T04:30:31Z",
+      "durationSeconds": 31,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -296,19 +348,6 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786506000",
-      "phase": "Succeeded",
-      "started": "2026-08-12T03:40:00Z",
-      "finished": "2026-08-12T03:40:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "publish-results-1786505400",
       "phase": "Succeeded",
       "started": "2026-08-12T03:30:00Z",
@@ -335,19 +374,6 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786504800",
-      "phase": "Succeeded",
-      "started": "2026-08-12T03:20:00Z",
-      "finished": "2026-08-12T03:20:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "image-poll-snow-latest-1786503600",
       "phase": "Failed",
       "started": "2026-08-12T03:00:00Z",
@@ -358,19 +384,6 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786503600",
-      "phase": "Succeeded",
-      "started": "2026-08-12T03:00:00Z",
-      "finished": "2026-08-12T03:00:33Z",
-      "durationSeconds": 33,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
