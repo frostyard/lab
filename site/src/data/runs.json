@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-12T09:00:19Z",
+  "generated": "2026-08-12T09:30:19Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -109,7 +109,7 @@
         "kind": "install",
         "label": "firn installer matrix",
         "trigger": "manual",
-        "result": "FAILED: installed system did not boot/report (bootc/snow/luks-passphrase/sb=false) \u2014 for an encrypted cell this is an unlock failure",
+        "result": "FAILED: installed system did not boot/report (bootc/snow/tpm2-luks/sb=false) \u2014 for an encrypted cell this is an unlock failure",
         "checks": []
       },
       "runs": 1,
@@ -140,9 +140,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786525200",
+        "name": "publish-results-1786527000",
         "phase": "Running",
-        "started": "2026-08-12T09:00:00Z",
+        "started": "2026-08-12T09:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -160,11 +160,11 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786525200",
-        "phase": "Running",
-        "started": "2026-08-12T09:00:00Z",
-        "finished": null,
-        "durationSeconds": null,
+        "name": "secure-install-watch-1786526400",
+        "phase": "Succeeded",
+        "started": "2026-08-12T09:20:00Z",
+        "finished": "2026-08-12T09:20:10Z",
+        "durationSeconds": 10,
         "template": "watch",
         "kind": "other",
         "label": "watch",
@@ -172,7 +172,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 5,
+      "runs": 4,
       "everGreen": true
     },
     {
@@ -180,11 +180,11 @@
       "label": "Registry digest poll",
       "kind": "poll",
       "latest": {
-        "name": "image-poll-snow-latest-1786525200",
-        "phase": "Running",
-        "started": "2026-08-12T09:00:00Z",
-        "finished": null,
-        "durationSeconds": null,
+        "name": "image-poll-cayo-latest-1786526400",
+        "phase": "Succeeded",
+        "started": "2026-08-12T09:20:00Z",
+        "finished": "2026-08-12T09:20:20Z",
+        "durationSeconds": 20,
         "template": "image-poller",
         "kind": "poll",
         "label": "Registry digest poll",
@@ -192,7 +192,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 12,
+      "runs": 11,
       "everGreen": true
     },
     {
@@ -238,22 +238,9 @@
   ],
   "runs": [
     {
-      "name": "image-poll-snow-latest-1786525200",
+      "name": "publish-results-1786527000",
       "phase": "Running",
-      "started": "2026-08-12T09:00:00Z",
-      "finished": null,
-      "durationSeconds": null,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786525200",
-      "phase": "Running",
-      "started": "2026-08-12T09:00:00Z",
+      "started": "2026-08-12T09:30:00Z",
       "finished": null,
       "durationSeconds": null,
       "template": "publish",
@@ -264,11 +251,63 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786525200",
-      "phase": "Running",
+      "name": "image-poll-cayo-latest-1786526400",
+      "phase": "Succeeded",
+      "started": "2026-08-12T09:20:00Z",
+      "finished": "2026-08-12T09:20:20Z",
+      "durationSeconds": 20,
+      "template": "image-poller",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786526400",
+      "phase": "Succeeded",
+      "started": "2026-08-12T09:20:00Z",
+      "finished": "2026-08-12T09:20:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "image-poll-snow-latest-1786525200",
+      "phase": "Failed",
       "started": "2026-08-12T09:00:00Z",
-      "finished": null,
-      "durationSeconds": null,
+      "finished": "2026-08-12T09:01:23Z",
+      "durationSeconds": 83,
+      "template": "image-poller",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": "19 passed, 1 failed",
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786525200",
+      "phase": "Succeeded",
+      "started": "2026-08-12T09:00:00Z",
+      "finished": "2026-08-12T09:00:31Z",
+      "durationSeconds": 31,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786525200",
+      "phase": "Succeeded",
+      "started": "2026-08-12T09:00:00Z",
+      "finished": "2026-08-12T09:00:20Z",
+      "durationSeconds": 20,
       "template": "watch",
       "kind": "other",
       "label": "watch",
@@ -312,7 +351,7 @@
       "kind": "install",
       "label": "firn installer matrix",
       "trigger": "manual",
-      "result": "FAILED: installed system did not boot/report (bootc/snow/luks-passphrase/sb=false) \u2014 for an encrypted cell this is an unlock failure",
+      "result": "FAILED: installed system did not boot/report (bootc/snow/tpm2-luks/sb=false) \u2014 for an encrypted cell this is an unlock failure",
       "checks": []
     },
     {
@@ -334,45 +373,6 @@
       "started": "2026-08-12T08:00:00Z",
       "finished": "2026-08-12T08:00:31Z",
       "durationSeconds": 31,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "secure-install-watch-1786521600",
-      "phase": "Succeeded",
-      "started": "2026-08-12T08:00:00Z",
-      "finished": "2026-08-12T08:00:20Z",
-      "durationSeconds": 20,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "secure-install-watch-1786520400",
-      "phase": "Succeeded",
-      "started": "2026-08-12T07:40:00Z",
-      "finished": "2026-08-12T07:40:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786519800",
-      "phase": "Succeeded",
-      "started": "2026-08-12T07:30:00Z",
-      "finished": "2026-08-12T07:30:32Z",
-      "durationSeconds": 32,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -420,19 +420,6 @@
       "checks": []
     },
     {
-      "name": "image-poll-snow-latest-1786514400",
-      "phase": "Failed",
-      "started": "2026-08-12T06:00:00Z",
-      "finished": "2026-08-12T06:01:24Z",
-      "durationSeconds": 84,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
       "name": "snosi-secure-install-auto-4f4rl",
       "phase": "Failed",
       "started": "2026-08-12T04:40:11Z",
@@ -463,19 +450,6 @@
       "phase": "Succeeded",
       "started": "2026-08-12T03:20:00Z",
       "finished": "2026-08-12T03:20:20Z",
-      "durationSeconds": 20,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "image-poll-cayo-latest-1786494000",
-      "phase": "Succeeded",
-      "started": "2026-08-12T00:20:00Z",
-      "finished": "2026-08-12T00:20:20Z",
       "durationSeconds": 20,
       "template": "image-poller",
       "kind": "poll",
