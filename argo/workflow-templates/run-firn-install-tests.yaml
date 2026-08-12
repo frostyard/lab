@@ -37,10 +37,15 @@ spec:
     inputs:
       parameters:
       # The single firn installer ISO (ADR-0010), successor to the native
-      # installer ISO. Published by snosi's promote-iso; confirm the exact
-      # "latest" URL against the snosi publication contract before first run.
+      # installer ISO. NOT YET CI-PUBLISHED as of 2026-08-11: snosi's
+      # build-native-images.yml still builds `--profile native-installer`
+      # (the old GTK installer) and publishes it to isos/native/v1/; the
+      # firn-installer profile exists but only `just firn-installer-iso`
+      # builds it, locally. Point this at the firn ISO's published URL once
+      # snosi's publication switches to `--profile firn-installer` (expected
+      # to reuse isos/native/v1/ as the successor URL).
       - name: iso-url
-        value: "https://repository.frostyard.org/isos/firn/snosi-installer-latest-x86-64.iso"
+        value: "https://repository.frostyard.org/isos/native/v1/snosi-installer-latest-x86-64.iso"
       # Install family — recipe [image] family. bootc | ab. Never inferred.
       - name: family
         value: "bootc"
@@ -70,7 +75,10 @@ spec:
       # install (ADR-0012 space note).
       - name: target-disk-size
         value: "40GiB"
-      # Where the ISO ships the A/B index verification keyring (ab family only).
+      # Where the ISO ships the A/B index verification keyring (ab family
+      # only). Confirmed: snosi shared/firn-installer/mkosi.conf installs it
+      # here (ExtraTrees ... :/usr/lib/snosi/os-update-pubring.gpg), and it is
+      # the first entry in firn's pubring search order (firn internal/trust).
       - name: pubring-path
         value: "/usr/lib/snosi/os-update-pubring.gpg"
       - name: iso-boot-timeout-seconds
