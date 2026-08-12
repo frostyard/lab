@@ -280,7 +280,16 @@ spec:
              \${PUB} --json-progress; then
           echo "${M_OK}"
         else
-          echo "${M_FAIL} rc=\$?"
+          rc=\$?
+          # Fail fast: the script's stdout goes through exec > >(tee /dev/ttyS0)
+          # (process substitution), and bash does NOT wait for that tee on
+          # exit -- so this final marker line was being dropped, leaving install
+          # failures to hang until INSTALL_TIMEOUT (~40m) instead of aborting in
+          # seconds. Write the marker straight to the serial device and flush so
+          # the pod's wait_for sees it immediately.
+          echo "${M_FAIL} rc=\${rc}"
+          echo "${M_FAIL} rc=\${rc}" > /dev/ttyS0 2>/dev/null || true
+          sync; sleep 3
           exit 1
         fi
         SCRIPT
