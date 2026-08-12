@@ -188,7 +188,7 @@ spec:
         # (pod-side expansion); DISK and $? are escaped for guest evaluation.
         INSTALL_SH=$(cat <<SCRIPT
         #!/bin/bash
-        exec > >(tee /dev/console) 2>&1
+        exec > >(tee /dev/console /dev/ttyS0 2>/dev/null) 2>&1
         echo "${M_BEGIN}"
         set -x
         # Target = the one writable disk. The installer ISO is attached
@@ -327,7 +327,7 @@ spec:
 
         CHECK_SH=$(cat <<SCRIPT
         #!/bin/bash
-        exec > >(tee /dev/console) 2>&1
+        exec > >(tee /dev/console /dev/ttyS0 2>/dev/null) 2>&1
         emit() { echo "${M_CHECK} \$1=\$2"; }
         emit booted ok
         emit rootfs "\$(findmnt -no FSTYPE / 2>/dev/null || echo unknown)"
