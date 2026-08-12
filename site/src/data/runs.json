@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-12T21:00:22Z",
+  "generated": "2026-08-12T21:30:19Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -100,19 +100,25 @@
       "label": "firn installer matrix",
       "kind": "install",
       "latest": {
-        "name": "firn-bootc-sb-test-49dx7",
-        "phase": "Failed",
-        "started": "2026-08-12T20:17:33Z",
-        "finished": "2026-08-12T20:22:00Z",
-        "durationSeconds": 267,
+        "name": "firn-bootc-sb-test-2qzrx",
+        "phase": "Succeeded",
+        "started": "2026-08-12T21:06:03Z",
+        "finished": "2026-08-12T21:11:21Z",
+        "durationSeconds": 318,
         "template": "run-firn-install-tests",
         "kind": "install",
         "label": "firn installer matrix",
         "trigger": "manual",
-        "result": "FAILED: firn install did not complete (bootc/cayo/none/sb=true)",
-        "checks": []
+        "result": "installed and booted: bootc/cayo/none/sb=true",
+        "checks": [
+          "bootc=bootc_1.16.7",
+          "booted=ok",
+          "luks=absent",
+          "osrelease=cayo",
+          "rootfs=overlay"
+        ]
       },
-      "runs": 4,
+      "runs": 5,
       "everGreen": true
     },
     {
@@ -140,9 +146,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786568400",
+        "name": "publish-results-1786570200",
         "phase": "Running",
-        "started": "2026-08-12T21:00:00Z",
+        "started": "2026-08-12T21:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -160,11 +166,11 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786568400",
+        "name": "secure-install-watch-1786569600",
         "phase": "Succeeded",
-        "started": "2026-08-12T21:00:00Z",
-        "finished": "2026-08-12T21:00:20Z",
-        "durationSeconds": 20,
+        "started": "2026-08-12T21:20:00Z",
+        "finished": "2026-08-12T21:20:10Z",
+        "durationSeconds": 10,
         "template": "watch",
         "kind": "other",
         "label": "watch",
@@ -172,7 +178,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 5,
+      "runs": 4,
       "everGreen": true
     },
     {
@@ -180,19 +186,19 @@
       "label": "Registry digest poll",
       "kind": "poll",
       "latest": {
-        "name": "image-poll-snow-latest-1786568400",
-        "phase": "Running",
-        "started": "2026-08-12T21:00:00Z",
-        "finished": null,
-        "durationSeconds": null,
+        "name": "image-poll-cayo-latest-1786569600",
+        "phase": "Succeeded",
+        "started": "2026-08-12T21:20:00Z",
+        "finished": "2026-08-12T21:21:26Z",
+        "durationSeconds": 86,
         "template": "image-poller",
         "kind": "poll",
         "label": "Registry digest poll",
         "trigger": "scheduled",
-        "result": null,
+        "result": "14 passed, 6 skipped",
         "checks": []
       },
-      "runs": 12,
+      "runs": 11,
       "everGreen": true
     },
     {
@@ -238,24 +244,82 @@
   ],
   "runs": [
     {
-      "name": "image-poll-snow-latest-1786568400",
+      "name": "publish-results-1786570200",
       "phase": "Running",
-      "started": "2026-08-12T21:00:00Z",
+      "started": "2026-08-12T21:30:00Z",
       "finished": null,
       "durationSeconds": null,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
       "trigger": "scheduled",
       "result": null,
       "checks": []
     },
     {
-      "name": "publish-results-1786568400",
-      "phase": "Running",
+      "name": "image-poll-cayo-latest-1786569600",
+      "phase": "Succeeded",
+      "started": "2026-08-12T21:20:00Z",
+      "finished": "2026-08-12T21:21:26Z",
+      "durationSeconds": 86,
+      "template": "image-poller",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": "14 passed, 6 skipped",
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786569600",
+      "phase": "Succeeded",
+      "started": "2026-08-12T21:20:00Z",
+      "finished": "2026-08-12T21:20:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "firn-bootc-sb-test-2qzrx",
+      "phase": "Succeeded",
+      "started": "2026-08-12T21:06:03Z",
+      "finished": "2026-08-12T21:11:21Z",
+      "durationSeconds": 318,
+      "template": "run-firn-install-tests",
+      "kind": "install",
+      "label": "firn installer matrix",
+      "trigger": "manual",
+      "result": "installed and booted: bootc/cayo/none/sb=true",
+      "checks": [
+        "bootc=bootc_1.16.7",
+        "booted=ok",
+        "luks=absent",
+        "osrelease=cayo",
+        "rootfs=overlay"
+      ]
+    },
+    {
+      "name": "image-poll-snow-latest-1786568400",
+      "phase": "Failed",
       "started": "2026-08-12T21:00:00Z",
-      "finished": null,
-      "durationSeconds": null,
+      "finished": "2026-08-12T21:01:27Z",
+      "durationSeconds": 87,
+      "template": "image-poller",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": "19 passed, 1 failed",
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786568400",
+      "phase": "Succeeded",
+      "started": "2026-08-12T21:00:00Z",
+      "finished": "2026-08-12T21:00:35Z",
+      "durationSeconds": 35,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -342,32 +406,6 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786564800",
-      "phase": "Succeeded",
-      "started": "2026-08-12T20:00:00Z",
-      "finished": "2026-08-12T20:00:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "secure-install-watch-1786563600",
-      "phase": "Succeeded",
-      "started": "2026-08-12T19:40:00Z",
-      "finished": "2026-08-12T19:40:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "firn-bootc-sb-test-tmtj8",
       "phase": "Failed",
       "started": "2026-08-12T19:33:43Z",
@@ -407,19 +445,6 @@
       "checks": []
     },
     {
-      "name": "publish-results-1786561200",
-      "phase": "Succeeded",
-      "started": "2026-08-12T19:00:00Z",
-      "finished": "2026-08-12T19:00:35Z",
-      "durationSeconds": 35,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "image-poll-snowfield-latest-1786560000",
       "phase": "Failed",
       "started": "2026-08-12T18:40:00Z",
@@ -456,19 +481,6 @@
       "label": "Orphan pod GC",
       "trigger": "scheduled",
       "result": null,
-      "checks": []
-    },
-    {
-      "name": "image-poll-snow-latest-1786557600",
-      "phase": "Failed",
-      "started": "2026-08-12T18:00:00Z",
-      "finished": "2026-08-12T18:01:22Z",
-      "durationSeconds": 82,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": "19 passed, 1 failed",
       "checks": []
     },
     {
@@ -514,19 +526,6 @@
       "label": "bootc secure installer",
       "trigger": "digest-watch",
       "result": "FAILED: secure install harness exited 1 for cayo (full log: /var/lib/snosi-lab/secure/logs/snosi-secure-install-auto-qcrrj.log)",
-      "checks": []
-    },
-    {
-      "name": "image-poll-cayo-latest-1786537200",
-      "phase": "Succeeded",
-      "started": "2026-08-12T12:20:00Z",
-      "finished": "2026-08-12T12:20:20Z",
-      "durationSeconds": 20,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
