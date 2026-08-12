@@ -222,15 +222,17 @@ spec:
             echo 'filesystem = "btrfs"'
             echo 'btrfs_subvolumes = true'
           else
-            # ext4 /var, not btrfs: the cayo/snow-ab image's initrd
-            # snosi-etc-overlay module and /etc/fstab hardcode `mount -t ext4`
-            # for /var (shared/outformat/ab-root), so a firn-written btrfs /var
-            # never mounts and the system drops to emergency mode -- the real
-            # cause of the 2026-08-12 AB failures, misfiled as a verity stall.
-            # firn's validator accepts btrfs /var for ab (ADR-0008) but that
-            # produces an unbootable disk today; btrfs-var AB coverage is HELD
-            # until snosi ships a filesystem-agnostic /var mount (or firn gates
-            # it). Until then the matrix tests the supported ext4 /var.
+            # ext4 /var, not btrfs. NB: this comment lives inside the
+            # unquoted INSTALL_SH heredoc, so it must stay free of backticks
+            # and dollar-signs -- they expand pod-side and corrupt the guest
+            # script (the 515c632 regression). Keep it plain prose.
+            # Rationale: the cayo/snow-ab image initrd (snosi-etc-overlay) and
+            # /etc/fstab pinned ext4 for the /var mount, so a firn-written
+            # btrfs /var never mounted and the system dropped to emergency mode
+            # (the real cause of the 2026-08-12 AB failures, misfiled as a
+            # verity stall). snosi PR #705 makes that mount filesystem-agnostic;
+            # until the fixed image is the tested default, the matrix stays on
+            # the supported ext4 /var. See firn ADR-0013.
             echo 'var_filesystem = "ext4"'
           fi
           echo '[security]'
