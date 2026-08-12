@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-12T13:30:18Z",
+  "generated": "2026-08-12T14:00:19Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -100,16 +100,16 @@
       "label": "firn installer matrix",
       "kind": "install",
       "latest": {
-        "name": "firn-ab-rerun-nctj4",
+        "name": "firn-ab-ext4-9mhxb",
         "phase": "Running",
-        "started": "2026-08-12T12:40:12Z",
+        "started": "2026-08-12T13:47:11Z",
         "finished": null,
         "durationSeconds": null,
         "template": "run-firn-install-tests",
         "kind": "install",
         "label": "firn installer matrix",
         "trigger": "manual",
-        "result": "FAILED: installed system did not boot/report (ab/cayo/none/sb=false) \u2014 for an encrypted cell this is an unlock failure",
+        "result": null,
         "checks": []
       },
       "runs": 2,
@@ -140,9 +140,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786541400",
+        "name": "publish-results-1786543200",
         "phase": "Running",
-        "started": "2026-08-12T13:30:00Z",
+        "started": "2026-08-12T14:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -160,11 +160,11 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786540800",
-        "phase": "Succeeded",
-        "started": "2026-08-12T13:20:00Z",
-        "finished": "2026-08-12T13:20:10Z",
-        "durationSeconds": 10,
+        "name": "secure-install-watch-1786543200",
+        "phase": "Running",
+        "started": "2026-08-12T14:00:00Z",
+        "finished": null,
+        "durationSeconds": null,
         "template": "watch",
         "kind": "other",
         "label": "watch",
@@ -172,7 +172,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 4,
+      "runs": 5,
       "everGreen": true
     },
     {
@@ -238,11 +238,63 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1786541400",
+      "name": "publish-results-1786543200",
       "phase": "Running",
-      "started": "2026-08-12T13:30:00Z",
+      "started": "2026-08-12T14:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786543200",
+      "phase": "Running",
+      "started": "2026-08-12T14:00:00Z",
+      "finished": null,
+      "durationSeconds": null,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "firn-ab-ext4-9mhxb",
+      "phase": "Running",
+      "started": "2026-08-12T13:47:11Z",
+      "finished": null,
+      "durationSeconds": null,
+      "template": "run-firn-install-tests",
+      "kind": "install",
+      "label": "firn installer matrix",
+      "trigger": "manual",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786542000",
+      "phase": "Succeeded",
+      "started": "2026-08-12T13:40:00Z",
+      "finished": "2026-08-12T13:40:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786541400",
+      "phase": "Succeeded",
+      "started": "2026-08-12T13:30:00Z",
+      "finished": "2026-08-12T13:30:31Z",
+      "durationSeconds": 31,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -287,19 +339,6 @@
       "label": "watch",
       "trigger": "scheduled",
       "result": null,
-      "checks": []
-    },
-    {
-      "name": "firn-ab-rerun-nctj4",
-      "phase": "Running",
-      "started": "2026-08-12T12:40:12Z",
-      "finished": null,
-      "durationSeconds": null,
-      "template": "run-firn-install-tests",
-      "kind": "install",
-      "label": "firn installer matrix",
-      "trigger": "manual",
-      "result": "FAILED: installed system did not boot/report (ab/cayo/none/sb=false) \u2014 for an encrypted cell this is an unlock failure",
       "checks": []
     },
     {
@@ -355,19 +394,6 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786537200",
-      "phase": "Succeeded",
-      "started": "2026-08-12T12:20:00Z",
-      "finished": "2026-08-12T12:20:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "orphan-pod-gc-1786537020",
       "phase": "Succeeded",
       "started": "2026-08-12T12:17:00Z",
@@ -391,19 +417,6 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786536000",
-      "phase": "Succeeded",
-      "started": "2026-08-12T12:00:00Z",
-      "finished": "2026-08-12T12:00:32Z",
-      "durationSeconds": 32,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
