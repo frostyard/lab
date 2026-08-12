@@ -222,7 +222,16 @@ spec:
             echo 'filesystem = "btrfs"'
             echo 'btrfs_subvolumes = true'
           else
-            echo 'var_filesystem = "btrfs"'
+            # ext4 /var, not btrfs: the cayo/snow-ab image's initrd
+            # snosi-etc-overlay module and /etc/fstab hardcode `mount -t ext4`
+            # for /var (shared/outformat/ab-root), so a firn-written btrfs /var
+            # never mounts and the system drops to emergency mode -- the real
+            # cause of the 2026-08-12 AB failures, misfiled as a verity stall.
+            # firn's validator accepts btrfs /var for ab (ADR-0008) but that
+            # produces an unbootable disk today; btrfs-var AB coverage is HELD
+            # until snosi ships a filesystem-agnostic /var mount (or firn gates
+            # it). Until then the matrix tests the supported ext4 /var.
+            echo 'var_filesystem = "ext4"'
           fi
           echo '[security]'
           echo 'encryption = "${ENC}"'
