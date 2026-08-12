@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-12T19:00:23Z",
+  "generated": "2026-08-12T20:00:19Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -81,15 +81,15 @@
       "kind": "install",
       "latest": {
         "name": "snosi-secure-install-auto-hdn57",
-        "phase": "Running",
+        "phase": "Failed",
         "started": "2026-08-12T19:00:22Z",
-        "finished": null,
-        "durationSeconds": null,
+        "finished": "2026-08-12T19:01:44Z",
+        "durationSeconds": 82,
         "template": "run-secure-install-tests",
         "kind": "install",
         "label": "bootc secure installer",
         "trigger": "digest-watch",
-        "result": null,
+        "result": "FAILED: secure install harness exited 1 for cayo (full log: /var/lib/snosi-lab/secure/logs/snosi-secure-install-auto-hdn57.log)",
         "checks": []
       },
       "runs": 93,
@@ -100,25 +100,19 @@
       "label": "firn installer matrix",
       "kind": "install",
       "latest": {
-        "name": "firn-ab-btrfs-kbqsc",
-        "phase": "Succeeded",
-        "started": "2026-08-12T16:55:50Z",
-        "finished": "2026-08-12T17:08:37Z",
-        "durationSeconds": 767,
+        "name": "firn-bootc-sb-test-tmtj8",
+        "phase": "Failed",
+        "started": "2026-08-12T19:33:43Z",
+        "finished": "2026-08-12T19:37:01Z",
+        "durationSeconds": 198,
         "template": "run-firn-install-tests",
         "kind": "install",
         "label": "firn installer matrix",
         "trigger": "manual",
-        "result": "installed and booted: ab/snow/none/sb=false",
-        "checks": [
-          "booted=ok",
-          "luks=absent",
-          "osrelease=snow",
-          "rootfs=erofs",
-          "verity=ok"
-        ]
+        "result": "FAILED: firn install did not complete (bootc/cayo/none/sb=true)",
+        "checks": []
       },
-      "runs": 2,
+      "runs": 3,
       "everGreen": true
     },
     {
@@ -146,9 +140,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786561200",
+        "name": "publish-results-1786564800",
         "phase": "Running",
-        "started": "2026-08-12T19:00:00Z",
+        "started": "2026-08-12T20:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -158,7 +152,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 5,
+      "runs": 6,
       "everGreen": true
     },
     {
@@ -166,11 +160,11 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786561200",
-        "phase": "Running",
-        "started": "2026-08-12T19:00:00Z",
-        "finished": null,
-        "durationSeconds": null,
+        "name": "secure-install-watch-1786564800",
+        "phase": "Succeeded",
+        "started": "2026-08-12T20:00:00Z",
+        "finished": "2026-08-12T20:00:10Z",
+        "durationSeconds": 10,
         "template": "watch",
         "kind": "other",
         "label": "watch",
@@ -178,7 +172,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 5,
+      "runs": 4,
       "everGreen": true
     },
     {
@@ -244,22 +238,9 @@
   ],
   "runs": [
     {
-      "name": "snosi-secure-install-auto-hdn57",
+      "name": "publish-results-1786564800",
       "phase": "Running",
-      "started": "2026-08-12T19:00:22Z",
-      "finished": null,
-      "durationSeconds": null,
-      "template": "run-secure-install-tests",
-      "kind": "install",
-      "label": "bootc secure installer",
-      "trigger": "digest-watch",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786561200",
-      "phase": "Running",
-      "started": "2026-08-12T19:00:00Z",
+      "started": "2026-08-12T20:00:00Z",
       "finished": null,
       "durationSeconds": null,
       "template": "publish",
@@ -270,11 +251,102 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786561200",
-      "phase": "Running",
+      "name": "secure-install-watch-1786564800",
+      "phase": "Succeeded",
+      "started": "2026-08-12T20:00:00Z",
+      "finished": "2026-08-12T20:00:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786563600",
+      "phase": "Succeeded",
+      "started": "2026-08-12T19:40:00Z",
+      "finished": "2026-08-12T19:40:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "firn-bootc-sb-test-tmtj8",
+      "phase": "Failed",
+      "started": "2026-08-12T19:33:43Z",
+      "finished": "2026-08-12T19:37:01Z",
+      "durationSeconds": 198,
+      "template": "run-firn-install-tests",
+      "kind": "install",
+      "label": "firn installer matrix",
+      "trigger": "manual",
+      "result": "FAILED: firn install did not complete (bootc/cayo/none/sb=true)",
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786563000",
+      "phase": "Failed",
+      "started": "2026-08-12T19:30:00Z",
+      "finished": "2026-08-12T19:30:10Z",
+      "durationSeconds": 10,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786562400",
+      "phase": "Succeeded",
+      "started": "2026-08-12T19:20:00Z",
+      "finished": "2026-08-12T19:20:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "snosi-secure-install-auto-hdn57",
+      "phase": "Failed",
+      "started": "2026-08-12T19:00:22Z",
+      "finished": "2026-08-12T19:01:44Z",
+      "durationSeconds": 82,
+      "template": "run-secure-install-tests",
+      "kind": "install",
+      "label": "bootc secure installer",
+      "trigger": "digest-watch",
+      "result": "FAILED: secure install harness exited 1 for cayo (full log: /var/lib/snosi-lab/secure/logs/snosi-secure-install-auto-hdn57.log)",
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786561200",
+      "phase": "Succeeded",
       "started": "2026-08-12T19:00:00Z",
-      "finished": null,
-      "durationSeconds": null,
+      "finished": "2026-08-12T19:00:35Z",
+      "durationSeconds": 35,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786561200",
+      "phase": "Succeeded",
+      "started": "2026-08-12T19:00:00Z",
+      "finished": "2026-08-12T19:00:40Z",
+      "durationSeconds": 40,
       "template": "watch",
       "kind": "other",
       "label": "watch",
@@ -293,19 +365,6 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
-      "name": "secure-install-watch-1786560000",
-      "phase": "Succeeded",
-      "started": "2026-08-12T18:40:00Z",
-      "finished": "2026-08-12T18:40:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
@@ -330,19 +389,6 @@
       "template": "image-poller",
       "kind": "poll",
       "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "secure-install-watch-1786558800",
-      "phase": "Succeeded",
-      "started": "2026-08-12T18:20:00Z",
-      "finished": "2026-08-12T18:20:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
       "trigger": "scheduled",
       "result": null,
       "checks": []
@@ -379,45 +425,6 @@
       "started": "2026-08-12T18:00:00Z",
       "finished": "2026-08-12T18:00:32Z",
       "durationSeconds": 32,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "secure-install-watch-1786557600",
-      "phase": "Succeeded",
-      "started": "2026-08-12T18:00:00Z",
-      "finished": "2026-08-12T18:00:20Z",
-      "durationSeconds": 20,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "secure-install-watch-1786556400",
-      "phase": "Succeeded",
-      "started": "2026-08-12T17:40:00Z",
-      "finished": "2026-08-12T17:40:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786555800",
-      "phase": "Succeeded",
-      "started": "2026-08-12T17:30:00Z",
-      "finished": "2026-08-12T17:30:33Z",
-      "durationSeconds": 33,
       "template": "publish",
       "kind": "other",
       "label": "publish",
