@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-12T11:00:18Z",
+  "generated": "2026-08-12T11:30:19Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -109,7 +109,7 @@
         "kind": "install",
         "label": "firn installer matrix",
         "trigger": "manual",
-        "result": null,
+        "result": "FAILED: firn install did not complete (bootc/cayo/tpm2-luks/sb=false)",
         "checks": []
       },
       "runs": 1,
@@ -140,9 +140,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786532400",
+        "name": "publish-results-1786534200",
         "phase": "Running",
-        "started": "2026-08-12T11:00:00Z",
+        "started": "2026-08-12T11:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -160,11 +160,11 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786532400",
-        "phase": "Running",
-        "started": "2026-08-12T11:00:00Z",
-        "finished": null,
-        "durationSeconds": null,
+        "name": "secure-install-watch-1786533600",
+        "phase": "Succeeded",
+        "started": "2026-08-12T11:20:00Z",
+        "finished": "2026-08-12T11:20:10Z",
+        "durationSeconds": 10,
         "template": "watch",
         "kind": "other",
         "label": "watch",
@@ -172,7 +172,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 5,
+      "runs": 4,
       "everGreen": true
     },
     {
@@ -238,9 +238,9 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1786532400",
+      "name": "publish-results-1786534200",
       "phase": "Running",
-      "started": "2026-08-12T11:00:00Z",
+      "started": "2026-08-12T11:30:00Z",
       "finished": null,
       "durationSeconds": null,
       "template": "publish",
@@ -251,11 +251,37 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786532400",
-      "phase": "Running",
+      "name": "secure-install-watch-1786533600",
+      "phase": "Succeeded",
+      "started": "2026-08-12T11:20:00Z",
+      "finished": "2026-08-12T11:20:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786532400",
+      "phase": "Succeeded",
       "started": "2026-08-12T11:00:00Z",
-      "finished": null,
-      "durationSeconds": null,
+      "finished": "2026-08-12T11:00:31Z",
+      "durationSeconds": 31,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786532400",
+      "phase": "Succeeded",
+      "started": "2026-08-12T11:00:00Z",
+      "finished": "2026-08-12T11:00:20Z",
+      "durationSeconds": 20,
       "template": "watch",
       "kind": "other",
       "label": "watch",
@@ -286,7 +312,7 @@
       "kind": "install",
       "label": "firn installer matrix",
       "trigger": "manual",
-      "result": null,
+      "result": "FAILED: firn install did not complete (bootc/cayo/tpm2-luks/sb=false)",
       "checks": []
     },
     {
@@ -329,19 +355,6 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786528800",
-      "phase": "Succeeded",
-      "started": "2026-08-12T10:00:00Z",
-      "finished": "2026-08-12T10:00:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "image-poll-snowfield-latest-1786527600",
       "phase": "Failed",
       "started": "2026-08-12T09:40:00Z",
@@ -352,32 +365,6 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
-      "name": "secure-install-watch-1786527600",
-      "phase": "Succeeded",
-      "started": "2026-08-12T09:40:00Z",
-      "finished": "2026-08-12T09:40:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786527000",
-      "phase": "Succeeded",
-      "started": "2026-08-12T09:30:00Z",
-      "finished": "2026-08-12T09:30:32Z",
-      "durationSeconds": 32,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
