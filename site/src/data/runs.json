@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-12T17:00:21Z",
+  "generated": "2026-08-12T17:30:20Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -72,7 +72,7 @@
           "rootfs=overlay"
         ]
       },
-      "runs": 20,
+      "runs": 19,
       "everGreen": true
     },
     {
@@ -101,19 +101,25 @@
       "kind": "install",
       "latest": {
         "name": "firn-ab-btrfs-kbqsc",
-        "phase": "Running",
+        "phase": "Succeeded",
         "started": "2026-08-12T16:55:50Z",
-        "finished": null,
-        "durationSeconds": null,
+        "finished": "2026-08-12T17:08:37Z",
+        "durationSeconds": 767,
         "template": "run-firn-install-tests",
         "kind": "install",
         "label": "firn installer matrix",
         "trigger": "manual",
-        "result": null,
-        "checks": []
+        "result": "installed and booted: ab/snow/none/sb=false",
+        "checks": [
+          "booted=ok",
+          "luks=absent",
+          "osrelease=snow",
+          "rootfs=erofs",
+          "verity=ok"
+        ]
       },
       "runs": 2,
-      "everGreen": false
+      "everGreen": true
     },
     {
       "template": "orphan-pod-gc",
@@ -140,9 +146,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786554000",
+        "name": "publish-results-1786555800",
         "phase": "Running",
-        "started": "2026-08-12T17:00:00Z",
+        "started": "2026-08-12T17:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -160,11 +166,11 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786554000",
+        "name": "secure-install-watch-1786555200",
         "phase": "Succeeded",
-        "started": "2026-08-12T17:00:00Z",
-        "finished": "2026-08-12T17:00:20Z",
-        "durationSeconds": 20,
+        "started": "2026-08-12T17:20:00Z",
+        "finished": "2026-08-12T17:20:10Z",
+        "durationSeconds": 10,
         "template": "watch",
         "kind": "other",
         "label": "watch",
@@ -172,7 +178,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 5,
+      "runs": 4,
       "everGreen": true
     },
     {
@@ -238,11 +244,37 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1786554000",
+      "name": "publish-results-1786555800",
       "phase": "Running",
-      "started": "2026-08-12T17:00:00Z",
+      "started": "2026-08-12T17:30:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786555200",
+      "phase": "Succeeded",
+      "started": "2026-08-12T17:20:00Z",
+      "finished": "2026-08-12T17:20:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786554000",
+      "phase": "Succeeded",
+      "started": "2026-08-12T17:00:00Z",
+      "finished": "2026-08-12T17:00:33Z",
+      "durationSeconds": 33,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -265,16 +297,22 @@
     },
     {
       "name": "firn-ab-btrfs-kbqsc",
-      "phase": "Running",
+      "phase": "Succeeded",
       "started": "2026-08-12T16:55:50Z",
-      "finished": null,
-      "durationSeconds": null,
+      "finished": "2026-08-12T17:08:37Z",
+      "durationSeconds": 767,
       "template": "run-firn-install-tests",
       "kind": "install",
       "label": "firn installer matrix",
       "trigger": "manual",
-      "result": null,
-      "checks": []
+      "result": "installed and booted: ab/snow/none/sb=false",
+      "checks": [
+        "booted=ok",
+        "luks=absent",
+        "osrelease=snow",
+        "rootfs=erofs",
+        "verity=ok"
+      ]
     },
     {
       "name": "secure-install-watch-1786552800",
@@ -329,19 +367,6 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786550400",
-      "phase": "Succeeded",
-      "started": "2026-08-12T16:00:00Z",
-      "finished": "2026-08-12T16:00:20Z",
-      "durationSeconds": 20,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "image-poll-snowfield-latest-1786549200",
       "phase": "Failed",
       "started": "2026-08-12T15:40:00Z",
@@ -352,32 +377,6 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
-      "name": "secure-install-watch-1786549200",
-      "phase": "Succeeded",
-      "started": "2026-08-12T15:40:00Z",
-      "finished": "2026-08-12T15:40:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786548600",
-      "phase": "Succeeded",
-      "started": "2026-08-12T15:30:00Z",
-      "finished": "2026-08-12T15:30:32Z",
-      "durationSeconds": 32,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
@@ -1917,26 +1916,6 @@
       "trigger": "manual",
       "result": "FAILED: secure install harness exited 1 for cayo",
       "checks": []
-    },
-    {
-      "name": "snosi-bootc-install-fvd4n",
-      "phase": "Succeeded",
-      "started": "2026-08-05T17:08:06Z",
-      "finished": "2026-08-05T17:11:28Z",
-      "durationSeconds": 202,
-      "template": "run-incus-bootc-install-tests",
-      "kind": "install",
-      "label": "bootc installer (mechanics)",
-      "trigger": "manual",
-      "result": "bootc installed and verified: ghcr.io/frostyard/snow:mechanics (secureboot=false)",
-      "checks": [
-        "backend=composefs",
-        "booted=ok",
-        "failedunits=0",
-        "image=ghcr.io/frostyard/snow:mechanics",
-        "osrelease=snow-20260805161157",
-        "rootfs=overlay"
-      ]
     },
     {
       "name": "snosi-bootc-install-svkng",
