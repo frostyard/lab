@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-12T16:30:20Z",
+  "generated": "2026-08-12T17:00:21Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -100,23 +100,17 @@
       "label": "firn installer matrix",
       "kind": "install",
       "latest": {
-        "name": "firn-ab-ext4-p8d26",
+        "name": "firn-ab-btrfs-kbqsc",
         "phase": "Running",
-        "started": "2026-08-12T16:07:11Z",
+        "started": "2026-08-12T16:55:50Z",
         "finished": null,
         "durationSeconds": null,
         "template": "run-firn-install-tests",
         "kind": "install",
         "label": "firn installer matrix",
         "trigger": "manual",
-        "result": "installed and booted: ab/cayo/none/sb=false",
-        "checks": [
-          "booted=ok",
-          "luks=absent",
-          "osrelease=cayo",
-          "rootfs=erofs",
-          "verity=ok"
-        ]
+        "result": null,
+        "checks": []
       },
       "runs": 2,
       "everGreen": false
@@ -146,9 +140,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786552200",
+        "name": "publish-results-1786554000",
         "phase": "Running",
-        "started": "2026-08-12T16:30:00Z",
+        "started": "2026-08-12T17:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -166,11 +160,11 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786551600",
+        "name": "secure-install-watch-1786554000",
         "phase": "Succeeded",
-        "started": "2026-08-12T16:20:00Z",
-        "finished": "2026-08-12T16:20:10Z",
-        "durationSeconds": 10,
+        "started": "2026-08-12T17:00:00Z",
+        "finished": "2026-08-12T17:00:20Z",
+        "durationSeconds": 20,
         "template": "watch",
         "kind": "other",
         "label": "watch",
@@ -178,7 +172,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 4,
+      "runs": 5,
       "everGreen": true
     },
     {
@@ -244,11 +238,63 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1786552200",
+      "name": "publish-results-1786554000",
       "phase": "Running",
-      "started": "2026-08-12T16:30:00Z",
+      "started": "2026-08-12T17:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786554000",
+      "phase": "Succeeded",
+      "started": "2026-08-12T17:00:00Z",
+      "finished": "2026-08-12T17:00:20Z",
+      "durationSeconds": 20,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "firn-ab-btrfs-kbqsc",
+      "phase": "Running",
+      "started": "2026-08-12T16:55:50Z",
+      "finished": null,
+      "durationSeconds": null,
+      "template": "run-firn-install-tests",
+      "kind": "install",
+      "label": "firn installer matrix",
+      "trigger": "manual",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786552800",
+      "phase": "Succeeded",
+      "started": "2026-08-12T16:40:00Z",
+      "finished": "2026-08-12T16:40:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786552200",
+      "phase": "Succeeded",
+      "started": "2026-08-12T16:30:00Z",
+      "finished": "2026-08-12T16:30:33Z",
+      "durationSeconds": 33,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -268,25 +314,6 @@
       "trigger": "scheduled",
       "result": null,
       "checks": []
-    },
-    {
-      "name": "firn-ab-ext4-p8d26",
-      "phase": "Running",
-      "started": "2026-08-12T16:07:11Z",
-      "finished": null,
-      "durationSeconds": null,
-      "template": "run-firn-install-tests",
-      "kind": "install",
-      "label": "firn installer matrix",
-      "trigger": "manual",
-      "result": "installed and booted: ab/cayo/none/sb=false",
-      "checks": [
-        "booted=ok",
-        "luks=absent",
-        "osrelease=cayo",
-        "rootfs=erofs",
-        "verity=ok"
-      ]
     },
     {
       "name": "publish-results-1786550400",
@@ -367,19 +394,6 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786548000",
-      "phase": "Succeeded",
-      "started": "2026-08-12T15:20:00Z",
-      "finished": "2026-08-12T15:20:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "snosi-secure-install-auto-qcrrj",
       "phase": "Failed",
       "started": "2026-08-12T15:00:12Z",
@@ -403,19 +417,6 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786546800",
-      "phase": "Succeeded",
-      "started": "2026-08-12T15:00:00Z",
-      "finished": "2026-08-12T15:00:34Z",
-      "durationSeconds": 34,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
