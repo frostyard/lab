@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-12T08:00:18Z",
+  "generated": "2026-08-12T08:30:18Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -100,16 +100,16 @@
       "label": "firn installer matrix",
       "kind": "install",
       "latest": {
-        "name": "firn-install-matrix-xmgcz",
+        "name": "firn-install-matrix-bxkfp",
         "phase": "Running",
-        "started": "2026-08-12T06:17:49Z",
+        "started": "2026-08-12T08:26:13Z",
         "finished": null,
         "durationSeconds": null,
         "template": "run-firn-install-tests",
         "kind": "install",
         "label": "firn installer matrix",
         "trigger": "manual",
-        "result": "FAILED: installed system did not boot/report (bootc/cayo/tpm2-luks/sb=false) \u2014 for an encrypted cell this is an unlock failure",
+        "result": null,
         "checks": []
       },
       "runs": 1,
@@ -140,9 +140,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786521600",
+        "name": "publish-results-1786523400",
         "phase": "Running",
-        "started": "2026-08-12T08:00:00Z",
+        "started": "2026-08-12T08:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -160,11 +160,11 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786521600",
-        "phase": "Running",
-        "started": "2026-08-12T08:00:00Z",
-        "finished": null,
-        "durationSeconds": null,
+        "name": "secure-install-watch-1786522800",
+        "phase": "Succeeded",
+        "started": "2026-08-12T08:20:00Z",
+        "finished": "2026-08-12T08:20:10Z",
+        "durationSeconds": 10,
         "template": "watch",
         "kind": "other",
         "label": "watch",
@@ -172,7 +172,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 5,
+      "runs": 4,
       "everGreen": true
     },
     {
@@ -238,9 +238,9 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1786521600",
+      "name": "publish-results-1786523400",
       "phase": "Running",
-      "started": "2026-08-12T08:00:00Z",
+      "started": "2026-08-12T08:30:00Z",
       "finished": null,
       "durationSeconds": null,
       "template": "publish",
@@ -251,11 +251,50 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786521600",
+      "name": "firn-install-matrix-bxkfp",
       "phase": "Running",
-      "started": "2026-08-12T08:00:00Z",
+      "started": "2026-08-12T08:26:13Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "run-firn-install-tests",
+      "kind": "install",
+      "label": "firn installer matrix",
+      "trigger": "manual",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786522800",
+      "phase": "Succeeded",
+      "started": "2026-08-12T08:20:00Z",
+      "finished": "2026-08-12T08:20:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786521600",
+      "phase": "Succeeded",
+      "started": "2026-08-12T08:00:00Z",
+      "finished": "2026-08-12T08:00:31Z",
+      "durationSeconds": 31,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786521600",
+      "phase": "Succeeded",
+      "started": "2026-08-12T08:00:00Z",
+      "finished": "2026-08-12T08:00:20Z",
+      "durationSeconds": 20,
       "template": "watch",
       "kind": "other",
       "label": "watch",
@@ -316,19 +355,6 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786518000",
-      "phase": "Succeeded",
-      "started": "2026-08-12T07:00:00Z",
-      "finished": "2026-08-12T07:00:20Z",
-      "durationSeconds": 20,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "image-poll-snowfield-latest-1786516800",
       "phase": "Failed",
       "started": "2026-08-12T06:40:00Z",
@@ -342,32 +368,6 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786516800",
-      "phase": "Succeeded",
-      "started": "2026-08-12T06:40:00Z",
-      "finished": "2026-08-12T06:40:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786516200",
-      "phase": "Succeeded",
-      "started": "2026-08-12T06:30:00Z",
-      "finished": "2026-08-12T06:30:31Z",
-      "durationSeconds": 31,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "image-poll-cayo-latest-1786515600",
       "phase": "Succeeded",
       "started": "2026-08-12T06:20:00Z",
@@ -378,19 +378,6 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "14 passed, 6 skipped",
-      "checks": []
-    },
-    {
-      "name": "firn-install-matrix-xmgcz",
-      "phase": "Running",
-      "started": "2026-08-12T06:17:49Z",
-      "finished": null,
-      "durationSeconds": null,
-      "template": "run-firn-install-tests",
-      "kind": "install",
-      "label": "firn installer matrix",
-      "trigger": "manual",
-      "result": "FAILED: installed system did not boot/report (bootc/cayo/tpm2-luks/sb=false) \u2014 for an encrypted cell this is an unlock failure",
       "checks": []
     },
     {
