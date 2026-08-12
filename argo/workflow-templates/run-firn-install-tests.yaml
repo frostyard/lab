@@ -142,10 +142,12 @@ spec:
         echo "=== firn install matrix cell: ${CELL} ===" >&2
         apt-get update -qq
         apt-get install -y -qq --no-install-recommends ca-certificates curl >/dev/null
-        if [[ "${SECUREBOOT}" == "true" && "${FAMILY}" == "ab" ]]; then
-          # ab + Secure Boot: pre-seed the snosi MOK into the guest varstore.
-          # (Legitimate because firn stages the ab MOK via mokutil; bootc + SB
-          # is held out of the matrix until firn implements schema-1.)
+        if [[ "${SECUREBOOT}" == "true" ]]; then
+          # virt-fw-vars enrolls the snosi MOK into the guest varstore under
+          # Secure Boot: ab pre-seeds it before install (mok = "skip"); bootc
+          # completes enrollment AFTER install (mok = "enroll") -- firn stages
+          # the MOK-signed ESP chain and mokutil leaves a pending MokNew, which
+          # we resolve host-side (the MokManager keypress stand-in, ADR-0014).
           apt-get install -y -qq --no-install-recommends git gcc python3 python3-dev libc6-dev python3-pip >/dev/null
           pip install --quiet --break-system-packages virt-firmware
           command -v virt-fw-vars >/dev/null || { echo "virt-fw-vars unavailable" >&2; exit 1; }
@@ -242,8 +244,13 @@ spec:
           case "${ENC}" in
             *-passphrase) echo 'passphrase_file = "/run/firn-qa-pass.txt"' ;;
           esac
-          if [ "${FAMILY}" = ab ] && [ "${SECUREBOOT}" = true ]; then
-            echo 'mok = "skip"'
+          if [ "${SECUREBOOT}" = true ]; then
+            if [ "${FAMILY}" = ab ]; then
+              echo 'mok = "skip"'
+            elif [ "${FAMILY}" = bootc ]; then
+              echo 'mok = "enroll"'
+              echo 'mok_password_file = "/run/firn-qa-mok.pass"'
+            fi
           fi
           echo '[system]'
           echo 'hostname = "firn-qa"'
@@ -253,6 +260,14 @@ spec:
         case "${ENC}" in
           *-passphrase) printf 'firn-qa-passphrase' > /run/firn-qa-pass.txt; chmod 600 /run/firn-qa-pass.txt ;;
         esac
+        # bootc + Secure Boot: firn's mok-stage needs a one-time MokManager
+        # password file (mok = "enroll"). The harness completes enrollment
+        # host-side after install, so the value is never typed -- but firn
+        # validates its presence. Created in the guest so it never crosses SMBIOS.
+        if [ "${FAMILY}" = bootc ] && [ "${SECUREBOOT}" = true ]; then
+          LC_ALL=C tr -dc A-Za-z0-9 </dev/urandom | head -c 16 > /run/firn-qa-mok.pass
+          chmod 600 /run/firn-qa-mok.pass
+        fi
 
         # ── flags ──
         TPM=off; case "${ENC}" in tpm2*) TPM=on ;; esac
@@ -343,6 +358,30 @@ spec:
         # For encrypted cells, booting at all IS the TPM/passphrase-unlock proof.
         incus stop "${VM}" --force
         incus config device remove "${VM}" installer
+
+        # ── Secure Boot (bootc): complete MOK enrollment host-side ────────────
+        # firn (mok = "enroll") staged the shim -> MOK-signed systemd-boot ->
+        # MokManager ESP chain and mokutil left a pending MokNew in the guest
+        # varstore. On real hardware the user types the one-time password at
+        # MokManager on first boot; unattended we finish it host-side (ADR-0014):
+        # add the snosi MOK to MokList so shim trusts firn's second stage, and
+        # delete the pending MokNew/MokAuth so shim does not launch MokManager
+        # (which would hang with no one to answer). Booting under enforced
+        # Secure Boot then proves firn's staged chain is what firmware accepts.
+        if [[ "${SECUREBOOT}" == "true" && "${FAMILY}" == "bootc" ]]; then
+          echo "Completing MOK enrollment for the bootc secure boot..." >&2
+          [[ -d /src/snosi ]] || git clone -q --depth 1 https://github.com/frostyard/snosi.git /src/snosi
+          MOK_CERT=/src/snosi/shared/native-ab/keys/mok-2026.crt
+          [[ -f "${MOK_CERT}" ]] || { echo "MOK certificate missing from the snosi checkout" >&2; exit 1; }
+          NVRAM="/var/lib/incus/storage-pools/lab/virtual-machines/${VM}/qemu.nvram"
+          [[ -e "${NVRAM}" ]] || { echo "guest varstore ${NVRAM} not found" >&2; exit 1; }
+          MOK_GUID="$(python3 -c 'import uuid; print(uuid.uuid4())')"
+          virt-fw-vars --inplace "${NVRAM}" --add-mok "${MOK_GUID}" "${MOK_CERT}" -d MokNew -d MokAuth \
+            || { echo "virt-fw-vars could not complete MOK enrollment" >&2; exit 1; }
+          virt-fw-vars -i "${NVRAM}" -p 2>&1 | grep -q MokList \
+            || { echo "varstore has no MokList after enrollment" >&2; exit 1; }
+          echo "MOK enrolled into $(basename "${NVRAM}") (MokNew cleared) as owner ${MOK_GUID}" >&2
+        fi
 
         CHECK_SH=$(cat <<SCRIPT
         #!/bin/bash
