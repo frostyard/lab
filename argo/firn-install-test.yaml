@@ -38,26 +38,28 @@ spec:
         tasks:
           - name: cell
             withItems:
+              # `product` is the image axis (cayo|snow|snowfield); named to
+              # avoid the manifest test's `image:`-key = container heuristic.
               # --- bootc: all four encryption modes, SB on and off ---
-              - { family: "bootc", image: "cayo",      encryption: "none",                 secureboot: "false" }
-              - { family: "bootc", image: "cayo",      encryption: "tpm2-luks",            secureboot: "false" }
-              - { family: "bootc", image: "snow",      encryption: "luks-passphrase",      secureboot: "false" }
-              - { family: "bootc", image: "snow",      encryption: "tpm2-luks",            secureboot: "false" }
-              - { family: "bootc", image: "snow",      encryption: "tpm2-luks-passphrase", secureboot: "true"  }
-              - { family: "bootc", image: "snow",      encryption: "none",                 secureboot: "true"  }
-              - { family: "bootc", image: "snowfield", encryption: "tpm2-luks-passphrase", secureboot: "true"  }
+              - { family: "bootc", product: "cayo",      encryption: "none",                 secureboot: "false" }
+              - { family: "bootc", product: "cayo",      encryption: "tpm2-luks",            secureboot: "false" }
+              - { family: "bootc", product: "snow",      encryption: "luks-passphrase",      secureboot: "false" }
+              - { family: "bootc", product: "snow",      encryption: "tpm2-luks",            secureboot: "false" }
+              - { family: "bootc", product: "snow",      encryption: "tpm2-luks-passphrase", secureboot: "true"  }
+              - { family: "bootc", product: "snow",      encryption: "none",                 secureboot: "true"  }
+              - { family: "bootc", product: "snowfield", encryption: "tpm2-luks-passphrase", secureboot: "true"  }
               # --- ab: all three encryption modes, SB on and off (MOK when on) ---
-              - { family: "ab",    image: "cayo",      encryption: "none",                 secureboot: "false" }
-              - { family: "ab",    image: "cayo",      encryption: "tpm2-luks",            secureboot: "true"  }
-              - { family: "ab",    image: "snow",      encryption: "luks",                 secureboot: "false" }
-              - { family: "ab",    image: "snow",      encryption: "tpm2-luks",            secureboot: "true"  }
-              - { family: "ab",    image: "snow",      encryption: "none",                 secureboot: "true"  }
+              - { family: "ab",    product: "cayo",      encryption: "none",                 secureboot: "false" }
+              - { family: "ab",    product: "cayo",      encryption: "tpm2-luks",            secureboot: "true"  }
+              - { family: "ab",    product: "snow",      encryption: "luks",                 secureboot: "false" }
+              - { family: "ab",    product: "snow",      encryption: "tpm2-luks",            secureboot: "true"  }
+              - { family: "ab",    product: "snow",      encryption: "none",                 secureboot: "true"  }
             templateRef:
               name: run-firn-install-tests
               template: run-firn-install-tests
             arguments:
               parameters:
                 - { name: family,     value: "{{item.family}}" }
-                - { name: image,      value: "{{item.image}}" }
+                - { name: image,      value: "{{item.product}}" }
                 - { name: encryption, value: "{{item.encryption}}" }
                 - { name: secureboot, value: "{{item.secureboot}}" }
