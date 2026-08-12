@@ -13,12 +13,16 @@
 # (one VM at a time), so the full matrix runs back-to-back — budget hours, not
 # minutes. Trim the list for a quick smoke run.
 #
-# Matrix (9 active cells): every bootc encryption mode (none, luks-passphrase,
-# tpm2-luks, tpm2-luks-passphrase) with Secure Boot OFF, and every ab mode
-# (none, luks, tpm2-luks) with Secure Boot on and off, cayo + snow throughout,
-# snowfield once. The bootc x tpm2-luks* cells are the highest-value ones:
-# "installed AND booted" is exactly what exercises the encrypted-boot unlock
-# that firn ADR-0012 left unproven.
+# Matrix (7 active cells): the AUTO-UNLOCKABLE encryption modes only -- none
+# and tpm2-luks (TPM auto-unlock) -- for both families, cayo + snow, Secure
+# Boot on/off (ab). Interactive-unlock modes (ab `luks`, bootc
+# `luks-passphrase`) are held out: they prompt for a key/passphrase at boot,
+# which an unattended lab cannot answer, so they can never pass here (see the
+# INTERACTIVE-UNLOCK notes by the cells). The bootc x tpm2-luks cells are the
+# highest-value ones: "installed AND booted" exercises the encrypted-boot
+# unlock firn ADR-0012 left unproven. The /var filesystem defaults to ext4;
+# the run-firn-install-tests `varfs` axis switches ab cells to btrfs to
+# exercise snosi PR #705 (firn ADR-0013) -- validated via a one-off run.
 #
 # bootc + Secure Boot is deliberately NOT in the active matrix (see the PENDING
 # block below). firn does not yet stage the ESP secure chain or enroll the MOK
@@ -48,11 +52,16 @@ spec:
             withItems:
               # `product` is the image axis (cayo|snow|snowfield); named to
               # avoid the manifest test's `image:`-key = container heuristic.
-              # --- bootc: all four encryption modes, Secure Boot OFF ---
+              # --- bootc: auto-unlockable encryption modes, Secure Boot OFF ---
               - { family: "bootc", product: "cayo",      encryption: "none",                 secureboot: "false" }
               - { family: "bootc", product: "cayo",      encryption: "tpm2-luks",            secureboot: "false" }
-              - { family: "bootc", product: "snow",      encryption: "luks-passphrase",      secureboot: "false" }
               - { family: "bootc", product: "snow",      encryption: "tpm2-luks",            secureboot: "false" }
+              # INTERACTIVE-UNLOCK (not runnable unattended): luks-passphrase
+              # prompts for the LUKS passphrase at every boot by design (firn
+              # roadmap: "luks-passphrase still prompts interactively at boot").
+              # The lab has no console-input path, so it would hang at the
+              # prompt -- a failure that proves nothing. Held out:
+              #   { family: "bootc", product: "snow", encryption: "luks-passphrase", secureboot: "false" }
               # --- PENDING firn secure-install schema-1 (roadmap Phase 4) ------
               # bootc + Secure Boot. Re-enable once firn stages the ESP secure
               # chain (Debian shim -> MOK-signed systemd-boot -> MokManager) and
@@ -63,12 +72,18 @@ spec:
               #   { family: "bootc", product: "snow",      encryption: "none",                 secureboot: "true" }
               #   { family: "bootc", product: "snowfield", encryption: "tpm2-luks-passphrase", secureboot: "true" }
               # ----------------------------------------------------------------
-              # --- ab: all three encryption modes, SB on and off (MOK when on) ---
+              # --- ab: auto-unlockable encryption modes, SB on and off (MOK when on) ---
               - { family: "ab",    product: "cayo",      encryption: "none",                 secureboot: "false" }
               - { family: "ab",    product: "cayo",      encryption: "tpm2-luks",            secureboot: "true"  }
-              - { family: "ab",    product: "snow",      encryption: "luks",                 secureboot: "false" }
               - { family: "ab",    product: "snow",      encryption: "tpm2-luks",            secureboot: "true"  }
               - { family: "ab",    product: "snow",      encryption: "none",                 secureboot: "true"  }
+              # INTERACTIVE-UNLOCK (not runnable unattended): ab `luks` gives
+              # /var a randomly generated recovery key and no TPM, so the
+              # installed system prompts for that key at boot (confirmed
+              # 2026-08-12: cell hung at "Please enter passphrase for disk
+              # var"). The key is unknown to the lab, so unlike the known
+              # -passphrase value it cannot even be injected. Held out:
+              #   { family: "ab", product: "snow", encryption: "luks", secureboot: "false" }
             templateRef:
               name: run-firn-install-tests
               template: run-firn-install-tests

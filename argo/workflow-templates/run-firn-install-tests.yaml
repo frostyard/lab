@@ -56,6 +56,11 @@ spec:
       #   ab:    none | luks | tpm2-luks
       - name: encryption
         value: "none"
+      # ab /var filesystem (recipe target.var_filesystem): ext4 | btrfs.
+      # Default ext4. btrfs exercises snosi PR #705's filesystem-agnostic
+      # /var mount (firn ADR-0013); ignored for the bootc family.
+      - name: varfs
+        value: "ext4"
       # Secure Boot ON and genuinely enforced (Microsoft KEK/db untouched).
       # For ab + secureboot the snosi MOK is pre-seeded into the guest varstore
       # below and the recipe uses mok = "skip" (unattended MokManager cannot be
@@ -113,6 +118,7 @@ spec:
       - { name: FAMILY,     value: "{{inputs.parameters.family}}" }
       - { name: IMAGE,      value: "{{inputs.parameters.image}}" }
       - { name: ENC,        value: "{{inputs.parameters.encryption}}" }
+      - { name: VARFS,      value: "{{inputs.parameters.varfs}}" }
       - { name: SECUREBOOT, value: "{{inputs.parameters.secureboot}}" }
       - { name: PUBRING,    value: "{{inputs.parameters.pubring-path}}" }
       - { name: VM_CPUS,    value: "{{inputs.parameters.vm-cpus}}" }
@@ -222,18 +228,14 @@ spec:
             echo 'filesystem = "btrfs"'
             echo 'btrfs_subvolumes = true'
           else
-            # ext4 /var, not btrfs. NB: this comment lives inside the
-            # unquoted INSTALL_SH heredoc, so it must stay free of backticks
-            # and dollar-signs -- they expand pod-side and corrupt the guest
-            # script (the 515c632 regression). Keep it plain prose.
-            # Rationale: the cayo/snow-ab image initrd (snosi-etc-overlay) and
-            # /etc/fstab pinned ext4 for the /var mount, so a firn-written
-            # btrfs /var never mounted and the system dropped to emergency mode
-            # (the real cause of the 2026-08-12 AB failures, misfiled as a
-            # verity stall). snosi PR #705 makes that mount filesystem-agnostic;
-            # until the fixed image is the tested default, the matrix stays on
-            # the supported ext4 /var. See firn ADR-0013.
-            echo 'var_filesystem = "ext4"'
+            # /var filesystem from the varfs axis (default ext4). NB: this
+            # comment lives inside the unquoted INSTALL_SH heredoc, so it must
+            # stay free of backticks and dollar-signs in prose -- they expand
+            # pod-side and corrupt the guest script (the 515c632 regression).
+            # btrfs exercises snosi PR #705's filesystem-agnostic /var mount;
+            # the pre-#705 image pinned ext4 and dropped btrfs /var to
+            # emergency mode. See firn ADR-0013.
+            echo 'var_filesystem = "${VARFS}"'
           fi
           echo '[security]'
           echo 'encryption = "${ENC}"'
