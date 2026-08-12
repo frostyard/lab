@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-12T16:00:20Z",
+  "generated": "2026-08-12T16:30:20Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -81,15 +81,15 @@
       "kind": "install",
       "latest": {
         "name": "snosi-secure-install-auto-qcrrj",
-        "phase": "Running",
+        "phase": "Failed",
         "started": "2026-08-12T15:00:12Z",
-        "finished": null,
-        "durationSeconds": null,
+        "finished": "2026-08-12T16:10:34Z",
+        "durationSeconds": 4222,
         "template": "run-secure-install-tests",
         "kind": "install",
         "label": "bootc secure installer",
         "trigger": "digest-watch",
-        "result": null,
+        "result": "FAILED: secure install harness exited 1 for cayo (full log: /var/lib/snosi-lab/secure/logs/snosi-secure-install-auto-qcrrj.log)",
         "checks": []
       },
       "runs": 92,
@@ -100,17 +100,23 @@
       "label": "firn installer matrix",
       "kind": "install",
       "latest": {
-        "name": "firn-ab-ext4-9mhxb",
+        "name": "firn-ab-ext4-p8d26",
         "phase": "Running",
-        "started": "2026-08-12T13:47:11Z",
+        "started": "2026-08-12T16:07:11Z",
         "finished": null,
         "durationSeconds": null,
         "template": "run-firn-install-tests",
         "kind": "install",
         "label": "firn installer matrix",
         "trigger": "manual",
-        "result": "FAILED: firn install did not complete (ab/snow/luks/sb=false)",
-        "checks": []
+        "result": "installed and booted: ab/cayo/none/sb=false",
+        "checks": [
+          "booted=ok",
+          "luks=absent",
+          "osrelease=cayo",
+          "rootfs=erofs",
+          "verity=ok"
+        ]
       },
       "runs": 2,
       "everGreen": false
@@ -140,9 +146,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786550400",
+        "name": "publish-results-1786552200",
         "phase": "Running",
-        "started": "2026-08-12T16:00:00Z",
+        "started": "2026-08-12T16:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -160,11 +166,11 @@
       "label": "watch",
       "kind": "other",
       "latest": {
-        "name": "secure-install-watch-1786550400",
-        "phase": "Running",
-        "started": "2026-08-12T16:00:00Z",
-        "finished": null,
-        "durationSeconds": null,
+        "name": "secure-install-watch-1786551600",
+        "phase": "Succeeded",
+        "started": "2026-08-12T16:20:00Z",
+        "finished": "2026-08-12T16:20:10Z",
+        "durationSeconds": 10,
         "template": "watch",
         "kind": "other",
         "label": "watch",
@@ -172,7 +178,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 5,
+      "runs": 4,
       "everGreen": true
     },
     {
@@ -238,9 +244,9 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1786550400",
+      "name": "publish-results-1786552200",
       "phase": "Running",
-      "started": "2026-08-12T16:00:00Z",
+      "started": "2026-08-12T16:30:00Z",
       "finished": null,
       "durationSeconds": null,
       "template": "publish",
@@ -251,11 +257,56 @@
       "checks": []
     },
     {
-      "name": "secure-install-watch-1786550400",
+      "name": "secure-install-watch-1786551600",
+      "phase": "Succeeded",
+      "started": "2026-08-12T16:20:00Z",
+      "finished": "2026-08-12T16:20:10Z",
+      "durationSeconds": 10,
+      "template": "watch",
+      "kind": "other",
+      "label": "watch",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "firn-ab-ext4-p8d26",
       "phase": "Running",
-      "started": "2026-08-12T16:00:00Z",
+      "started": "2026-08-12T16:07:11Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "run-firn-install-tests",
+      "kind": "install",
+      "label": "firn installer matrix",
+      "trigger": "manual",
+      "result": "installed and booted: ab/cayo/none/sb=false",
+      "checks": [
+        "booted=ok",
+        "luks=absent",
+        "osrelease=cayo",
+        "rootfs=erofs",
+        "verity=ok"
+      ]
+    },
+    {
+      "name": "publish-results-1786550400",
+      "phase": "Succeeded",
+      "started": "2026-08-12T16:00:00Z",
+      "finished": "2026-08-12T16:00:32Z",
+      "durationSeconds": 32,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "secure-install-watch-1786550400",
+      "phase": "Succeeded",
+      "started": "2026-08-12T16:00:00Z",
+      "finished": "2026-08-12T16:00:20Z",
+      "durationSeconds": 20,
       "template": "watch",
       "kind": "other",
       "label": "watch",
@@ -330,15 +381,15 @@
     },
     {
       "name": "snosi-secure-install-auto-qcrrj",
-      "phase": "Running",
+      "phase": "Failed",
       "started": "2026-08-12T15:00:12Z",
-      "finished": null,
-      "durationSeconds": null,
+      "finished": "2026-08-12T16:10:34Z",
+      "durationSeconds": 4222,
       "template": "run-secure-install-tests",
       "kind": "install",
       "label": "bootc secure installer",
       "trigger": "digest-watch",
-      "result": null,
+      "result": "FAILED: secure install harness exited 1 for cayo (full log: /var/lib/snosi-lab/secure/logs/snosi-secure-install-auto-qcrrj.log)",
       "checks": []
     },
     {
@@ -365,58 +416,6 @@
       "label": "publish",
       "trigger": "scheduled",
       "result": null,
-      "checks": []
-    },
-    {
-      "name": "secure-install-watch-1786546800",
-      "phase": "Succeeded",
-      "started": "2026-08-12T15:00:00Z",
-      "finished": "2026-08-12T15:00:30Z",
-      "durationSeconds": 30,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "secure-install-watch-1786545600",
-      "phase": "Succeeded",
-      "started": "2026-08-12T14:40:00Z",
-      "finished": "2026-08-12T14:40:10Z",
-      "durationSeconds": 10,
-      "template": "watch",
-      "kind": "other",
-      "label": "watch",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786545000",
-      "phase": "Succeeded",
-      "started": "2026-08-12T14:30:00Z",
-      "finished": "2026-08-12T14:30:33Z",
-      "durationSeconds": 33,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "firn-ab-ext4-9mhxb",
-      "phase": "Running",
-      "started": "2026-08-12T13:47:11Z",
-      "finished": null,
-      "durationSeconds": null,
-      "template": "run-firn-install-tests",
-      "kind": "install",
-      "label": "firn installer matrix",
-      "trigger": "manual",
-      "result": "FAILED: firn install did not complete (ab/snow/luks/sb=false)",
       "checks": []
     },
     {
