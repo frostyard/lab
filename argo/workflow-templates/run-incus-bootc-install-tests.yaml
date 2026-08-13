@@ -41,7 +41,8 @@ spec:
       # secureboot-capable=true, which :latest always is. snosi publishes
       # mechanics builds nightly under :mechanics for exactly this lane
       # (build-mechanics.yml); they carry no security evidence and are not for
-      # installation. The secure install path is run-secure-install-tests.
+      # installation. The secure install path is the firn install matrix
+      # (run-firn-install-tests).
       - name: image
         value: "ghcr.io/frostyard/snow:mechanics"
       - name: variant
@@ -136,9 +137,8 @@ spec:
         # .github/workflows/test-install.yml, which hard-fails unless
         # io.snosi.bootc.secureboot-capable == false.
         #
-        # A secureboot-capable=true image is installed by the EXTERNAL secure
-        # installer (Dakota ISO + bootc-installer, driven by a recipe), never by
-        # this command. Installing one this way "succeeds" and then boots to
+        # A secureboot-capable=true image is installed by firn from its ISO
+        # (run-firn-install-tests, driven by a recipe), never by this command. Installing one this way "succeeds" and then boots to
         # emergency mode. Verified directly: the resulting deployment's UKI
         # carries only `rw composefs=?<digest>`, so root discovery falls through
         # to gpt-auto, which never produces /dev/gpt-auto-root, so sysroot.mount
@@ -150,7 +150,7 @@ spec:
         CAPABILITY="$(skopeo inspect "docker://${IMAGE}" --format '{{ index .Labels "io.snosi.bootc.secureboot-capable" }}' 2>/dev/null || echo unknown)"
         echo "io.snosi.bootc.secureboot-capable=${CAPABILITY} for ${IMAGE}" >&2
         if [[ "${CAPABILITY}" != "false" ]]; then
-          printf '%s' "NOT APPLICABLE: ${IMAGE} is secureboot-capable=${CAPABILITY}. bootc install to-disk is the mechanics tier and requires secureboot-capable=false; this image needs the external secure installer. See docs/roadmap.md." > /tmp/results/result-summary.txt
+          printf '%s' "NOT APPLICABLE: ${IMAGE} is secureboot-capable=${CAPABILITY}. bootc install to-disk is the mechanics tier and requires secureboot-capable=false; this image is installed by firn (run-firn-install-tests). See docs/roadmap.md." > /tmp/results/result-summary.txt
           cat /tmp/results/result-summary.txt >&2
           exit 1
         fi

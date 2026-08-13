@@ -16,7 +16,7 @@ Nothing in this lab proves that yet. This is the path.
 
 ## Status at a glance
 
-Updated 2026-08-10 after the latest digest-triggered runs. If you read one
+Updated 2026-08-12 after the secure lane's retirement. If you read one
 section, read this one.
 
 | Lane | State |
@@ -26,11 +26,12 @@ section, read this one.
 | Published A/B disk artifact | 🟢 |
 | ISO boot, Secure Boot enforced | 🟢 |
 | bootc installer (mechanics) | 🟢 — latest committed run `fkplf` |
-| **bootc secure installer** | 🔴 latest two runs fail assembly-compatibility validation; first 18/18 green 2026-08-07 |
+| **bootc secure installer** | ⚫ retired 2026-08-12 — superseded by the firn install matrix (core ADR-0027/0028); was red on assembly-compatibility validation, first 18/18 green 2026-08-07 |
+| firn installer matrix | 🟢 — latest run `firn-install-matrix-sz9rv`, all 10 cells green 2026-08-12 |
 | Registry digest poll, orphan GC | 🟢 |
 
-**Seven lanes are currently green; the secure lane has prior green evidence but
-is currently red.** The secure install path first went green on 2026-08-07
+**Every live lane is currently green; the retired secure lane ended red with
+prior green evidence.** The secure install path first went green on 2026-08-07
 (`snosi-secure-install-5dpkq`, 18 assertions, 0 failed, 0 blocked) against
 **published media and a published image** — `snow-live-latest.iso` and
 `cayo@sha256:b3375f6c`. It passed repeatedly through

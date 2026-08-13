@@ -145,7 +145,6 @@ artifact.
 | `run-incus-disk-tests` | `snosi-disk-boot-test.yaml` | Fetches, signature-verifies and boots the published `*-ab.disk.raw.xz`. Green with Secure Boot off. |
 | `run-incus-install-tests` | `snosi-install-test.yaml` | **The native A/B installer** — partitioning, EROFS + dm-verity root, LUKS `/var`, TPM enrollment. |
 | `run-incus-bootc-install-tests` | `snosi-bootc-install-test.yaml` | **The bootc mechanics tier** — direct `bootc install to-disk` of a `secureboot-capable=false` mechanics image, then a real bootc host. |
-| `run-secure-install-tests` | `snosi-secure-install-test.yaml` | **The bootc secure tier** — the external Dakota/bootc-installer/Fisherman path, with Secure Boot enforced, MOK enrollment, LUKS root, and TPM unlock. |
 | `run-firn-install-tests` | `firn-install-test.yaml` | **The firn install matrix** — `firn`, the single installer (core ADR-0027/0028), driven from its ISO across a fan-out of (family × image × encryption × secure-boot) cells, each from nothing to installed-and-booted. |
 
 #### The firn install matrix
@@ -281,16 +280,15 @@ did not include in the UKI initrd. [snosi#520](https://github.com/frostyard/snos
 ships that rule explicitly, and Snosi's secure artifact validation now rejects
 an initrd that cannot create the GPT-auto root link.
 
-The secure lane proved that repair repeatedly. Its latest successful committed
-run, `snosi-secure-install-auto-fwzbj`, verified 18/18 assertions on 2026-08-10
-with Secure Boot enforced, MOK enrolled, recovery available, and TPM unlock
-working. The next two digest-triggered runs (`4pzln` and `s6mqq`) are the current
-red status: both completed `bootc install`, then failed contract validation with
-`secure contract has unsupported assembly compatibility`. That is a new
-image/installer compatibility failure, not a recurrence of missing GPT-auto
-root discovery. See the
+The secure lane proved that repair repeatedly before it was retired. Its last
+successful committed run, `snosi-secure-install-auto-fwzbj`, verified 18/18
+assertions on 2026-08-10 with Secure Boot enforced, MOK enrolled, recovery
+available, and TPM unlock working. The lane — `run-secure-install-tests`, the
+external Dakota/bootc-installer/Fisherman path — was removed on 2026-08-12:
+`firn` is the single installer (core ADR-0027/0028), and the firn install
+matrix now owns secure-boot + encrypted bootc coverage. See the
 [secure installer status and blocker history](docs/roadmap.md#status-at-a-glance)
-for the complete evidence and limits.
+for the complete evidence and limits of the retired lane.
 
 ### Driving a guest with no agent and no SSH
 
