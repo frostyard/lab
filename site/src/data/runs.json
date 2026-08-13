@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-13T03:00:19Z",
+  "generated": "2026-08-13T03:30:22Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -26,27 +26,20 @@
       "label": "Native A/B installer",
       "kind": "install",
       "latest": {
-        "name": "diag-install-sb-dprnz",
-        "phase": "Succeeded",
-        "started": "2026-08-06T03:08:39Z",
-        "finished": "2026-08-06T03:13:36Z",
-        "durationSeconds": 297,
+        "name": "diag-install-sb-wksfv",
+        "phase": "Failed",
+        "started": "2026-08-06T03:06:17Z",
+        "finished": "2026-08-06T03:07:09Z",
+        "durationSeconds": 52,
         "template": "run-incus-install-tests",
         "kind": "install",
         "label": "Native A/B installer",
         "trigger": "manual",
-        "result": "installed and verified: cayo-ab (verity+luks+erofs, secureboot=true, skip-mok=true)",
-        "checks": [
-          "bootc=absent",
-          "luks=ok",
-          "osrelease=cayo-20260805174903",
-          "rootfs=erofs",
-          "varsource=/dev/mapper/var",
-          "verity=ok"
-        ]
+        "result": "No results generated",
+        "checks": []
       },
-      "runs": 5,
-      "everGreen": true
+      "runs": 4,
+      "everGreen": false
     },
     {
       "template": "run-incus-bootc-install-tests",
@@ -126,9 +119,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786590000",
+        "name": "publish-results-1786591800",
         "phase": "Running",
-        "started": "2026-08-13T03:00:00Z",
+        "started": "2026-08-13T03:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -166,19 +159,19 @@
       "label": "Registry digest poll",
       "kind": "poll",
       "latest": {
-        "name": "image-poll-snow-latest-1786590000",
-        "phase": "Running",
-        "started": "2026-08-13T03:00:00Z",
-        "finished": null,
-        "durationSeconds": null,
+        "name": "image-poll-cayo-latest-1786591200",
+        "phase": "Succeeded",
+        "started": "2026-08-13T03:20:00Z",
+        "finished": "2026-08-13T03:21:26Z",
+        "durationSeconds": 86,
         "template": "image-poller",
         "kind": "poll",
         "label": "Registry digest poll",
         "trigger": "scheduled",
-        "result": null,
+        "result": "14 passed, 6 skipped",
         "checks": []
       },
-      "runs": 12,
+      "runs": 11,
       "everGreen": true
     },
     {
@@ -224,24 +217,50 @@
   ],
   "runs": [
     {
-      "name": "image-poll-snow-latest-1786590000",
+      "name": "publish-results-1786591800",
       "phase": "Running",
-      "started": "2026-08-13T03:00:00Z",
+      "started": "2026-08-13T03:30:00Z",
       "finished": null,
       "durationSeconds": null,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
       "trigger": "scheduled",
       "result": null,
       "checks": []
     },
     {
-      "name": "publish-results-1786590000",
-      "phase": "Running",
+      "name": "image-poll-cayo-latest-1786591200",
+      "phase": "Succeeded",
+      "started": "2026-08-13T03:20:00Z",
+      "finished": "2026-08-13T03:21:26Z",
+      "durationSeconds": 86,
+      "template": "image-poller",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": "14 passed, 6 skipped",
+      "checks": []
+    },
+    {
+      "name": "image-poll-snow-latest-1786590000",
+      "phase": "Failed",
       "started": "2026-08-13T03:00:00Z",
-      "finished": null,
-      "durationSeconds": null,
+      "finished": "2026-08-13T03:01:22Z",
+      "durationSeconds": 82,
+      "template": "image-poller",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": "19 passed, 1 failed",
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786590000",
+      "phase": "Succeeded",
+      "started": "2026-08-13T03:00:00Z",
+      "finished": "2026-08-13T03:00:31Z",
+      "durationSeconds": 31,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -267,19 +286,6 @@
       "phase": "Succeeded",
       "started": "2026-08-13T02:00:00Z",
       "finished": "2026-08-13T02:00:32Z",
-      "durationSeconds": 32,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786584600",
-      "phase": "Succeeded",
-      "started": "2026-08-13T01:30:00Z",
-      "finished": "2026-08-13T01:30:32Z",
       "durationSeconds": 32,
       "template": "publish",
       "kind": "other",
@@ -325,19 +331,6 @@
       "label": "Orphan pod GC",
       "trigger": "scheduled",
       "result": null,
-      "checks": []
-    },
-    {
-      "name": "image-poll-snow-latest-1786579200",
-      "phase": "Failed",
-      "started": "2026-08-13T00:00:00Z",
-      "finished": "2026-08-13T00:01:22Z",
-      "durationSeconds": 82,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": "19 passed, 1 failed",
       "checks": []
     },
     {
@@ -426,19 +419,6 @@
       "template": "publish",
       "kind": "other",
       "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "image-poll-cayo-latest-1786558800",
-      "phase": "Succeeded",
-      "started": "2026-08-12T18:20:00Z",
-      "finished": "2026-08-12T18:20:20Z",
-      "durationSeconds": 20,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": null,
       "checks": []
@@ -611,26 +591,6 @@
       "trigger": "scheduled",
       "result": "20 passed",
       "checks": []
-    },
-    {
-      "name": "diag-install-sb-dprnz",
-      "phase": "Succeeded",
-      "started": "2026-08-06T03:08:39Z",
-      "finished": "2026-08-06T03:13:36Z",
-      "durationSeconds": 297,
-      "template": "run-incus-install-tests",
-      "kind": "install",
-      "label": "Native A/B installer",
-      "trigger": "manual",
-      "result": "installed and verified: cayo-ab (verity+luks+erofs, secureboot=true, skip-mok=true)",
-      "checks": [
-        "bootc=absent",
-        "luks=ok",
-        "osrelease=cayo-20260805174903",
-        "rootfs=erofs",
-        "varsource=/dev/mapper/var",
-        "verity=ok"
-      ]
     },
     {
       "name": "diag-install-sb-wksfv",
