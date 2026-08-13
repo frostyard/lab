@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-13T05:30:19Z",
+  "generated": "2026-08-13T06:00:20Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -119,9 +119,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786599000",
+        "name": "publish-results-1786600800",
         "phase": "Running",
-        "started": "2026-08-13T05:30:00Z",
+        "started": "2026-08-13T06:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -159,19 +159,19 @@
       "label": "Registry digest poll",
       "kind": "poll",
       "latest": {
-        "name": "image-poll-snowfield-latest-1786592400",
-        "phase": "Failed",
-        "started": "2026-08-13T03:40:00Z",
-        "finished": "2026-08-13T03:41:21Z",
-        "durationSeconds": 81,
+        "name": "image-poll-snow-latest-1786600800",
+        "phase": "Running",
+        "started": "2026-08-13T06:00:00Z",
+        "finished": null,
+        "durationSeconds": null,
         "template": "image-poller",
         "kind": "poll",
         "label": "Registry digest poll",
         "trigger": "scheduled",
-        "result": "19 passed, 1 failed",
+        "result": null,
         "checks": []
       },
-      "runs": 11,
+      "runs": 12,
       "everGreen": true
     },
     {
@@ -217,11 +217,37 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1786599000",
+      "name": "image-poll-snow-latest-1786600800",
       "phase": "Running",
-      "started": "2026-08-13T05:30:00Z",
+      "started": "2026-08-13T06:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "image-poller",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786600800",
+      "phase": "Running",
+      "started": "2026-08-13T06:00:00Z",
+      "finished": null,
+      "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786599000",
+      "phase": "Succeeded",
+      "started": "2026-08-13T05:30:00Z",
+      "finished": "2026-08-13T05:30:31Z",
+      "durationSeconds": 31,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -247,19 +273,6 @@
       "phase": "Succeeded",
       "started": "2026-08-13T04:30:00Z",
       "finished": "2026-08-13T04:30:32Z",
-      "durationSeconds": 32,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786593600",
-      "phase": "Succeeded",
-      "started": "2026-08-13T04:00:00Z",
-      "finished": "2026-08-13T04:00:32Z",
       "durationSeconds": 32,
       "template": "publish",
       "kind": "other",
