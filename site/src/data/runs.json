@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-14T20:30:16Z",
+  "generated": "2026-08-14T21:00:16Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -119,9 +119,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786739400",
+        "name": "publish-results-1786741200",
         "phase": "Running",
-        "started": "2026-08-14T20:30:00Z",
+        "started": "2026-08-14T21:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -131,7 +131,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 6,
+      "runs": 5,
       "everGreen": true
     },
     {
@@ -159,19 +159,19 @@
       "label": "Registry digest poll",
       "kind": "poll",
       "latest": {
-        "name": "image-poll-snowfield-latest-1786732800",
-        "phase": "Failed",
-        "started": "2026-08-14T18:40:00Z",
-        "finished": "2026-08-14T18:41:23Z",
-        "durationSeconds": 83,
+        "name": "image-poll-snow-latest-1786741200",
+        "phase": "Running",
+        "started": "2026-08-14T21:00:00Z",
+        "finished": null,
+        "durationSeconds": null,
         "template": "image-poller",
         "kind": "poll",
         "label": "Registry digest poll",
         "trigger": "scheduled",
-        "result": "19 passed, 1 failed",
+        "result": null,
         "checks": []
       },
-      "runs": 5,
+      "runs": 6,
       "everGreen": true
     },
     {
@@ -217,11 +217,37 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1786739400",
+      "name": "image-poll-snow-latest-1786741200",
       "phase": "Running",
-      "started": "2026-08-14T20:30:00Z",
+      "started": "2026-08-14T21:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "image-poller",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786741200",
+      "phase": "Running",
+      "started": "2026-08-14T21:00:00Z",
+      "finished": null,
+      "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786739400",
+      "phase": "Succeeded",
+      "started": "2026-08-14T20:30:00Z",
+      "finished": "2026-08-14T20:30:30Z",
+      "durationSeconds": 30,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -248,19 +274,6 @@
       "started": "2026-08-14T19:30:00Z",
       "finished": "2026-08-14T19:30:30Z",
       "durationSeconds": 30,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786734000",
-      "phase": "Succeeded",
-      "started": "2026-08-14T19:00:00Z",
-      "finished": "2026-08-14T19:00:34Z",
-      "durationSeconds": 34,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -500,19 +513,6 @@
         "osrelease=snow-20260810050914",
         "rootfs=overlay"
       ]
-    },
-    {
-      "name": "publish-results-manual-hgg89",
-      "phase": "Succeeded",
-      "started": "2026-08-07T20:30:08Z",
-      "finished": "2026-08-07T20:30:40Z",
-      "durationSeconds": 32,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
     },
     {
       "name": "diag-install-sb-wksfv",
