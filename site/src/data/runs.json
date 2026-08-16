@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-16T07:30:16Z",
+  "generated": "2026-08-16T08:00:15Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -119,9 +119,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786865400",
+        "name": "publish-results-1786867200",
         "phase": "Running",
-        "started": "2026-08-16T07:30:00Z",
+        "started": "2026-08-16T08:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -217,11 +217,24 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1786865400",
+      "name": "publish-results-1786867200",
       "phase": "Running",
-      "started": "2026-08-16T07:30:00Z",
+      "started": "2026-08-16T08:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786865400",
+      "phase": "Succeeded",
+      "started": "2026-08-16T07:30:00Z",
+      "finished": "2026-08-16T07:30:30Z",
+      "durationSeconds": 30,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -305,19 +318,6 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786860000",
-      "phase": "Succeeded",
-      "started": "2026-08-16T06:00:00Z",
-      "finished": "2026-08-16T06:00:30Z",
-      "durationSeconds": 30,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
