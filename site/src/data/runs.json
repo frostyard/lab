@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-17T16:00:15Z",
+  "generated": "2026-08-17T16:30:15Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -46,27 +46,20 @@
       "label": "bootc installer (mechanics)",
       "kind": "install",
       "latest": {
-        "name": "snosi-bootc-install-fkplf",
-        "phase": "Succeeded",
-        "started": "2026-08-10T16:10:49Z",
-        "finished": "2026-08-10T16:14:17Z",
-        "durationSeconds": 208,
+        "name": "snosi-bootc-install-svkng",
+        "phase": "Failed",
+        "started": "2026-08-05T17:04:39Z",
+        "finished": "2026-08-05T17:05:39Z",
+        "durationSeconds": 60,
         "template": "run-incus-bootc-install-tests",
         "kind": "install",
         "label": "bootc installer (mechanics)",
         "trigger": "manual",
-        "result": "bootc installed and verified: ghcr.io/frostyard/snow:mechanics (secureboot=false)",
-        "checks": [
-          "backend=composefs",
-          "booted=ok",
-          "failedunits=0",
-          "image=ghcr.io/frostyard/snow:mechanics",
-          "osrelease=snow-20260810050914",
-          "rootfs=overlay"
-        ]
+        "result": "FAILED: bootc install to-disk did not complete for ghcr.io/frostyard/snow:mechanics",
+        "checks": []
       },
-      "runs": 19,
-      "everGreen": true
+      "runs": 18,
+      "everGreen": false
     },
     {
       "template": "run-firn-install-tests",
@@ -119,9 +112,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1786982400",
+        "name": "publish-results-1786984200",
         "phase": "Running",
-        "started": "2026-08-17T16:00:00Z",
+        "started": "2026-08-17T16:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -217,11 +210,24 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1786982400",
+      "name": "publish-results-1786984200",
       "phase": "Running",
-      "started": "2026-08-17T16:00:00Z",
+      "started": "2026-08-17T16:30:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1786982400",
+      "phase": "Succeeded",
+      "started": "2026-08-17T16:00:00Z",
+      "finished": "2026-08-17T16:00:30Z",
+      "durationSeconds": 30,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -287,19 +293,6 @@
       "started": "2026-08-17T15:00:00Z",
       "finished": "2026-08-17T15:00:32Z",
       "durationSeconds": 32,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1786977000",
-      "phase": "Succeeded",
-      "started": "2026-08-17T14:30:00Z",
-      "finished": "2026-08-17T14:30:30Z",
-      "durationSeconds": 30,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -480,26 +473,6 @@
       "trigger": "manual",
       "result": "FAILED: installed system did not boot/report (bootc/snow/tpm2-luks-passphrase/sb=true) \u2014 for an encrypted cell this is an unlock failure",
       "checks": []
-    },
-    {
-      "name": "snosi-bootc-install-fkplf",
-      "phase": "Succeeded",
-      "started": "2026-08-10T16:10:49Z",
-      "finished": "2026-08-10T16:14:17Z",
-      "durationSeconds": 208,
-      "template": "run-incus-bootc-install-tests",
-      "kind": "install",
-      "label": "bootc installer (mechanics)",
-      "trigger": "manual",
-      "result": "bootc installed and verified: ghcr.io/frostyard/snow:mechanics (secureboot=false)",
-      "checks": [
-        "backend=composefs",
-        "booted=ok",
-        "failedunits=0",
-        "image=ghcr.io/frostyard/snow:mechanics",
-        "osrelease=snow-20260810050914",
-        "rootfs=overlay"
-      ]
     },
     {
       "name": "diag-install-sb-wksfv",
