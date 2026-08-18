@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-18T03:00:17Z",
+  "generated": "2026-08-18T03:30:17Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -112,9 +112,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1787022000",
+        "name": "publish-results-1787023800",
         "phase": "Running",
-        "started": "2026-08-18T03:00:00Z",
+        "started": "2026-08-18T03:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -152,11 +152,11 @@
       "label": "Registry digest poll",
       "kind": "poll",
       "latest": {
-        "name": "image-poll-snow-latest-1787022000",
-        "phase": "Running",
-        "started": "2026-08-18T03:00:00Z",
-        "finished": null,
-        "durationSeconds": null,
+        "name": "image-poll-cayo-latest-1787023200",
+        "phase": "Succeeded",
+        "started": "2026-08-18T03:20:00Z",
+        "finished": "2026-08-18T03:20:20Z",
+        "durationSeconds": 20,
         "template": "image-poller",
         "kind": "poll",
         "label": "Registry digest poll",
@@ -164,7 +164,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 6,
+      "runs": 5,
       "everGreen": true
     },
     {
@@ -210,11 +210,24 @@
   ],
   "runs": [
     {
-      "name": "image-poll-snow-latest-1787022000",
+      "name": "publish-results-1787023800",
       "phase": "Running",
-      "started": "2026-08-18T03:00:00Z",
+      "started": "2026-08-18T03:30:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "image-poll-cayo-latest-1787023200",
+      "phase": "Succeeded",
+      "started": "2026-08-18T03:20:00Z",
+      "finished": "2026-08-18T03:20:20Z",
+      "durationSeconds": 20,
       "template": "image-poller",
       "kind": "poll",
       "label": "Registry digest poll",
@@ -223,11 +236,24 @@
       "checks": []
     },
     {
-      "name": "publish-results-1787022000",
-      "phase": "Running",
+      "name": "image-poll-snow-latest-1787022000",
+      "phase": "Failed",
       "started": "2026-08-18T03:00:00Z",
-      "finished": null,
-      "durationSeconds": null,
+      "finished": "2026-08-18T03:01:22Z",
+      "durationSeconds": 82,
+      "template": "image-poller",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": "19 passed, 1 failed",
+      "checks": []
+    },
+    {
+      "name": "publish-results-1787022000",
+      "phase": "Succeeded",
+      "started": "2026-08-18T03:00:00Z",
+      "finished": "2026-08-18T03:00:30Z",
+      "durationSeconds": 30,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -254,19 +280,6 @@
       "started": "2026-08-18T02:00:00Z",
       "finished": "2026-08-18T02:00:30Z",
       "durationSeconds": 30,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1787016600",
-      "phase": "Succeeded",
-      "started": "2026-08-18T01:30:00Z",
-      "finished": "2026-08-18T01:30:32Z",
-      "durationSeconds": 32,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -314,36 +327,10 @@
       "checks": []
     },
     {
-      "name": "image-poll-snow-latest-1787011200",
-      "phase": "Failed",
-      "started": "2026-08-18T00:00:00Z",
-      "finished": "2026-08-18T00:01:23Z",
-      "durationSeconds": 83,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
       "name": "image-poll-cayo-latest-1787001600",
       "phase": "Succeeded",
       "started": "2026-08-17T21:20:00Z",
       "finished": "2026-08-17T21:20:20Z",
-      "durationSeconds": 20,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "image-poll-cayo-latest-1786990800",
-      "phase": "Succeeded",
-      "started": "2026-08-17T18:20:00Z",
-      "finished": "2026-08-17T18:20:20Z",
       "durationSeconds": 20,
       "template": "image-poller",
       "kind": "poll",
