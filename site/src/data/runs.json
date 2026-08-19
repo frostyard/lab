@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-19T23:00:15Z",
+  "generated": "2026-08-19T23:30:16Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -66,26 +66,20 @@
       "label": "firn installer matrix",
       "kind": "install",
       "latest": {
-        "name": "firn-install-matrix-sz9rv",
-        "phase": "Succeeded",
-        "started": "2026-08-12T22:06:58Z",
-        "finished": "2026-08-12T23:06:10Z",
-        "durationSeconds": 3552,
+        "name": "firn-bootc-sb-test-49dx7",
+        "phase": "Failed",
+        "started": "2026-08-12T20:17:33Z",
+        "finished": "2026-08-12T20:22:00Z",
+        "durationSeconds": 267,
         "template": "run-firn-install-tests",
         "kind": "install",
         "label": "firn installer matrix",
         "trigger": "manual",
-        "result": "installed and booted: bootc/cayo/none/sb=false",
-        "checks": [
-          "bootc=bootc_1.16.7",
-          "booted=ok",
-          "luks=absent",
-          "osrelease=cayo",
-          "rootfs=overlay"
-        ]
+        "result": "FAILED: firn install did not complete (bootc/cayo/none/sb=true)",
+        "checks": []
       },
-      "runs": 4,
-      "everGreen": true
+      "runs": 3,
+      "everGreen": false
     },
     {
       "template": "orphan-pod-gc",
@@ -112,9 +106,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1787180400",
+        "name": "publish-results-1787182200",
         "phase": "Running",
-        "started": "2026-08-19T23:00:00Z",
+        "started": "2026-08-19T23:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -210,11 +204,24 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1787180400",
+      "name": "publish-results-1787182200",
       "phase": "Running",
-      "started": "2026-08-19T23:00:00Z",
+      "started": "2026-08-19T23:30:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1787180400",
+      "phase": "Succeeded",
+      "started": "2026-08-19T23:00:00Z",
+      "finished": "2026-08-19T23:00:20Z",
+      "durationSeconds": 20,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -259,19 +266,6 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
-      "name": "publish-results-1787175000",
-      "phase": "Succeeded",
-      "started": "2026-08-19T21:30:00Z",
-      "finished": "2026-08-19T21:30:30Z",
-      "durationSeconds": 30,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
@@ -364,25 +358,6 @@
       "trigger": "scheduled",
       "result": null,
       "checks": []
-    },
-    {
-      "name": "firn-install-matrix-sz9rv",
-      "phase": "Succeeded",
-      "started": "2026-08-12T22:06:58Z",
-      "finished": "2026-08-12T23:06:10Z",
-      "durationSeconds": 3552,
-      "template": "run-firn-install-tests",
-      "kind": "install",
-      "label": "firn installer matrix",
-      "trigger": "manual",
-      "result": "installed and booted: bootc/cayo/none/sb=false",
-      "checks": [
-        "bootc=bootc_1.16.7",
-        "booted=ok",
-        "luks=absent",
-        "osrelease=cayo",
-        "rootfs=overlay"
-      ]
     },
     {
       "name": "firn-bootc-sb-test-49dx7",
