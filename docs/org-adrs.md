@@ -13,9 +13,10 @@ The ones that bind lab:
 - [ADR-0017 — io.snosi.* OCI capability labels and the mechanics QA tier](https://github.com/frostyard/core/blob/main/docs/adr/0017-io-snosi-capability-labels-and-mechanics-tier.md) — lanes select tiers via io.snosi.bootc.secureboot-capable; :mechanics vs :latest routing
 - [ADR-0018 — Org-wide agent instruction and knowledge surfaces](https://github.com/frostyard/core/blob/main/docs/adr/0018-org-wide-agent-instruction-and-knowledge-surfaces.md) — AGENTS.md symlinks, .knowledge/, .memory/, .github/prompts
 - [ADR-0019 — Repository governance as machine-readable policy with risk tiers](https://github.com/frostyard/core/blob/main/docs/adr/0019-governance-as-code-and-risk-tiers.md) — policies/agent-governance.json, risk tiers
-- [ADR-0020 — Trust boundaries for AI automation in CI](https://github.com/frostyard/core/blob/main/docs/adr/0020-ai-automation-trust-boundaries.md) — copilot-review-apply admission rules, permissions: {}, idempotency markers
+- [ADR-0020 — Trust boundaries for AI automation in CI](https://github.com/frostyard/core/blob/main/docs/adr/0020-ai-automation-trust-boundaries.md) — admission rules and least-privilege controls for AI automation
 - [ADR-0021 — SHA-pinned actions and least-privilege CI workflows](https://github.com/frostyard/core/blob/main/docs/adr/0021-sha-pinned-actions-and-least-privilege-ci.md) — SHA pins, persist-credentials: false, nightly compliance
 - [ADR-0023 — External downloads are version-pinned and checksum-verified](https://github.com/frostyard/core/blob/main/docs/adr/0023-verified-pinned-downloads.md) — KVER/KSHA-style inline pins in credential-bearing pods
+- [ADR-0041 — Retire copilot-review-apply where Snowcat gates review](https://github.com/frostyard/core/blob/main/docs/adr/0041-retire-copilot-review-apply-where-snowcat-gates-review.md) — retires the unbounded review-apply loop while preserving request-on-ready review and human routing
 
 When changing behavior covered by one of these, update or supersede the ADR
 in frostyard/core first, then change this repo in the same effort.

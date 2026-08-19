@@ -48,7 +48,6 @@ Org-wide decisions binding this repo: [org-adrs.md](org-adrs.md).
 - [quality.md](quality.md) — quality signals, evidence, and known gaps
 - [risk-tiers.md](risk-tiers.md) — change risk tiers used by review and CI
 - [review-rubric.md](review-rubric.md) — what review checks, by tier
-- [automated-review.md](automated-review.md) — the automated review pipeline
 - [claude-code-review.md](claude-code-review.md) — advisory Claude review
   workflow
 - [ai-fix-workflow.md](ai-fix-workflow.md) — the AI fix-request workflow
