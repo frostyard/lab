@@ -465,9 +465,6 @@ The deny-by-default automated-contributor policy and its local validator:
 Public aggregate dashboards and pull request metrics:
 [`docs/metrics/`](docs/metrics/).
 
-Copilot review feedback automation and its repository setup:
-[`docs/automated-review.md`](docs/automated-review.md).
-
 ---
 
 ## Reporting
