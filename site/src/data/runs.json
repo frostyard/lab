@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-20T22:00:19Z",
+  "generated": "2026-08-20T22:30:16Z",
   "lanes": [
     {
       "template": "snosi-qa-pipeline",
@@ -106,9 +106,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1787263200",
+        "name": "publish-results-1787265000",
         "phase": "Running",
-        "started": "2026-08-20T22:00:00Z",
+        "started": "2026-08-20T22:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -204,11 +204,24 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1787263200",
+      "name": "publish-results-1787265000",
       "phase": "Running",
-      "started": "2026-08-20T22:00:00Z",
+      "started": "2026-08-20T22:30:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1787263200",
+      "phase": "Succeeded",
+      "started": "2026-08-20T22:00:00Z",
+      "finished": "2026-08-20T22:00:32Z",
+      "durationSeconds": 32,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -274,19 +287,6 @@
       "started": "2026-08-20T21:00:00Z",
       "finished": "2026-08-20T21:00:31Z",
       "durationSeconds": 31,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1787257800",
-      "phase": "Succeeded",
-      "started": "2026-08-20T20:30:00Z",
-      "finished": "2026-08-20T20:30:30Z",
-      "durationSeconds": 30,
       "template": "publish",
       "kind": "other",
       "label": "publish",
