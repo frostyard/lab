@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-04T02:30:16Z",
+  "generated": "2026-09-04T03:00:17Z",
   "lanes": [
     {
       "template": "run-incus-install-tests",
@@ -86,9 +86,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1788489000",
+        "name": "publish-results-1788490800",
         "phase": "Running",
-        "started": "2026-09-04T02:30:00Z",
+        "started": "2026-09-04T03:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -126,40 +126,20 @@
       "label": "Registry digest poll",
       "kind": "poll",
       "latest": {
-        "name": "image-poll-snowfield-latest-1788482400",
-        "phase": "Failed",
-        "started": "2026-09-04T00:40:00Z",
-        "finished": "2026-09-04T00:41:26Z",
-        "durationSeconds": 86,
+        "name": "image-poll-snow-latest-1788490800",
+        "phase": "Running",
+        "started": "2026-09-04T03:00:00Z",
+        "finished": null,
+        "durationSeconds": null,
         "template": "image-poller",
         "kind": "poll",
         "label": "Registry digest poll",
         "trigger": "scheduled",
-        "result": "19 passed, 1 failed",
+        "result": null,
         "checks": []
       },
-      "runs": 6,
+      "runs": 7,
       "everGreen": true
-    },
-    {
-      "template": "run-incus-vm-tests",
-      "label": "ISO boot (Secure Boot)",
-      "kind": "vm",
-      "latest": {
-        "name": "snosi-vm-boot-c6svx",
-        "phase": "Failed",
-        "started": "2026-08-05T02:52:05Z",
-        "finished": "2026-08-05T02:52:16Z",
-        "durationSeconds": 11,
-        "template": "run-incus-vm-tests",
-        "kind": "vm",
-        "label": "ISO boot (Secure Boot)",
-        "trigger": "manual",
-        "result": "No results generated",
-        "checks": []
-      },
-      "runs": 2,
-      "everGreen": false
     },
     {
       "template": "run-incus-disk-tests",
@@ -184,11 +164,37 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1788489000",
+      "name": "image-poll-snow-latest-1788490800",
       "phase": "Running",
-      "started": "2026-09-04T02:30:00Z",
+      "started": "2026-09-04T03:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "image-poller",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1788490800",
+      "phase": "Running",
+      "started": "2026-09-04T03:00:00Z",
+      "finished": null,
+      "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1788489000",
+      "phase": "Succeeded",
+      "started": "2026-09-04T02:30:00Z",
+      "finished": "2026-09-04T02:30:30Z",
+      "durationSeconds": 30,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -215,19 +221,6 @@
       "started": "2026-09-04T01:30:00Z",
       "finished": "2026-09-04T01:30:31Z",
       "durationSeconds": 31,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1788483600",
-      "phase": "Succeeded",
-      "started": "2026-09-04T01:00:00Z",
-      "finished": "2026-09-04T01:00:30Z",
-      "durationSeconds": 30,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -805,32 +798,6 @@
       "label": "Published A/B disk artifact",
       "trigger": "manual",
       "result": "FAILED: cayo-ab 20260805002345 never reached 'Reached target' in 420s (state=RUNNING)",
-      "checks": []
-    },
-    {
-      "name": "snosi-vm-boot-c6svx",
-      "phase": "Failed",
-      "started": "2026-08-05T02:52:05Z",
-      "finished": "2026-08-05T02:52:16Z",
-      "durationSeconds": 11,
-      "template": "run-incus-vm-tests",
-      "kind": "vm",
-      "label": "ISO boot (Secure Boot)",
-      "trigger": "manual",
-      "result": "No results generated",
-      "checks": []
-    },
-    {
-      "name": "snosi-vm-boot-42q4z",
-      "phase": "Failed",
-      "started": "2026-08-05T02:42:02Z",
-      "finished": "2026-08-05T02:43:16Z",
-      "durationSeconds": 74,
-      "template": "run-incus-vm-tests",
-      "kind": "vm",
-      "label": "ISO boot (Secure Boot)",
-      "trigger": "manual",
-      "result": "No results generated",
       "checks": []
     }
   ]
