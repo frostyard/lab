@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-04T05:30:16Z",
+  "generated": "2026-09-04T06:00:17Z",
   "lanes": [
     {
       "template": "run-incus-install-tests",
@@ -38,7 +38,7 @@
         "result": "FAILED: bootc install to-disk did not complete for ghcr.io/frostyard/snow:mechanics",
         "checks": []
       },
-      "runs": 12,
+      "runs": 10,
       "everGreen": false
     },
     {
@@ -86,9 +86,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1788499800",
+        "name": "publish-results-1788501600",
         "phase": "Running",
-        "started": "2026-09-04T05:30:00Z",
+        "started": "2026-09-04T06:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -126,19 +126,19 @@
       "label": "Registry digest poll",
       "kind": "poll",
       "latest": {
-        "name": "image-poll-snowfield-latest-1788493200",
-        "phase": "Failed",
-        "started": "2026-09-04T03:40:00Z",
-        "finished": "2026-09-04T03:41:21Z",
-        "durationSeconds": 81,
+        "name": "image-poll-snow-latest-1788501600",
+        "phase": "Running",
+        "started": "2026-09-04T06:00:00Z",
+        "finished": null,
+        "durationSeconds": null,
         "template": "image-poller",
         "kind": "poll",
         "label": "Registry digest poll",
         "trigger": "scheduled",
-        "result": "19 passed, 1 failed",
+        "result": null,
         "checks": []
       },
-      "runs": 6,
+      "runs": 7,
       "everGreen": true
     },
     {
@@ -164,11 +164,37 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1788499800",
+      "name": "image-poll-snow-latest-1788501600",
       "phase": "Running",
-      "started": "2026-09-04T05:30:00Z",
+      "started": "2026-09-04T06:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "image-poller",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1788501600",
+      "phase": "Running",
+      "started": "2026-09-04T06:00:00Z",
+      "finished": null,
+      "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1788499800",
+      "phase": "Succeeded",
+      "started": "2026-09-04T05:30:00Z",
+      "finished": "2026-09-04T05:30:30Z",
+      "durationSeconds": 30,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -194,19 +220,6 @@
       "phase": "Succeeded",
       "started": "2026-09-04T04:30:00Z",
       "finished": "2026-09-04T04:30:30Z",
-      "durationSeconds": 30,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1788494400",
-      "phase": "Succeeded",
-      "started": "2026-09-04T04:00:00Z",
-      "finished": "2026-09-04T04:00:30Z",
       "durationSeconds": 30,
       "template": "publish",
       "kind": "other",
@@ -624,32 +637,6 @@
       "started": "2026-08-05T05:38:35Z",
       "finished": "2026-08-05T06:19:32Z",
       "durationSeconds": 2457,
-      "template": "run-incus-bootc-install-tests",
-      "kind": "install",
-      "label": "bootc installer (mechanics)",
-      "trigger": "manual",
-      "result": "FAILED: bootc install to-disk did not complete for ghcr.io/frostyard/snow:latest",
-      "checks": []
-    },
-    {
-      "name": "snosi-bootc-install-bjzrm",
-      "phase": "Failed",
-      "started": "2026-08-05T05:35:25Z",
-      "finished": "2026-08-05T05:36:59Z",
-      "durationSeconds": 94,
-      "template": "run-incus-bootc-install-tests",
-      "kind": "install",
-      "label": "bootc installer (mechanics)",
-      "trigger": "manual",
-      "result": "FAILED: bootc install to-disk did not complete for ghcr.io/frostyard/snow:latest",
-      "checks": []
-    },
-    {
-      "name": "snosi-bootc-install-dd7mr",
-      "phase": "Failed",
-      "started": "2026-08-05T04:53:07Z",
-      "finished": "2026-08-05T05:34:05Z",
-      "durationSeconds": 2458,
       "template": "run-incus-bootc-install-tests",
       "kind": "install",
       "label": "bootc installer (mechanics)",
