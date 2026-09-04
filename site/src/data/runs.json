@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-04T18:00:16Z",
+  "generated": "2026-09-04T18:30:18Z",
   "lanes": [
     {
       "template": "run-incus-install-tests",
@@ -46,10 +46,10 @@
       "label": "Orphan pod GC",
       "kind": "maintenance",
       "latest": {
-        "name": "orphan-pod-gc-1788524220",
+        "name": "orphan-pod-gc-1788545820",
         "phase": "Succeeded",
-        "started": "2026-09-04T12:17:00Z",
-        "finished": "2026-09-04T12:17:10Z",
+        "started": "2026-09-04T18:17:00Z",
+        "finished": "2026-09-04T18:17:10Z",
         "durationSeconds": 10,
         "template": "orphan-pod-gc",
         "kind": "maintenance",
@@ -66,9 +66,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1788544800",
+        "name": "publish-results-1788546600",
         "phase": "Running",
-        "started": "2026-09-04T18:00:00Z",
+        "started": "2026-09-04T18:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -86,11 +86,11 @@
       "label": "Registry digest poll",
       "kind": "poll",
       "latest": {
-        "name": "image-poll-snow-latest-1788544800",
-        "phase": "Running",
-        "started": "2026-09-04T18:00:00Z",
-        "finished": null,
-        "durationSeconds": null,
+        "name": "image-poll-cayo-latest-1788546000",
+        "phase": "Succeeded",
+        "started": "2026-09-04T18:20:00Z",
+        "finished": "2026-09-04T18:20:20Z",
+        "durationSeconds": 20,
         "template": "image-poller",
         "kind": "poll",
         "label": "Registry digest poll",
@@ -98,17 +98,30 @@
         "result": null,
         "checks": []
       },
-      "runs": 7,
+      "runs": 6,
       "everGreen": true
     }
   ],
   "runs": [
     {
-      "name": "image-poll-snow-latest-1788544800",
+      "name": "publish-results-1788546600",
       "phase": "Running",
-      "started": "2026-09-04T18:00:00Z",
+      "started": "2026-09-04T18:30:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "image-poll-cayo-latest-1788546000",
+      "phase": "Succeeded",
+      "started": "2026-09-04T18:20:00Z",
+      "finished": "2026-09-04T18:20:20Z",
+      "durationSeconds": 20,
       "template": "image-poller",
       "kind": "poll",
       "label": "Registry digest poll",
@@ -117,11 +130,37 @@
       "checks": []
     },
     {
-      "name": "publish-results-1788544800",
-      "phase": "Running",
+      "name": "orphan-pod-gc-1788545820",
+      "phase": "Succeeded",
+      "started": "2026-09-04T18:17:00Z",
+      "finished": "2026-09-04T18:17:10Z",
+      "durationSeconds": 10,
+      "template": "orphan-pod-gc",
+      "kind": "maintenance",
+      "label": "Orphan pod GC",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "image-poll-snow-latest-1788544800",
+      "phase": "Failed",
       "started": "2026-09-04T18:00:00Z",
-      "finished": null,
-      "durationSeconds": null,
+      "finished": "2026-09-04T18:01:24Z",
+      "durationSeconds": 84,
+      "template": "image-poller",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": "19 passed, 1 failed",
+      "checks": []
+    },
+    {
+      "name": "publish-results-1788544800",
+      "phase": "Succeeded",
+      "started": "2026-09-04T18:00:00Z",
+      "finished": "2026-09-04T18:00:30Z",
+      "durationSeconds": 30,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -147,19 +186,6 @@
       "phase": "Succeeded",
       "started": "2026-09-04T17:00:00Z",
       "finished": "2026-09-04T17:00:30Z",
-      "durationSeconds": 30,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1788539400",
-      "phase": "Succeeded",
-      "started": "2026-09-04T16:30:00Z",
-      "finished": "2026-09-04T16:30:30Z",
       "durationSeconds": 30,
       "template": "publish",
       "kind": "other",
@@ -195,19 +221,6 @@
       "checks": []
     },
     {
-      "name": "image-poll-snow-latest-1788534000",
-      "phase": "Failed",
-      "started": "2026-09-04T15:00:00Z",
-      "finished": "2026-09-04T15:01:34Z",
-      "durationSeconds": 94,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
       "name": "image-poll-cayo-latest-1788524400",
       "phase": "Succeeded",
       "started": "2026-09-04T12:20:00Z",
@@ -234,36 +247,10 @@
       "checks": []
     },
     {
-      "name": "image-poll-cayo-latest-1788513600",
-      "phase": "Succeeded",
-      "started": "2026-09-04T09:20:00Z",
-      "finished": "2026-09-04T09:20:20Z",
-      "durationSeconds": 20,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "orphan-pod-gc-1788502620",
       "phase": "Succeeded",
       "started": "2026-09-04T06:17:00Z",
       "finished": "2026-09-04T06:17:10Z",
-      "durationSeconds": 10,
-      "template": "orphan-pod-gc",
-      "kind": "maintenance",
-      "label": "Orphan pod GC",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "orphan-pod-gc-1788481020",
-      "phase": "Succeeded",
-      "started": "2026-09-04T00:17:00Z",
-      "finished": "2026-09-04T00:17:10Z",
       "durationSeconds": 10,
       "template": "orphan-pod-gc",
       "kind": "maintenance",
