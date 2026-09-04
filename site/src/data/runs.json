@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-04T06:00:17Z",
+  "generated": "2026-09-04T06:30:17Z",
   "lanes": [
     {
       "template": "run-incus-install-tests",
@@ -38,7 +38,7 @@
         "result": "FAILED: bootc install to-disk did not complete for ghcr.io/frostyard/snow:mechanics",
         "checks": []
       },
-      "runs": 10,
+      "runs": 8,
       "everGreen": false
     },
     {
@@ -66,10 +66,10 @@
       "label": "Orphan pod GC",
       "kind": "maintenance",
       "latest": {
-        "name": "orphan-pod-gc-1788481020",
+        "name": "orphan-pod-gc-1788502620",
         "phase": "Succeeded",
-        "started": "2026-09-04T00:17:00Z",
-        "finished": "2026-09-04T00:17:10Z",
+        "started": "2026-09-04T06:17:00Z",
+        "finished": "2026-09-04T06:17:10Z",
         "durationSeconds": 10,
         "template": "orphan-pod-gc",
         "kind": "maintenance",
@@ -86,9 +86,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1788501600",
+        "name": "publish-results-1788503400",
         "phase": "Running",
-        "started": "2026-09-04T06:00:00Z",
+        "started": "2026-09-04T06:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -126,11 +126,11 @@
       "label": "Registry digest poll",
       "kind": "poll",
       "latest": {
-        "name": "image-poll-snow-latest-1788501600",
-        "phase": "Running",
-        "started": "2026-09-04T06:00:00Z",
-        "finished": null,
-        "durationSeconds": null,
+        "name": "image-poll-cayo-latest-1788502800",
+        "phase": "Succeeded",
+        "started": "2026-09-04T06:20:00Z",
+        "finished": "2026-09-04T06:20:20Z",
+        "durationSeconds": 20,
         "template": "image-poller",
         "kind": "poll",
         "label": "Registry digest poll",
@@ -138,7 +138,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 7,
+      "runs": 6,
       "everGreen": true
     },
     {
@@ -164,11 +164,24 @@
   ],
   "runs": [
     {
-      "name": "image-poll-snow-latest-1788501600",
+      "name": "publish-results-1788503400",
       "phase": "Running",
-      "started": "2026-09-04T06:00:00Z",
+      "started": "2026-09-04T06:30:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "image-poll-cayo-latest-1788502800",
+      "phase": "Succeeded",
+      "started": "2026-09-04T06:20:00Z",
+      "finished": "2026-09-04T06:20:20Z",
+      "durationSeconds": 20,
       "template": "image-poller",
       "kind": "poll",
       "label": "Registry digest poll",
@@ -177,11 +190,37 @@
       "checks": []
     },
     {
-      "name": "publish-results-1788501600",
-      "phase": "Running",
+      "name": "orphan-pod-gc-1788502620",
+      "phase": "Succeeded",
+      "started": "2026-09-04T06:17:00Z",
+      "finished": "2026-09-04T06:17:10Z",
+      "durationSeconds": 10,
+      "template": "orphan-pod-gc",
+      "kind": "maintenance",
+      "label": "Orphan pod GC",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "image-poll-snow-latest-1788501600",
+      "phase": "Failed",
       "started": "2026-09-04T06:00:00Z",
-      "finished": null,
-      "durationSeconds": null,
+      "finished": "2026-09-04T06:01:23Z",
+      "durationSeconds": 83,
+      "template": "image-poller",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": "19 passed, 1 failed",
+      "checks": []
+    },
+    {
+      "name": "publish-results-1788501600",
+      "phase": "Succeeded",
+      "started": "2026-09-04T06:00:00Z",
+      "finished": "2026-09-04T06:00:30Z",
+      "durationSeconds": 30,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -207,19 +246,6 @@
       "phase": "Succeeded",
       "started": "2026-09-04T05:00:00Z",
       "finished": "2026-09-04T05:00:30Z",
-      "durationSeconds": 30,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1788496200",
-      "phase": "Succeeded",
-      "started": "2026-09-04T04:30:00Z",
-      "finished": "2026-09-04T04:30:30Z",
       "durationSeconds": 30,
       "template": "publish",
       "kind": "other",
@@ -255,19 +281,6 @@
       "checks": []
     },
     {
-      "name": "image-poll-snow-latest-1788490800",
-      "phase": "Failed",
-      "started": "2026-09-04T03:00:00Z",
-      "finished": "2026-09-04T03:01:25Z",
-      "durationSeconds": 85,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
       "name": "image-poll-cayo-latest-1788481200",
       "phase": "Succeeded",
       "started": "2026-09-04T00:20:00Z",
@@ -294,36 +307,10 @@
       "checks": []
     },
     {
-      "name": "image-poll-cayo-latest-1788470400",
-      "phase": "Succeeded",
-      "started": "2026-09-03T21:20:00Z",
-      "finished": "2026-09-03T21:20:20Z",
-      "durationSeconds": 20,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
       "name": "orphan-pod-gc-1788459420",
       "phase": "Succeeded",
       "started": "2026-09-03T18:17:00Z",
       "finished": "2026-09-03T18:17:10Z",
-      "durationSeconds": 10,
-      "template": "orphan-pod-gc",
-      "kind": "maintenance",
-      "label": "Orphan pod GC",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "orphan-pod-gc-1788437820",
-      "phase": "Succeeded",
-      "started": "2026-09-03T12:17:00Z",
-      "finished": "2026-09-03T12:17:10Z",
       "durationSeconds": 10,
       "template": "orphan-pod-gc",
       "kind": "maintenance",
@@ -616,32 +603,6 @@
       "label": "bootc installer (mechanics)",
       "trigger": "manual",
       "result": "FAILED: bootc-installed snow did not boot or report checks",
-      "checks": []
-    },
-    {
-      "name": "snosi-bootc-install-4x5gb",
-      "phase": "Failed",
-      "started": "2026-08-05T06:21:26Z",
-      "finished": "2026-08-05T06:23:09Z",
-      "durationSeconds": 103,
-      "template": "run-incus-bootc-install-tests",
-      "kind": "install",
-      "label": "bootc installer (mechanics)",
-      "trigger": "manual",
-      "result": "FAILED: bootc install to-disk did not complete for ghcr.io/frostyard/snow:latest",
-      "checks": []
-    },
-    {
-      "name": "snosi-bootc-install-qrlcm",
-      "phase": "Failed",
-      "started": "2026-08-05T05:38:35Z",
-      "finished": "2026-08-05T06:19:32Z",
-      "durationSeconds": 2457,
-      "template": "run-incus-bootc-install-tests",
-      "kind": "install",
-      "label": "bootc installer (mechanics)",
-      "trigger": "manual",
-      "result": "FAILED: bootc install to-disk did not complete for ghcr.io/frostyard/snow:latest",
       "checks": []
     }
   ]
