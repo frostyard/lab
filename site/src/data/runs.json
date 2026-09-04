@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-04T14:00:16Z",
+  "generated": "2026-09-04T14:30:17Z",
   "lanes": [
     {
       "template": "run-incus-install-tests",
@@ -38,7 +38,7 @@
         "result": "FAILED: bootc install to-disk did not complete for ghcr.io/frostyard/snow:mechanics",
         "checks": []
       },
-      "runs": 6,
+      "runs": 4,
       "everGreen": false
     },
     {
@@ -86,9 +86,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1788530400",
+        "name": "publish-results-1788532200",
         "phase": "Running",
-        "started": "2026-09-04T14:00:00Z",
+        "started": "2026-09-04T14:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -140,35 +140,28 @@
       },
       "runs": 6,
       "everGreen": true
-    },
-    {
-      "template": "run-incus-disk-tests",
-      "label": "Published A/B disk artifact",
-      "kind": "vm",
-      "latest": {
-        "name": "diag-disk-sboff-zcgbn",
-        "phase": "Failed",
-        "started": "2026-08-05T13:52:35Z",
-        "finished": "2026-08-05T14:00:38Z",
-        "durationSeconds": 483,
-        "template": "run-incus-disk-tests",
-        "kind": "vm",
-        "label": "Published A/B disk artifact",
-        "trigger": "manual",
-        "result": "FAILED: cayo-ab 20260805095840 never reached 'Reached target' in 420s (state=RUNNING)",
-        "checks": []
-      },
-      "runs": 1,
-      "everGreen": false
     }
   ],
   "runs": [
     {
-      "name": "publish-results-1788530400",
+      "name": "publish-results-1788532200",
       "phase": "Running",
-      "started": "2026-09-04T14:00:00Z",
+      "started": "2026-09-04T14:30:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1788530400",
+      "phase": "Succeeded",
+      "started": "2026-09-04T14:00:00Z",
+      "finished": "2026-09-04T14:00:30Z",
+      "durationSeconds": 30,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -213,19 +206,6 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
-      "name": "publish-results-1788525000",
-      "phase": "Succeeded",
-      "started": "2026-09-04T12:30:00Z",
-      "finished": "2026-09-04T12:30:30Z",
-      "durationSeconds": 30,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
@@ -525,45 +505,6 @@
       "label": "bootc installer (mechanics)",
       "trigger": "manual",
       "result": "FAILED: bootc-installed snow did not boot or report checks",
-      "checks": []
-    },
-    {
-      "name": "snosi-bootc-install-vvjxf",
-      "phase": "Failed",
-      "started": "2026-08-05T14:10:52Z",
-      "finished": "2026-08-05T14:28:23Z",
-      "durationSeconds": 1051,
-      "template": "run-incus-bootc-install-tests",
-      "kind": "install",
-      "label": "bootc installer (mechanics)",
-      "trigger": "manual",
-      "result": "No results generated",
-      "checks": []
-    },
-    {
-      "name": "snosi-bootc-install-mknt2",
-      "phase": "Failed",
-      "started": "2026-08-05T13:57:07Z",
-      "finished": "2026-08-05T14:05:16Z",
-      "durationSeconds": 489,
-      "template": "run-incus-bootc-install-tests",
-      "kind": "install",
-      "label": "bootc installer (mechanics)",
-      "trigger": "manual",
-      "result": "FAILED: bootc install to-disk did not complete for ghcr.io/frostyard/snow:latest",
-      "checks": []
-    },
-    {
-      "name": "diag-disk-sboff-zcgbn",
-      "phase": "Failed",
-      "started": "2026-08-05T13:52:35Z",
-      "finished": "2026-08-05T14:00:38Z",
-      "durationSeconds": 483,
-      "template": "run-incus-disk-tests",
-      "kind": "vm",
-      "label": "Published A/B disk artifact",
-      "trigger": "manual",
-      "result": "FAILED: cayo-ab 20260805095840 never reached 'Reached target' in 420s (state=RUNNING)",
       "checks": []
     }
   ]
