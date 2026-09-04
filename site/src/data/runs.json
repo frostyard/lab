@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-04T16:30:17Z",
+  "generated": "2026-09-04T17:00:18Z",
   "lanes": [
     {
       "template": "run-incus-install-tests",
@@ -86,9 +86,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1788539400",
+        "name": "publish-results-1788541200",
         "phase": "Running",
-        "started": "2026-09-04T16:30:00Z",
+        "started": "2026-09-04T17:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -118,7 +118,7 @@
         "result": "FAILED: secure install harness exited 1 for cayo",
         "checks": []
       },
-      "runs": 6,
+      "runs": 1,
       "everGreen": false
     },
     {
@@ -144,11 +144,24 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1788539400",
+      "name": "publish-results-1788541200",
       "phase": "Running",
-      "started": "2026-09-04T16:30:00Z",
+      "started": "2026-09-04T17:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1788539400",
+      "phase": "Succeeded",
+      "started": "2026-09-04T16:30:00Z",
+      "finished": "2026-09-04T16:30:30Z",
+      "durationSeconds": 30,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -219,19 +232,6 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
-      "name": "publish-results-1788534000",
-      "phase": "Succeeded",
-      "started": "2026-09-04T15:00:00Z",
-      "finished": "2026-09-04T15:00:30Z",
-      "durationSeconds": 30,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
@@ -396,71 +396,6 @@
       "started": "2026-08-05T17:00:21Z",
       "finished": "2026-08-05T17:01:43Z",
       "durationSeconds": 82,
-      "template": "run-secure-install-tests",
-      "kind": "other",
-      "label": "run-secure-install-tests",
-      "trigger": "manual",
-      "result": "FAILED: secure install harness exited 1 for cayo",
-      "checks": []
-    },
-    {
-      "name": "diag-secure-install-9b6bc",
-      "phase": "Failed",
-      "started": "2026-08-05T16:48:33Z",
-      "finished": "2026-08-05T16:59:45Z",
-      "durationSeconds": 672,
-      "template": "run-secure-install-tests",
-      "kind": "other",
-      "label": "run-secure-install-tests",
-      "trigger": "manual",
-      "result": "FAILED: secure install harness exited 1 for cayo",
-      "checks": []
-    },
-    {
-      "name": "diag-secure-install-4ds74",
-      "phase": "Failed",
-      "started": "2026-08-05T16:41:44Z",
-      "finished": "2026-08-05T16:48:09Z",
-      "durationSeconds": 385,
-      "template": "run-secure-install-tests",
-      "kind": "other",
-      "label": "run-secure-install-tests",
-      "trigger": "manual",
-      "result": "FAILED: secure install harness exited 1 for cayo",
-      "checks": []
-    },
-    {
-      "name": "diag-secure-install-j84k8",
-      "phase": "Failed",
-      "started": "2026-08-05T16:39:47Z",
-      "finished": "2026-08-05T16:41:07Z",
-      "durationSeconds": 80,
-      "template": "run-secure-install-tests",
-      "kind": "other",
-      "label": "run-secure-install-tests",
-      "trigger": "manual",
-      "result": "FAILED: secure install harness exited 1 for cayo",
-      "checks": []
-    },
-    {
-      "name": "diag-secure-install-cm8jg",
-      "phase": "Failed",
-      "started": "2026-08-05T16:36:40Z",
-      "finished": "2026-08-05T16:37:53Z",
-      "durationSeconds": 73,
-      "template": "run-secure-install-tests",
-      "kind": "other",
-      "label": "run-secure-install-tests",
-      "trigger": "manual",
-      "result": "FAILED: secure install harness exited 1 for cayo",
-      "checks": []
-    },
-    {
-      "name": "diag-secure-install-9vlck",
-      "phase": "Failed",
-      "started": "2026-08-05T16:34:35Z",
-      "finished": "2026-08-05T16:35:37Z",
-      "durationSeconds": 62,
       "template": "run-secure-install-tests",
       "kind": "other",
       "label": "run-secure-install-tests",
