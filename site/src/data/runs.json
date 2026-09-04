@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-04T06:30:17Z",
+  "generated": "2026-09-04T07:00:18Z",
   "lanes": [
     {
       "template": "run-incus-install-tests",
@@ -38,7 +38,7 @@
         "result": "FAILED: bootc install to-disk did not complete for ghcr.io/frostyard/snow:mechanics",
         "checks": []
       },
-      "runs": 8,
+      "runs": 6,
       "everGreen": false
     },
     {
@@ -86,9 +86,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1788503400",
+        "name": "publish-results-1788505200",
         "phase": "Running",
-        "started": "2026-09-04T06:30:00Z",
+        "started": "2026-09-04T07:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -126,16 +126,16 @@
       "label": "Registry digest poll",
       "kind": "poll",
       "latest": {
-        "name": "image-poll-cayo-latest-1788502800",
-        "phase": "Succeeded",
-        "started": "2026-09-04T06:20:00Z",
-        "finished": "2026-09-04T06:20:20Z",
-        "durationSeconds": 20,
+        "name": "image-poll-snowfield-latest-1788504000",
+        "phase": "Failed",
+        "started": "2026-09-04T06:40:00Z",
+        "finished": "2026-09-04T06:41:23Z",
+        "durationSeconds": 83,
         "template": "image-poller",
         "kind": "poll",
         "label": "Registry digest poll",
         "trigger": "scheduled",
-        "result": null,
+        "result": "19 passed, 1 failed",
         "checks": []
       },
       "runs": 6,
@@ -164,11 +164,37 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1788503400",
+      "name": "publish-results-1788505200",
       "phase": "Running",
-      "started": "2026-09-04T06:30:00Z",
+      "started": "2026-09-04T07:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "image-poll-snowfield-latest-1788504000",
+      "phase": "Failed",
+      "started": "2026-09-04T06:40:00Z",
+      "finished": "2026-09-04T06:41:23Z",
+      "durationSeconds": 83,
+      "template": "image-poller",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": "19 passed, 1 failed",
+      "checks": []
+    },
+    {
+      "name": "publish-results-1788503400",
+      "phase": "Succeeded",
+      "started": "2026-09-04T06:30:00Z",
+      "finished": "2026-09-04T06:30:30Z",
+      "durationSeconds": 30,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -239,32 +265,6 @@
       "label": "publish",
       "trigger": "scheduled",
       "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1788498000",
-      "phase": "Succeeded",
-      "started": "2026-09-04T05:00:00Z",
-      "finished": "2026-09-04T05:00:30Z",
-      "durationSeconds": 30,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "image-poll-snowfield-latest-1788493200",
-      "phase": "Failed",
-      "started": "2026-09-04T03:40:00Z",
-      "finished": "2026-09-04T03:41:21Z",
-      "durationSeconds": 81,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": "19 passed, 1 failed",
       "checks": []
     },
     {
@@ -577,32 +577,6 @@
       "label": "Published A/B disk artifact",
       "trigger": "manual",
       "result": "FAILED: cayo-ab 20260805002345 never reached 'Reached target' in 420s (state=RUNNING)",
-      "checks": []
-    },
-    {
-      "name": "snosi-bootc-install-k7gxh",
-      "phase": "Failed",
-      "started": "2026-08-05T06:39:33Z",
-      "finished": "2026-08-05T06:57:00Z",
-      "durationSeconds": 1047,
-      "template": "run-incus-bootc-install-tests",
-      "kind": "install",
-      "label": "bootc installer (mechanics)",
-      "trigger": "manual",
-      "result": "FAILED: bootc-installed snow did not boot or report checks",
-      "checks": []
-    },
-    {
-      "name": "snosi-bootc-install-j7hvd",
-      "phase": "Failed",
-      "started": "2026-08-05T06:24:35Z",
-      "finished": "2026-08-05T06:37:01Z",
-      "durationSeconds": 746,
-      "template": "run-incus-bootc-install-tests",
-      "kind": "install",
-      "label": "bootc installer (mechanics)",
-      "trigger": "manual",
-      "result": "FAILED: bootc-installed snow did not boot or report checks",
       "checks": []
     }
   ]
