@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-04T03:00:17Z",
+  "generated": "2026-09-04T03:30:16Z",
   "lanes": [
     {
       "template": "run-incus-install-tests",
@@ -86,9 +86,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1788490800",
+        "name": "publish-results-1788492600",
         "phase": "Running",
-        "started": "2026-09-04T03:00:00Z",
+        "started": "2026-09-04T03:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -126,11 +126,11 @@
       "label": "Registry digest poll",
       "kind": "poll",
       "latest": {
-        "name": "image-poll-snow-latest-1788490800",
-        "phase": "Running",
-        "started": "2026-09-04T03:00:00Z",
-        "finished": null,
-        "durationSeconds": null,
+        "name": "image-poll-cayo-latest-1788492000",
+        "phase": "Succeeded",
+        "started": "2026-09-04T03:20:00Z",
+        "finished": "2026-09-04T03:20:20Z",
+        "durationSeconds": 20,
         "template": "image-poller",
         "kind": "poll",
         "label": "Registry digest poll",
@@ -138,7 +138,7 @@
         "result": null,
         "checks": []
       },
-      "runs": 7,
+      "runs": 6,
       "everGreen": true
     },
     {
@@ -158,17 +158,30 @@
         "result": "FAILED: cayo-ab 20260805095840 never reached 'Reached target' in 420s (state=RUNNING)",
         "checks": []
       },
-      "runs": 3,
+      "runs": 2,
       "everGreen": false
     }
   ],
   "runs": [
     {
-      "name": "image-poll-snow-latest-1788490800",
+      "name": "publish-results-1788492600",
       "phase": "Running",
-      "started": "2026-09-04T03:00:00Z",
+      "started": "2026-09-04T03:30:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "image-poll-cayo-latest-1788492000",
+      "phase": "Succeeded",
+      "started": "2026-09-04T03:20:00Z",
+      "finished": "2026-09-04T03:20:20Z",
+      "durationSeconds": 20,
       "template": "image-poller",
       "kind": "poll",
       "label": "Registry digest poll",
@@ -177,11 +190,24 @@
       "checks": []
     },
     {
-      "name": "publish-results-1788490800",
-      "phase": "Running",
+      "name": "image-poll-snow-latest-1788490800",
+      "phase": "Failed",
       "started": "2026-09-04T03:00:00Z",
-      "finished": null,
-      "durationSeconds": null,
+      "finished": "2026-09-04T03:01:25Z",
+      "durationSeconds": 85,
+      "template": "image-poller",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": "19 passed, 1 failed",
+      "checks": []
+    },
+    {
+      "name": "publish-results-1788490800",
+      "phase": "Succeeded",
+      "started": "2026-09-04T03:00:00Z",
+      "finished": "2026-09-04T03:00:30Z",
+      "durationSeconds": 30,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -208,19 +234,6 @@
       "started": "2026-09-04T02:00:00Z",
       "finished": "2026-09-04T02:00:30Z",
       "durationSeconds": 30,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1788485400",
-      "phase": "Succeeded",
-      "started": "2026-09-04T01:30:00Z",
-      "finished": "2026-09-04T01:30:31Z",
-      "durationSeconds": 31,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -268,36 +281,10 @@
       "checks": []
     },
     {
-      "name": "image-poll-snow-latest-1788480000",
-      "phase": "Failed",
-      "started": "2026-09-04T00:00:00Z",
-      "finished": "2026-09-04T00:01:24Z",
-      "durationSeconds": 84,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
       "name": "image-poll-cayo-latest-1788470400",
       "phase": "Succeeded",
       "started": "2026-09-03T21:20:00Z",
       "finished": "2026-09-03T21:20:20Z",
-      "durationSeconds": 20,
-      "template": "image-poller",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "image-poll-cayo-latest-1788459600",
-      "phase": "Succeeded",
-      "started": "2026-09-03T18:20:00Z",
-      "finished": "2026-09-03T18:20:20Z",
       "durationSeconds": 20,
       "template": "image-poller",
       "kind": "poll",
@@ -785,19 +772,6 @@
       "label": "Native A/B installer",
       "trigger": "manual",
       "result": "FAILED: snosi-install did not complete for cayo",
-      "checks": []
-    },
-    {
-      "name": "snosi-disk-boot-n4hcg",
-      "phase": "Failed",
-      "started": "2026-08-05T03:20:41Z",
-      "finished": "2026-08-05T03:28:56Z",
-      "durationSeconds": 495,
-      "template": "run-incus-disk-tests",
-      "kind": "vm",
-      "label": "Published A/B disk artifact",
-      "trigger": "manual",
-      "result": "FAILED: cayo-ab 20260805002345 never reached 'Reached target' in 420s (state=RUNNING)",
       "checks": []
     }
   ]
