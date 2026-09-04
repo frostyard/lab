@@ -1,26 +1,6 @@
 {
-  "generated": "2026-09-04T02:00:17Z",
+  "generated": "2026-09-04T02:30:16Z",
   "lanes": [
-    {
-      "template": "snosi-qa-pipeline",
-      "label": "Container smoke suites",
-      "kind": "container",
-      "latest": {
-        "name": "snosi-smoke-cayo-5l5lc",
-        "phase": "Failed",
-        "started": "2026-08-05T02:25:56Z",
-        "finished": "2026-08-05T02:27:03Z",
-        "durationSeconds": 67,
-        "template": "snosi-qa-pipeline",
-        "kind": "container",
-        "label": "Container smoke suites",
-        "trigger": "scheduled",
-        "result": "18/20 scenarios passed",
-        "checks": []
-      },
-      "runs": 3,
-      "everGreen": false
-    },
     {
       "template": "run-incus-install-tests",
       "label": "Native A/B installer",
@@ -106,9 +86,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1788487200",
+        "name": "publish-results-1788489000",
         "phase": "Running",
-        "started": "2026-09-04T02:00:00Z",
+        "started": "2026-09-04T02:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -204,11 +184,24 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1788487200",
+      "name": "publish-results-1788489000",
       "phase": "Running",
-      "started": "2026-09-04T02:00:00Z",
+      "started": "2026-09-04T02:30:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1788487200",
+      "phase": "Succeeded",
+      "started": "2026-09-04T02:00:00Z",
+      "finished": "2026-09-04T02:00:30Z",
+      "durationSeconds": 30,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -253,19 +246,6 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
-      "name": "publish-results-1788481800",
-      "phase": "Succeeded",
-      "started": "2026-09-04T00:30:00Z",
-      "finished": "2026-09-04T00:30:33Z",
-      "durationSeconds": 33,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
@@ -851,45 +831,6 @@
       "label": "ISO boot (Secure Boot)",
       "trigger": "manual",
       "result": "No results generated",
-      "checks": []
-    },
-    {
-      "name": "snosi-smoke-cayo-5l5lc",
-      "phase": "Failed",
-      "started": "2026-08-05T02:25:56Z",
-      "finished": "2026-08-05T02:27:03Z",
-      "durationSeconds": 67,
-      "template": "snosi-qa-pipeline",
-      "kind": "container",
-      "label": "Container smoke suites",
-      "trigger": "scheduled",
-      "result": "18/20 scenarios passed",
-      "checks": []
-    },
-    {
-      "name": "snosi-smoke-4zjhv",
-      "phase": "Failed",
-      "started": "2026-08-05T02:21:46Z",
-      "finished": "2026-08-05T02:22:51Z",
-      "durationSeconds": 65,
-      "template": "snosi-qa-pipeline",
-      "kind": "container",
-      "label": "Container smoke suites",
-      "trigger": "manual",
-      "result": "19/20 scenarios passed",
-      "checks": []
-    },
-    {
-      "name": "snosi-smoke-5ps9p",
-      "phase": "Failed",
-      "started": "2026-08-05T02:18:30Z",
-      "finished": "2026-08-05T02:19:54Z",
-      "durationSeconds": 84,
-      "template": "snosi-qa-pipeline",
-      "kind": "container",
-      "label": "Container smoke suites",
-      "trigger": "manual",
-      "result": "19/20 scenarios passed",
       "checks": []
     }
   ]
