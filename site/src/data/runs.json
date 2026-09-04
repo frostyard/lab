@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-04T10:00:17Z",
+  "generated": "2026-09-04T10:30:17Z",
   "lanes": [
     {
       "template": "run-incus-install-tests",
@@ -86,9 +86,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1788516000",
+        "name": "publish-results-1788517800",
         "phase": "Running",
-        "started": "2026-09-04T10:00:00Z",
+        "started": "2026-09-04T10:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -164,11 +164,24 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1788516000",
+      "name": "publish-results-1788517800",
       "phase": "Running",
-      "started": "2026-09-04T10:00:00Z",
+      "started": "2026-09-04T10:30:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1788516000",
+      "phase": "Succeeded",
+      "started": "2026-09-04T10:00:00Z",
+      "finished": "2026-09-04T10:00:30Z",
+      "durationSeconds": 30,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -234,19 +247,6 @@
       "started": "2026-09-04T09:00:00Z",
       "finished": "2026-09-04T09:00:30Z",
       "durationSeconds": 30,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1788510600",
-      "phase": "Succeeded",
-      "started": "2026-09-04T08:30:00Z",
-      "finished": "2026-09-04T08:30:31Z",
-      "durationSeconds": 31,
       "template": "publish",
       "kind": "other",
       "label": "publish",
