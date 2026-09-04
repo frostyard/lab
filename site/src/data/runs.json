@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-04T17:00:18Z",
+  "generated": "2026-09-04T17:30:17Z",
   "lanes": [
     {
       "template": "run-incus-install-tests",
@@ -16,26 +16,6 @@
         "label": "Native A/B installer",
         "trigger": "manual",
         "result": "No results generated",
-        "checks": []
-      },
-      "runs": 1,
-      "everGreen": false
-    },
-    {
-      "template": "run-incus-bootc-install-tests",
-      "label": "bootc installer (mechanics)",
-      "kind": "install",
-      "latest": {
-        "name": "snosi-bootc-install-svkng",
-        "phase": "Failed",
-        "started": "2026-08-05T17:04:39Z",
-        "finished": "2026-08-05T17:05:39Z",
-        "durationSeconds": 60,
-        "template": "run-incus-bootc-install-tests",
-        "kind": "install",
-        "label": "bootc installer (mechanics)",
-        "trigger": "manual",
-        "result": "FAILED: bootc install to-disk did not complete for ghcr.io/frostyard/snow:mechanics",
         "checks": []
       },
       "runs": 1,
@@ -86,9 +66,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1788541200",
+        "name": "publish-results-1788543000",
         "phase": "Running",
-        "started": "2026-09-04T17:00:00Z",
+        "started": "2026-09-04T17:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -100,26 +80,6 @@
       },
       "runs": 5,
       "everGreen": true
-    },
-    {
-      "template": "run-secure-install-tests",
-      "label": "run-secure-install-tests",
-      "kind": "other",
-      "latest": {
-        "name": "diag-secure-install-wldw2",
-        "phase": "Failed",
-        "started": "2026-08-05T17:00:21Z",
-        "finished": "2026-08-05T17:01:43Z",
-        "durationSeconds": 82,
-        "template": "run-secure-install-tests",
-        "kind": "other",
-        "label": "run-secure-install-tests",
-        "trigger": "manual",
-        "result": "FAILED: secure install harness exited 1 for cayo",
-        "checks": []
-      },
-      "runs": 1,
-      "everGreen": false
     },
     {
       "template": "image-poller",
@@ -144,11 +104,24 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1788541200",
+      "name": "publish-results-1788543000",
       "phase": "Running",
-      "started": "2026-09-04T17:00:00Z",
+      "started": "2026-09-04T17:30:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1788541200",
+      "phase": "Succeeded",
+      "started": "2026-09-04T17:00:00Z",
+      "finished": "2026-09-04T17:00:30Z",
+      "durationSeconds": 30,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -193,19 +166,6 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
-      "name": "publish-results-1788535800",
-      "phase": "Succeeded",
-      "started": "2026-09-04T15:30:00Z",
-      "finished": "2026-09-04T15:30:30Z",
-      "durationSeconds": 30,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
@@ -375,32 +335,6 @@
       "label": "Native A/B installer",
       "trigger": "manual",
       "result": "No results generated",
-      "checks": []
-    },
-    {
-      "name": "snosi-bootc-install-svkng",
-      "phase": "Failed",
-      "started": "2026-08-05T17:04:39Z",
-      "finished": "2026-08-05T17:05:39Z",
-      "durationSeconds": 60,
-      "template": "run-incus-bootc-install-tests",
-      "kind": "install",
-      "label": "bootc installer (mechanics)",
-      "trigger": "manual",
-      "result": "FAILED: bootc install to-disk did not complete for ghcr.io/frostyard/snow:mechanics",
-      "checks": []
-    },
-    {
-      "name": "diag-secure-install-wldw2",
-      "phase": "Failed",
-      "started": "2026-08-05T17:00:21Z",
-      "finished": "2026-08-05T17:01:43Z",
-      "durationSeconds": 82,
-      "template": "run-secure-install-tests",
-      "kind": "other",
-      "label": "run-secure-install-tests",
-      "trigger": "manual",
-      "result": "FAILED: secure install harness exited 1 for cayo",
       "checks": []
     }
   ]
