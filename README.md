@@ -162,7 +162,7 @@ matrix runs back-to-back; trim the `withItems` list for a smoke run.
 The matrix covers every bootc encryption mode (`none`, `luks-passphrase`,
 `tpm2-luks`, `tpm2-luks-passphrase`) and every ab mode (`none`, `luks`,
 `tpm2-luks`), Secure Boot on and off in both families (ab pre-seeds the snosi
-MOK into the guest varstore, exactly as the native lane does), cayo + snow
+MOK into the guest varstore, exactly as the native lane does), floe + snow
 throughout, snowfield once. The `bootc × tpm2-luks*` cells are the point: they
 exercise the encrypted-boot unlock firn ADR-0012 installed but left unproven.
 
@@ -184,15 +184,15 @@ with dm-verity; bootc owns its deployment layout; secure bootc assembly must go
 through the external recipe-driven installer. None of these lanes substitutes
 for another.
 
-The native A/B install lane is verified green against `cayo-ab`:
+The native A/B install lane is verified green against `floe-ab`:
 
 ```
-installed and verified: cayo-ab (verity+luks+erofs, secureboot=false, skip-mok=true)
+installed and verified: floe-ab (verity+luks+erofs, secureboot=false, skip-mok=true)
   verity=ok            dm-verity backing the root device
   luks=ok              /var is LUKS
   varsource=/dev/mapper/var
   rootfs=erofs
-  osrelease=cayo-20260805002345
+  osrelease=floe-20260805002345
   bootc=absent         expected — native A/B does not use bootc
 ```
 
@@ -208,12 +208,12 @@ wrong on both counts, and it was wrong in the direction that let a broken
 harness look like an open question about snosi.
 
 The image is a complete, self-contained bootable system. Inspecting the
-published `cayo-ab` disk directly:
+published `floe-ab` disk directly:
 
 ```
 1  esp                    1.0 GiB  vfat    shim + MokManager + systemd-boot + UKI
-2  cayo_<ver>_v         256.0 MiB  verity  slot A hash
-3  cayo_<ver>_r           5.0 GiB  erofs   slot A root — populated
+2  floe_<ver>_v         256.0 MiB  verity  slot A hash
+3  floe_<ver>_r           5.0 GiB  erofs   slot A root — populated
 4  _empty               256.0 MiB  verity  slot B — empty, awaiting first update
 5  _empty                 5.0 GiB  root    slot B — empty
 6  var                    4.0 GiB  ext4    plain, NOT LUKS
@@ -350,10 +350,10 @@ does. This is a decision for the snosi maintainer, not the lab.
 | Image | Tag | Schedule | Suites | Last verified |
 |---|---|---|---|---|
 | `ghcr.io/frostyard/snow` | `latest` | digest poll, `0 */3 * * *` | smoke | 20 passed |
-| `ghcr.io/frostyard/cayo` | `latest` | digest poll, `20 */3 * * *` | smoke | 14 passed, 6 skipped |
+| `ghcr.io/frostyard/floe` | `latest` | digest poll, `20 */3 * * *` | smoke | 14 passed, 6 skipped |
 | `ghcr.io/frostyard/snowfield` | `latest` | digest poll, `40 */3 * * *` | smoke | 20 passed |
 
-cayo skips the desktop scenarios by design — it is the headless server image,
+floe skips the desktop scenarios by design — it is the headless server image,
 and the suite gates them on variant so one set of features runs unmodified
 across the whole family.
 

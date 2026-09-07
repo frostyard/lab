@@ -17,5 +17,5 @@ metadata:
     app.kubernetes.io/part-of: lab
 data:
   digest-snow-latest: ""
-  digest-cayo-latest: ""
+  digest-floe-latest: ""
   digest-snowfield-latest: ""

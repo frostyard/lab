@@ -35,7 +35,7 @@ spec:
     inputs:
       parameters:
       - name: product
-        value: "cayo"
+        value: "floe"
       - name: origin
         value: "https://repository.frostyard.org"
       # The release pubring that signs SHA256SUMS. Pinned to a ref rather than

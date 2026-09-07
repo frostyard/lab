@@ -1,6 +1,6 @@
-# CronWorkflow: poll ghcr.io/frostyard/cayo:latest.
+# CronWorkflow: poll ghcr.io/frostyard/floe:latest.
 #
-# cayo is the headless server image — no GNOME, no seat. Only the non-graphical
+# floe is the headless server image — no GNOME, no seat. Only the non-graphical
 # suites apply, which is exactly what the container runner covers today.
 #
 # Staggered 20 minutes off the snow lane so two multi-GB pulls do not contend
@@ -8,7 +8,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: CronWorkflow
 metadata:
-  name: image-poll-cayo-latest
+  name: image-poll-floe-latest
   namespace: argo
   labels:
     app.kubernetes.io/part-of: lab
@@ -32,14 +32,14 @@ spec:
     arguments:
       parameters:
         - name: image
-          value: "ghcr.io/frostyard/cayo"
+          value: "ghcr.io/frostyard/floe"
         - name: image-tag
           value: "latest"
         - name: image-digest
           value: ""
         - name: state-key
-          value: "digest-cayo-latest"
+          value: "digest-floe-latest"
         - name: suites
           value: "smoke"
         - name: variant
-          value: "cayo"
+          value: "floe"

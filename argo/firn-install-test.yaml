@@ -15,7 +15,7 @@
 #
 # Matrix (10 active cells): the AUTO-UNLOCKABLE encryption modes -- none,
 # tpm2-luks, tpm2-luks-passphrase (all TPM auto-unlock) -- for both families,
-# cayo + snow + snowfield, Secure Boot on/off. Interactive-unlock modes (ab
+# floe + snow + snowfield, Secure Boot on/off. Interactive-unlock modes (ab
 # `luks`, bootc `luks-passphrase`) are held out: they prompt for a key/passphrase
 # at boot, which an unattended lab cannot answer, so they can never pass here
 # (see the INTERACTIVE-UNLOCK notes by the cells). The bootc x tpm2-luks cells
@@ -50,11 +50,11 @@ spec:
         tasks:
           - name: cell
             withItems:
-              # `product` is the image axis (cayo|snow|snowfield); named to
+              # `product` is the image axis (floe|snow|snowfield); named to
               # avoid the manifest test's `image:`-key = container heuristic.
               # --- bootc: auto-unlockable encryption modes, Secure Boot OFF ---
-              - { family: "bootc", product: "cayo",      encryption: "none",                 secureboot: "false" }
-              - { family: "bootc", product: "cayo",      encryption: "tpm2-luks",            secureboot: "false" }
+              - { family: "bootc", product: "floe",      encryption: "none",                 secureboot: "false" }
+              - { family: "bootc", product: "floe",      encryption: "tpm2-luks",            secureboot: "false" }
               - { family: "bootc", product: "snow",      encryption: "tpm2-luks",            secureboot: "false" }
               # INTERACTIVE-UNLOCK (not runnable unattended): luks-passphrase
               # prompts for the LUKS passphrase at every boot by design (firn
@@ -68,13 +68,13 @@ spec:
               # enrollment host-side after install (virt-fw-vars --add-mok + clear
               # MokNew) -- the MokManager keypress stand-in, NOT a pre-seed. The
               # boot only succeeds if the staged chain is firn's, so a green is
-              # real (firn ADR-0014; proven cayo/none/sb 2026-08-12).
+              # real (firn ADR-0014; proven for this path 2026-08-12).
               - { family: "bootc", product: "snow",      encryption: "none",                 secureboot: "true"  }
               - { family: "bootc", product: "snow",      encryption: "tpm2-luks-passphrase", secureboot: "true"  }
               - { family: "bootc", product: "snowfield", encryption: "tpm2-luks-passphrase", secureboot: "true"  }
               # --- ab: auto-unlockable encryption modes, SB on and off (MOK when on) ---
-              - { family: "ab",    product: "cayo",      encryption: "none",                 secureboot: "false" }
-              - { family: "ab",    product: "cayo",      encryption: "tpm2-luks",            secureboot: "true"  }
+              - { family: "ab",    product: "floe",      encryption: "none",                 secureboot: "false" }
+              - { family: "ab",    product: "floe",      encryption: "tpm2-luks",            secureboot: "true"  }
               - { family: "ab",    product: "snow",      encryption: "tpm2-luks",            secureboot: "true"  }
               - { family: "ab",    product: "snow",      encryption: "none",                 secureboot: "true"  }
               # INTERACTIVE-UNLOCK (not runnable unattended): ab `luks` gives
