@@ -2,7 +2,7 @@
 #
 #   kubectl create -f argo/snosi-disk-boot-test.yaml
 #
-# Defaults to cayo — the headless server image is the smallest artifact and the
+# Defaults to floe — the headless server image is the smallest artifact and the
 # fastest lane to iterate on. Override `product` for snow or snowfield.
 apiVersion: argoproj.io/v1alpha1
 kind: Workflow
@@ -19,7 +19,7 @@ spec:
   arguments:
     parameters:
       - name: product
-        value: "cayo"
+        value: "floe"
   templates:
     - name: main
       dag:

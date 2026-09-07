@@ -35,7 +35,7 @@ smoke:
     kubectl create -f argo/snosi-smoke-test.yaml
 
 # Submit a one-off run for any image/suite combination.
-#   just qa ghcr.io/frostyard/cayo latest smoke cayo
+#   just qa ghcr.io/frostyard/floe latest smoke floe
 qa image tag suites variant:
     argo submit --from workflowtemplate/snosi-qa-pipeline -n argo \
         -p image={{image}} -p image-tag={{tag}} \

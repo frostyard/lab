@@ -20,9 +20,9 @@ spec:
   activeDeadlineSeconds: 9000
   arguments:
     parameters:
-      # Installer vocabulary: cayo-ab | snow-ab | snowfield-ab
+      # Installer vocabulary: floe-ab | snow-ab | snowfield-ab
       - name: product
-        value: "cayo-ab"
+        value: "floe-ab"
   templates:
     - name: main
       dag:

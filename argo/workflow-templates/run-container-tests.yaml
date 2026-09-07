@@ -297,7 +297,7 @@ spec:
             json.dump(failed_scenarios[:20], fh, separators=(",", ":"))
 
         # Report skipped separately. Variant gating skips whole features by
-        # design (cayo has no desktop), so folding skipped into "passed" would
+        # design (floe has no desktop), so folding skipped into "passed" would
         # claim coverage the run never had.
         summary = ", ".join(
             f"{count} {status}" for status, count in counts.items() if count

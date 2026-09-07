@@ -660,10 +660,10 @@ The names on the dashboard are ambiguous. Concretely:
 
 | Dashboard name | Template | Artifact under test | Install step? | Secure Boot |
 |---|---|---|---|---|
-| Container smoke suites | `run-container-tests` | `ghcr.io/frostyard/{snow,snowfield,cayo}:latest`, booted as nested systemd containers | no | n/a |
+| Container smoke suites | `run-container-tests` | `ghcr.io/frostyard/{snow,snowfield,floe}:latest`, booted as nested systemd containers | no | n/a |
 | ISO boot (Secure Boot) | `run-incus-vm-tests` | `isos/snow-live-latest.iso` — the **bootc live desktop ISO**, booted to its live session | no | **on** |
-| Published A/B disk artifact | `run-incus-disk-tests` | `os/native/v1/cayo/x86-64/cayo-ab_<ver>.disk.raw.xz` — the **complete shipped GPT disk**, booted directly | no | off |
-| Native A/B installer | `run-incus-install-tests` | `isos/native/v1/snosi-native-installer-latest-x86-64.iso` → runs `/usr/libexec/snosi-install --product cayo-ab` → reboots | **yes** | off, `--skip-mok` |
+| Published A/B disk artifact | `run-incus-disk-tests` | `os/native/v1/floe/x86-64/floe-ab_<ver>.disk.raw.xz` — the **complete shipped GPT disk**, booted directly | no | off |
+| Native A/B installer | `run-incus-install-tests` | `isos/native/v1/snosi-native-installer-latest-x86-64.iso` → runs `/usr/libexec/snosi-install --product floe-ab` → reboots | **yes** | off, `--skip-mok` |
 | bootc installer | `run-incus-bootc-install-tests` | boots the snow-live ISO, then `bootc install to-disk` from `ghcr.io/frostyard/snow:latest` → reboots | **yes** | off |
 
 Two clarifications that matter:
@@ -1052,7 +1052,7 @@ stages enrollment itself. Do not unify them.
       fails to boot, and nothing in CI notices. The new leg is
       `frostyard-cayo-ext4`: advisory, on the small image, reusing cayo's
       published `:ssh-enabled` tag so no new SSH image is built.
-- [ ] **G1.** Both install lanes across `{cayo, snow, snowfield}`.
+- [ ] **G1.** Both install lanes across `{floe, snow, snowfield}`.
 - [ ] **G2.** Run the behave suite against installed VMs, not just console
       assertions. This is where `snowfield`'s Surface kernel finally gets
       covered — no container lane can assert on a kernel.

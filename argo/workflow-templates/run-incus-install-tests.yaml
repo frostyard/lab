@@ -39,11 +39,11 @@ spec:
       - name: iso-url
         value: "https://repository.frostyard.org/isos/native/v1/snosi-native-installer-latest-x86-64.iso"
       # The installer's own product vocabulary, which carries the -ab suffix:
-      # cayo-ab | snow-ab | snowfield-ab. Note this differs from the R2
-      # publication path, which uses the bare product name (os/native/v1/cayo/).
+      # floe-ab | snow-ab | snowfield-ab. Note this differs from the R2
+      # publication path, which uses the bare product name (os/native/v1/floe/).
       # run-incus-disk-tests takes the bare form; do not conflate them.
       - name: product
-        value: "cayo-ab"
+        value: "floe-ab"
       # Secure Boot ON, and genuinely enforced: Microsoft's KEK/db are
       # untouched, so firmware rejects anything not trusted. What makes it work
       # unattended is the MOK pre-seed below, which grants trust in exactly one
@@ -53,7 +53,7 @@ spec:
       # This was false for a long time, and the gap was real: without the
       # pre-seed a snosi-signed UKI fails at shim with "Verification failed:
       # (0x1A) Security Violation". Proven green 2026-08-06:
-      #   installed and verified: cayo-ab (verity+luks+erofs, secureboot=true)
+      #   installed and verified: floe-ab (verity+luks+erofs, secureboot=true)
       - name: secureboot
         value: "true"
       # Matching --skip-mok: enrollment would otherwise stage a MokManager

@@ -46,10 +46,10 @@ spec:
       # Install family — recipe [image] family. bootc | ab. Never inferred.
       - name: family
         value: "bootc"
-      # Bare image name: cayo | snow | snowfield. bootc -> ref
+      # Bare image name: floe | snow | snowfield. bootc -> ref
       # ghcr.io/frostyard/<image>:latest; ab -> product "<image>-ab".
       - name: image
-        value: "cayo"
+        value: "floe"
       # recipe [security] encryption. The valid set differs by family
       # (internal/recipe/validate.go):
       #   bootc: none | luks-passphrase | tpm2-luks | tpm2-luks-passphrase
