@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-09T18:30:22Z",
+  "generated": "2026-09-09T19:00:19Z",
   "lanes": [
     {
       "template": "run-firn-install-tests",
@@ -46,9 +46,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1788978600",
+        "name": "publish-results-1788980400",
         "phase": "Running",
-        "started": "2026-09-09T18:30:00Z",
+        "started": "2026-09-09T19:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -84,11 +84,24 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1788978600",
+      "name": "publish-results-1788980400",
       "phase": "Running",
-      "started": "2026-09-09T18:30:00Z",
+      "started": "2026-09-09T19:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1788978600",
+      "phase": "Succeeded",
+      "started": "2026-09-09T18:30:00Z",
+      "finished": "2026-09-09T18:30:37Z",
+      "durationSeconds": 37,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -154,19 +167,6 @@
       "started": "2026-09-09T17:30:00Z",
       "finished": "2026-09-09T17:30:33Z",
       "durationSeconds": 33,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1788973200",
-      "phase": "Succeeded",
-      "started": "2026-09-09T17:00:00Z",
-      "finished": "2026-09-09T17:00:31Z",
-      "durationSeconds": 31,
       "template": "publish",
       "kind": "other",
       "label": "publish",
