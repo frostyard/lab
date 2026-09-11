@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-11T19:30:21Z",
+  "generated": "2026-09-11T20:00:20Z",
   "lanes": [
     {
       "template": "run-firn-install-tests",
@@ -18,7 +18,7 @@
         "result": "FAILED: firn install did not complete (bootc/cayo/none/sb=true)",
         "checks": []
       },
-      "runs": 2,
+      "runs": 1,
       "everGreen": false
     },
     {
@@ -46,9 +46,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1789155000",
+        "name": "publish-results-1789156800",
         "phase": "Running",
-        "started": "2026-09-11T19:30:00Z",
+        "started": "2026-09-11T20:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -84,11 +84,24 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1789155000",
+      "name": "publish-results-1789156800",
       "phase": "Running",
-      "started": "2026-09-11T19:30:00Z",
+      "started": "2026-09-11T20:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1789155000",
+      "phase": "Succeeded",
+      "started": "2026-09-11T19:30:00Z",
+      "finished": "2026-09-11T19:30:33Z",
+      "durationSeconds": 33,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -159,19 +172,6 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
-      "name": "publish-results-1789149600",
-      "phase": "Succeeded",
-      "started": "2026-09-11T18:00:00Z",
-      "finished": "2026-09-11T18:00:32Z",
-      "durationSeconds": 32,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
@@ -271,19 +271,6 @@
       "started": "2026-08-12T20:17:33Z",
       "finished": "2026-08-12T20:22:00Z",
       "durationSeconds": 267,
-      "template": "run-firn-install-tests",
-      "kind": "install",
-      "label": "firn installer matrix",
-      "trigger": "manual",
-      "result": "FAILED: firn install did not complete (bootc/cayo/none/sb=true)",
-      "checks": []
-    },
-    {
-      "name": "firn-bootc-sb-test-tmtj8",
-      "phase": "Failed",
-      "started": "2026-08-12T19:33:43Z",
-      "finished": "2026-08-12T19:37:01Z",
-      "durationSeconds": 198,
       "template": "run-firn-install-tests",
       "kind": "install",
       "label": "firn installer matrix",
