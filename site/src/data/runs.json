@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-11T12:30:19Z",
+  "generated": "2026-09-11T13:00:18Z",
   "lanes": [
     {
       "template": "run-firn-install-tests",
@@ -18,7 +18,7 @@
         "result": "FAILED: firn install did not complete (bootc/cayo/none/sb=true)",
         "checks": []
       },
-      "runs": 3,
+      "runs": 2,
       "everGreen": false
     },
     {
@@ -46,9 +46,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1789129800",
+        "name": "publish-results-1789131600",
         "phase": "Running",
-        "started": "2026-09-11T12:30:00Z",
+        "started": "2026-09-11T13:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -84,11 +84,24 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1789129800",
+      "name": "publish-results-1789131600",
       "phase": "Running",
-      "started": "2026-09-11T12:30:00Z",
+      "started": "2026-09-11T13:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1789129800",
+      "phase": "Succeeded",
+      "started": "2026-09-11T12:30:00Z",
+      "finished": "2026-09-11T12:30:31Z",
+      "durationSeconds": 31,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -154,19 +167,6 @@
       "started": "2026-09-11T11:30:00Z",
       "finished": "2026-09-11T11:30:33Z",
       "durationSeconds": 33,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1789124400",
-      "phase": "Succeeded",
-      "started": "2026-09-11T11:00:00Z",
-      "finished": "2026-09-11T11:00:32Z",
-      "durationSeconds": 32,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -289,19 +289,6 @@
       "label": "firn installer matrix",
       "trigger": "manual",
       "result": "FAILED: firn install did not complete (bootc/cayo/none/sb=true)",
-      "checks": []
-    },
-    {
-      "name": "firn-encbootc-confirm-4vmdf",
-      "phase": "Failed",
-      "started": "2026-08-12T11:46:32Z",
-      "finished": "2026-08-12T12:37:02Z",
-      "durationSeconds": 3030,
-      "template": "run-firn-install-tests",
-      "kind": "install",
-      "label": "firn installer matrix",
-      "trigger": "manual",
-      "result": "FAILED: installed system did not boot/report (bootc/snow/tpm2-luks-passphrase/sb=true) \u2014 for an encrypted cell this is an unlock failure",
       "checks": []
     }
   ]
