@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-24T12:30:18Z",
+  "generated": "2026-09-24T13:00:17Z",
   "lanes": [
     {
       "template": "orphan-pod-gc",
@@ -26,9 +26,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1790253000",
+        "name": "publish-results-1790254800",
         "phase": "Running",
-        "started": "2026-09-24T12:30:00Z",
+        "started": "2026-09-24T13:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -64,11 +64,24 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1790253000",
+      "name": "publish-results-1790254800",
       "phase": "Running",
-      "started": "2026-09-24T12:30:00Z",
+      "started": "2026-09-24T13:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1790253000",
+      "phase": "Succeeded",
+      "started": "2026-09-24T12:30:00Z",
+      "finished": "2026-09-24T12:30:31Z",
+      "durationSeconds": 31,
       "template": "publish",
       "kind": "other",
       "label": "publish",
@@ -133,19 +146,6 @@
       "phase": "Succeeded",
       "started": "2026-09-24T11:30:00Z",
       "finished": "2026-09-24T11:30:30Z",
-      "durationSeconds": 30,
-      "template": "publish",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1790247600",
-      "phase": "Succeeded",
-      "started": "2026-09-24T11:00:00Z",
-      "finished": "2026-09-24T11:00:30Z",
       "durationSeconds": 30,
       "template": "publish",
       "kind": "other",
