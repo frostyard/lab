@@ -1264,11 +1264,18 @@ def test_runner_installs_gpgv_without_recommends(tmp_path):
 
 
 @pytest.mark.parametrize(("scenario", "expected"), [
-    ("preflight", "BLOCKED: publication_unavailable"),
-    ("signature", "FAILED: preflight_mismatch"),
-    ("tag", "FAILED: tag_mismatch"),
+    ("preflight", "BLOCKED: publication_unavailable:trust_material_missing"),
+    ("signature", "FAILED: preflight_mismatch:oci_signature"),
+    ("preflight_garbage", "FAILED: preflight_mismatch:unparsed"),
+    ("preflight_multiline", "FAILED: preflight_mismatch:unparsed"),
+    ("preflight_injection", "FAILED: preflight_mismatch:unparsed"),
+    ("preflight_overlong", "FAILED: preflight_mismatch:unparsed"),
+    ("tag", "FAILED: tag_mismatch:tag_drift"),
+    ("tag_multiline", "FAILED: tag_mismatch:unparsed"),
     ("evidence", "FAILED: evidence_write"),
-    ("invalid", "FAILED: manifest_invalid"),
+    ("invalid", "FAILED: manifest_invalid:unparsed"),
+    ("invalid_code", "FAILED: manifest_invalid:manifest_fields"),
+    ("invalid_multiline", "FAILED: manifest_invalid:unparsed"),
     ("invalid_name", "FAILED: workflow_name"),
     ("apt_unavailable", "BLOCKED: packages_unavailable"),
     ("missing_gpgv", "BLOCKED: tool_unavailable:gpgv"),
@@ -1295,14 +1302,22 @@ def test_runner_failure_never_initializes_vm_and_does_not_expose_inputs(tmp_path
         from pathlib import Path
         command = sys.argv[1]
         if command == 'validate':
+            if os.environ['SCENARIO'] in ('invalid_code', 'invalid_multiline'):
+                print('qa_failed:manifest_fields' + ('\\nqa_failed:other' if os.environ['SCENARIO'] == 'invalid_multiline' else ''), file=sys.stderr)
+                sys.exit(1)
             Path(sys.argv[3]).write_text(json.dumps(json.loads(Path(sys.argv[2]).read_text())))
             print('a' * 64)
         elif command == 'preflight':
-            if os.environ['SCENARIO'] in ('preflight', 'signature'):
-                print('qa_failed:' + ('trust_material_missing' if os.environ['SCENARIO'] == 'preflight' else 'oci_signature'), file=sys.stderr)
+            if os.environ['SCENARIO'] in ('preflight', 'signature', 'preflight_garbage', 'preflight_multiline', 'preflight_injection', 'preflight_overlong'):
+                messages = {'preflight': 'qa_failed:trust_material_missing', 'signature': 'qa_failed:oci_signature',
+                            'preflight_garbage': 'nonsense', 'preflight_multiline': 'qa_failed:download\\nextra',
+                            'preflight_injection': 'qa_failed:download; sensitive-value',
+                            'preflight_overlong': 'qa_failed:' + 'a' * 41}
+                print(messages[os.environ['SCENARIO']], file=sys.stderr)
                 sys.exit(1)
             Path(sys.argv[3]).write_text('{}')
         elif command == 'tag':
+            print('qa_failed:tag_drift' + ('\\nsecret sensitive-value' if os.environ['SCENARIO'] == 'tag_multiline' else ''), file=sys.stderr)
             sys.exit(1)
         else:
             sys.exit(1)
@@ -1510,7 +1525,7 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
         assert len([e for e in events if e.startswith('incus start')]) >= (1 if scenario.startswith('install_') else 3)
         assert summary.strip() == {'stage': 'FAILED: phase_mismatch',
                                     'no_reboot': 'FAILED: reused_boot_id',
-                                   'tag_drift': 'FAILED: tag_mismatch',
+                                    'tag_drift': 'FAILED: tag_mismatch:unparsed',
                                    'evidence_write': 'FAILED: evidence_write',
                                    'output_write': 'FAILED: output_write',
                                    'stage_teardown': 'FAILED: phase_mismatch;teardown_failed',
