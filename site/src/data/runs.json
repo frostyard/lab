@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-25T14:30:17Z",
+  "generated": "2026-09-25T15:00:18Z",
   "lanes": [
     {
       "laneKey": "orphan-pod-gc",
@@ -30,9 +30,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1790346600",
+        "name": "publish-results-1790348400",
         "phase": "Running",
-        "started": "2026-09-25T14:30:00Z",
+        "started": "2026-09-25T15:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -46,6 +46,29 @@
       },
       "runs": 4,
       "everGreen": true
+    },
+    {
+      "laneKey": "image-poll-snow-latest",
+      "template": "image-poller",
+      "label": "Registry digest poll",
+      "kind": "poll",
+      "latest": {
+        "name": "image-poll-snow-latest-1790348400",
+        "phase": "Running",
+        "started": "2026-09-25T15:00:00Z",
+        "finished": null,
+        "durationSeconds": null,
+        "template": "image-poller",
+        "laneKey": "image-poll-snow-latest",
+        "qaOutcome": "unknown",
+        "kind": "poll",
+        "label": "Registry digest poll",
+        "trigger": "scheduled",
+        "result": null,
+        "checks": []
+      },
+      "runs": 2,
+      "everGreen": false
     },
     {
       "laneKey": "image-poll-floe-latest",
@@ -69,29 +92,6 @@
       },
       "runs": 3,
       "everGreen": true
-    },
-    {
-      "laneKey": "image-poll-snow-latest",
-      "template": "image-poller",
-      "label": "Registry digest poll",
-      "kind": "poll",
-      "latest": {
-        "name": "image-poll-snow-latest-1790337600",
-        "phase": "Failed",
-        "started": "2026-09-25T12:00:00Z",
-        "finished": "2026-09-25T12:01:24Z",
-        "durationSeconds": 84,
-        "template": "image-poller",
-        "laneKey": "image-poll-snow-latest",
-        "qaOutcome": "failed",
-        "kind": "poll",
-        "label": "Registry digest poll",
-        "trigger": "scheduled",
-        "result": "19 passed, 1 failed",
-        "checks": []
-      },
-      "runs": 1,
-      "everGreen": false
     },
     {
       "laneKey": "image-poll-snowfield-latest",
@@ -119,11 +119,41 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1790346600",
+      "name": "image-poll-snow-latest-1790348400",
       "phase": "Running",
-      "started": "2026-09-25T14:30:00Z",
+      "started": "2026-09-25T15:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "image-poller",
+      "laneKey": "image-poll-snow-latest",
+      "qaOutcome": "unknown",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1790348400",
+      "phase": "Running",
+      "started": "2026-09-25T15:00:00Z",
+      "finished": null,
+      "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1790346600",
+      "phase": "Succeeded",
+      "started": "2026-09-25T14:30:00Z",
+      "finished": "2026-09-25T14:30:30Z",
+      "durationSeconds": 30,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -154,21 +184,6 @@
       "started": "2026-09-25T13:30:00Z",
       "finished": "2026-09-25T13:30:30Z",
       "durationSeconds": 30,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1790341200",
-      "phase": "Succeeded",
-      "started": "2026-09-25T13:00:00Z",
-      "finished": "2026-09-25T13:00:31Z",
-      "durationSeconds": 31,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
