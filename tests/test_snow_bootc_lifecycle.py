@@ -658,8 +658,9 @@ def test_guest_stage_probes_and_emits_allowlisted_single_record(qa, tmp_path, mo
     credentials = tmp_path / "credentials"
     credentials.mkdir()
     for key, value in {"phase": phase, "nonce": NONCE, "image_n": f"{REPO}@sha256:{N}",
-                       "image_n_plus_1": f"{REPO}@sha256:{NEXT}", "target_ref": f"{REPO}:qa-controlled"}.items():
+                        "image_n_plus_1": f"{REPO}@sha256:{NEXT}", "target_ref": f"{REPO}:qa-controlled"}.items():
         (credentials / key).write_text(value + "\n")
+    (credentials / "unit_started").write_text("900.00\n")
     monkeypatch.setattr(qa, "GUEST_MANIFEST", normalized, raising=False)
     status = {"spec": {"image": {"image": f"{REPO}@sha256:{N}" if phase == "stage" else f"{REPO}:qa-controlled", "transport": "registry"}},
               "status": {"booted": {"image": {"imageDigest": "sha256:" + (N if phase == "stage" else NEXT),
@@ -673,6 +674,7 @@ def test_guest_stage_probes_and_emits_allowlisted_single_record(qa, tmp_path, mo
     (root / "update-check").write_text("outcome=staged\n")
     (root / "update-staged").write_text("sha256:" + NEXT + "\n")
     (root / "tokens.json").write_text(json.dumps({"tokens": {"0": {"type": "systemd-tpm2", "tpm2-pcrs": [], "tpm2_pubkey_pcrs": [11], "tpm2-pubkey": "public"}}}))
+    (root / "uptime").write_text("1000.00 500.00\n")
     esp = root / "esp"
     (esp / "loader/entries").mkdir(parents=True)
     (esp / UKI_PATH.lstrip("/")).parent.mkdir(parents=True)
@@ -680,23 +682,23 @@ def test_guest_stage_probes_and_emits_allowlisted_single_record(qa, tmp_path, mo
     (esp / "loader/entries/snow.conf").write_text("title Snow\nuki " + UKI_PATH + "\n")
     monkeypatch.setattr(qa, "GUEST_PATHS", {"boot_id": root / "boot_id", "policy": root / "policy.json",
         "key": root / "key", "update_check": root / "update-check", "update_staged": root / "update-staged",
-        "esp": esp})
+        "esp": esp, "uptime": root / "uptime"})
     calls = []
     clock = [1000]
-    monkeypatch.setattr(qa, "monotonic", lambda: clock[0], raising=False)
 
     def fake_run(args, **kwargs):
         calls.append(args)
         assert kwargs.get("capture_output") and not kwargs.get("shell")
         phase_budget = m["timeouts"]["stage" if phase == "stage" else "reboot"]
         if args[:2] == ["podman", "pull"] or args in (["/usr/libexec/bootc-update-stage"], ["bootc", "rollback"]):
-            assert kwargs["timeout"] == phase_budget - 120 - (clock[0] - 1000)
+            assert kwargs["timeout"] == phase_budget - 120 - (clock[0] - 900)
         else:
             assert kwargs["timeout"] == 120
         if args[:2] == ["bootc", "status"]:
             return subprocess.CompletedProcess(args, 0, json.dumps(status).encode(), b"")
         if args[:2] == ["podman", "pull"]:
             clock[0] += 180
+            (root / "uptime").write_text(f"{clock[0]:.2f} 500.00\n")
             return subprocess.CompletedProcess(args, 0, b"", b"")
         if args[:2] == ["podman", "image"]:
             return subprocess.CompletedProcess(args, 0, ("sha256:" + NEXT).encode(), b"")
@@ -763,7 +765,7 @@ def test_run_unit_survives_systemd_specifiers_and_delivers_guest_credentials(tmp
     assert not re.search(r"%(?![%s])|%(?:$)", command)
     expanded = re.sub(r"%(%|s)", lambda m: "%" if m[1] == "%" else "/bin/bash", command)
     argv = shlex.split(expanded)
-    assert argv[:2] == ["/bin/bash", "-c"]
+    assert argv[:2] == ["/bin/bash", "-ec"]
     payload = argv[2]
     for path in ("/opt/snow-qa", "/run/snow-credentials", "/run/snow-qa.z"):
         payload = payload.replace(path, str(tmp_path / path.lstrip("/")))
@@ -775,6 +777,54 @@ def test_run_unit_survives_systemd_specifiers_and_delivers_guest_credentials(tmp
                           ("image_n", values["n"]), ("image_n_plus_1", values["next"]),
                           ("target_ref", values["target"])):
         assert (tmp_path / "run/snow-credentials" / key).read_text() == expected
+
+
+def test_guest_unit_records_uptime_before_bootstrap(tmp_path):
+    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    assignment = re.search(r'(?m)^  guestunit="\[Unit\].*?^  gb=', script, re.S)
+    assert assignment
+    values = dict(phase="stage", nonce=NONCE, n=f"{REPO}@sha256:{N}",
+                  next=f"{REPO}@sha256:{NEXT}", target=f"{REPO}:qa-controlled",
+                  qa_b64="not-base64", manifest_b64="e30=")
+    unit = subprocess.run(["bash", "-c", assignment.group().rsplit("  gb=", 1)[0] +
+                           '\nprintf "%s" "$guestunit"'], env={**os.environ, **values},
+                          capture_output=True, check=True, text=True).stdout
+    command = next(line.removeprefix("ExecStart=") for line in unit.splitlines()
+                   if line.startswith("ExecStart="))
+    assert not re.search(r"%(?![%s])|%(?:$)", command)
+    expanded = re.sub(r"%(%|s)", lambda m: "%" if m[1] == "%" else "/bin/bash", command)
+    payload = shlex.split(expanded)[2]
+    for path in ("/opt/snow-qa", "/run/snow-credentials", "/run/snow-qa.z"):
+        payload = payload.replace(path, str(tmp_path / path.lstrip("/")))
+    uptime = tmp_path / "uptime"
+    uptime.write_text("1234.56 789.00\n")
+    payload = payload.replace("/proc/uptime", str(uptime))
+    result = subprocess.run(["bash", "-e", "-c", payload], capture_output=True)
+    assert result.returncode != 0  # Deliberately broken bootstrap.
+    assert (tmp_path / "run/snow-credentials/unit_started").read_text() == "1234.56\n"
+    assert (tmp_path / "run/snow-credentials").stat().st_mode & 0o777 == 0o700
+    assert not (tmp_path / "opt/snow-qa/qa.py").exists()
+
+
+@pytest.mark.parametrize("start", [None, "garbage", "nan", "inf", "1e3", "1001.00", "9" * 80])
+def test_guest_rejects_bad_unit_start_before_actions(qa, tmp_path, monkeypatch, start):
+    m = manifest()
+    normalized = tmp_path / "normalized.json"
+    normalized.write_bytes(qa.canonical(m))
+    monkeypatch.setattr(qa, "GUEST_MANIFEST", normalized)
+    creds = tmp_path / "creds"
+    creds.mkdir()
+    (creds / "phase").write_text("stage")
+    (creds / "nonce").write_text(NONCE)
+    for key in ("image_n", "image_n_plus_1", "target_ref"):
+        (creds / key).write_text(m[key])
+    if start is not None:
+        (creds / "unit_started").write_text(start)
+    (tmp_path / "uptime").write_text("1000.00 50.00\n")
+    monkeypatch.setattr(qa, "GUEST_PATHS", {"uptime": tmp_path / "uptime"})
+    monkeypatch.setattr(qa.subprocess, "run", lambda *a, **kw: pytest.fail("action before unit-start validation"))
+    with pytest.raises(qa.GateError, match="^unit_start$"):
+        qa.guest(creds)
 
 
 def test_run_install_unit_uses_manifest_install_budget_without_systemd_specifiers():
@@ -888,8 +938,10 @@ def test_guest_never_emits_evidence_for_failed_probe_or_action(qa, tmp_path, mon
     creds.mkdir()
     phase = "rollback" if damage in ("rollback_failure", "rollback_timeout") else "stage"
     for key, value in {"phase": phase, "nonce": NONCE, "image_n": m["image_n"],
-                       "image_n_plus_1": m["image_n_plus_1"], "target_ref": m["target_ref"]}.items():
+                        "image_n_plus_1": m["image_n_plus_1"], "target_ref": m["target_ref"]}.items():
         (creds / key).write_text(value)
+    (creds / "unit_started").write_text("1000.00\n")
+    (tmp_path / "uptime").write_text("1000.00 50.00\n")
     for key, value in {"boot_id": "12345678-1234-4234-8234-123456789abc",
                        "policy": json.dumps({"default": [{"type": "reject"}], "transports": {"docker": {REPO: [{"type": "sigstoreSigned", "keyPath": "/usr/lib/snosi/cosign.pub"}]}}}),
                        "key": "public-key", "update_check": "outcome=staged\n", "update_staged": "sha256:" + NEXT}.items():
@@ -903,7 +955,7 @@ def test_guest_never_emits_evidence_for_failed_probe_or_action(qa, tmp_path, mon
     (esp / UKI_PATH.lstrip("/")).write_bytes(b"mock-uki")
     (esp / "loader/entries/snow.conf").write_text("uki " + (UKI_PATH.replace("d" * 128, "a" * 128) if damage == "bls_wrong" else UKI_PATH) + "\n" + ("linux /vmlinuz\n" if damage == "bls_linux" else ""))
     monkeypatch.setattr(qa, "GUEST_PATHS", {**{key: tmp_path / key for key in
-        ("boot_id", "policy", "key", "update_check", "update_staged")}, "esp": esp})
+        ("boot_id", "policy", "key", "update_check", "update_staged", "uptime")}, "esp": esp})
     monkeypatch.setattr(qa, "guest_lockdown", lambda: True)
     booted = NEXT if phase == "rollback" else N
     version = m["version_n_plus_1"] if phase == "rollback" else m["version_n"]
