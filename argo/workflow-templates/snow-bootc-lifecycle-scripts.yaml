@@ -1,0 +1,1110 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: snow-bootc-lifecycle-scripts
+  namespace: argo
+data:
+  run.sh: |
+    #!/bin/bash
+    # Advisory only. No raw serial, install trace, recovery material or NVRAM
+    # survives this process. The host evidence directory must be private.
+    set -Eeuo pipefail
+    umask 077
+    ROOT=/var/lib/snosi-lab/snow-bootc-evidence
+    OUT=/tmp/results
+    VM=""
+    INITIALIZED=0
+    STATE=FAILED
+    REASON=setup
+    mkdir -p "$OUT"
+    # Atomically replace and sync both file and containing directory.
+    persist() {
+      local source="$1" dest="$2"
+      python3 - "$source" "$dest" <<'PY'
+    import os, sys, tempfile
+    from pathlib import Path
+    source, dest = Path(sys.argv[1]), Path(sys.argv[2])
+    with tempfile.NamedTemporaryFile(dir=dest.parent, prefix='.snow-', delete=False) as stream:
+        temp = stream.name
+        try:
+            stream.write(source.read_bytes()); stream.flush(); os.fsync(stream.fileno())
+            os.fchmod(stream.fileno(), 0o600)
+        except BaseException:
+            os.unlink(temp); raise
+    os.replace(temp, dest)
+    fd = os.open(dest.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try: os.fsync(fd)
+    finally: os.close(fd)
+    PY
+    }
+    finish() {
+      local rc=$?
+      trap - EXIT
+      cleanup_error() {
+        rc=1
+        if [[ "$STATE" == PASS ]]; then
+          STATE=FAILED; REASON="$1"
+        elif [[ "$STATE" == BLOCKED ]]; then
+          REASON="cleanup_after_blocked:${REASON};$1"; STATE=FAILED
+        elif [[ "$REASON" != *";$1"* ]]; then
+          STATE=FAILED; REASON="${REASON};$1"
+        fi
+      }
+      if [[ "$INITIALIZED" == 1 ]]; then
+        timeout 90 incus delete --force "$VM" >/dev/null 2>&1 || cleanup_error teardown_failed
+      fi
+      if [[ -n "${ISO_HOST:-}" ]]; then rm -f -- "$ISO_HOST" || cleanup_error cleanup_failed; fi
+      if [[ $rc -eq 0 && "$STATE" != PASS ]]; then rc=1; fi
+      if [[ $rc -ne 0 && "$STATE" == PASS ]]; then STATE=FAILED; REASON=cleanup; fi
+      local summary_source="$OUT/result-summary.txt"
+      if ! printf '%s: %s\n' "$STATE" "$REASON" > "$summary_source"; then
+        rc=1; STATE=FAILED; REASON=output_write
+        summary_source=$(mktemp "${WORK:-/tmp}/snow-final.XXXXXXXX") || exit 1
+        printf 'FAILED: output_write\n' > "$summary_source" || exit 1
+      fi
+      if [[ -n "${EVIDENCE:-}" ]]; then
+        persist "$OUT/checks.txt" "$EVIDENCE/checks.txt" || { rc=1; STATE=FAILED; REASON=evidence_write; }
+        if [[ "$STATE" == FAILED && "$REASON" == evidence_write ]]; then
+          printf 'FAILED: evidence_write\n' > "$summary_source" || true
+        fi
+        persist "$summary_source" "$EVIDENCE/result-summary.txt" || { rc=1; STATE=FAILED; REASON=evidence_write; }
+      fi
+      if [[ "$STATE" == FAILED && "$REASON" == evidence_write ]]; then
+        printf 'FAILED: evidence_write\n' > "$OUT/result-summary.txt" || true
+      fi
+      if [[ -n "${WORK:-}" ]]; then rm -rf -- "$WORK" || { rc=1; STATE=FAILED; REASON=cleanup; }; fi
+      if [[ "$summary_source" != "$OUT/result-summary.txt" && -z "${WORK:-}" ]]; then rm -f -- "$summary_source"; fi
+      exit "$rc"
+    }
+    trap finish EXIT
+    trap 'REASON=interrupted; exit 1' INT TERM HUP
+    fail() { REASON="$1"; exit 1; }
+    blocked() { STATE=BLOCKED; fail "$1"; }
+    # Reject arbitrary workflow names before using one as a path or VM name.
+    [[ "${WORKFLOW_NAME:-}" =~ ^[a-z0-9][a-z0-9-]{0,50}$ ]] || fail workflow_name
+    WORK=$(mktemp -d /tmp/snow-lifecycle.XXXXXXXX) || fail work_directory
+    printf '%s\n' 'status=not-verified' > "$OUT/checks.txt"
+    install -d -m 0700 "$ROOT" || fail evidence_directory
+    [[ ! -L "$ROOT" && -d "$ROOT" ]] || fail evidence_directory
+    chmod 0700 "$ROOT" || fail evidence_directory
+    EVIDENCE="$ROOT/$WORKFLOW_NAME"
+    [[ ! -e "$EVIDENCE" && ! -L "$EVIDENCE" ]] || fail evidence_exists
+    install -d -m 0700 "$EVIDENCE" || fail evidence_directory
+    VM="snow-qa-${WORKFLOW_NAME:0:39}"
+    # Disposable Debian runner, never the host or extracted Firn binary.
+    # Tools come from the distro-managed apt repository trust, not from
+    # installer artifacts or an unpinned PyPI download. This is not proof of
+    # tool provenance beyond the configured apt trust.
+    # Bound provisioning independently; discard package-manager output because
+    # untrusted repositories and URLs can embed arbitrary data in errors.
+    export DEBIAN_FRONTEND=noninteractive
+    timeout 900 apt-get update -qq >/dev/null 2>&1 || blocked packages_unavailable
+    timeout 900 apt-get install -y -qq --no-install-recommends \
+      ca-certificates python3 python3-virt-firmware \
+      curl gnupg skopeo cosign mtools bubblewrap zstd cpio openssl \
+      >/dev/null 2>&1 || blocked packages_unavailable
+    # No extracted Firn binary executes outside qa.py's bubblewrap sandbox.
+    for tool in python3 curl gpg gpgv skopeo cosign mcopy bwrap zstd cpio incus \
+                timeout base64 openssl virt-fw-vars sha256sum; do
+      command -v "$tool" >/dev/null 2>&1 || blocked tool_unavailable
+    done
+    printf '%s' "${MANIFEST_JSON:-}" > "$WORK/input.json"
+    unset MANIFEST_JSON
+    python3 /opt/snow-qa/qa.py validate "$WORK/input.json" "$WORK/normalized.json" > "$WORK/hash" 2>/dev/null || fail manifest_invalid
+    persist "$WORK/hash" "$EVIDENCE/manifest-sha256.txt" || fail evidence_write
+    if ! python3 /opt/snow-qa/qa.py preflight "$WORK/normalized.json" "$WORK/checks.json" > /dev/null 2> "$WORK/preflight-error"; then
+      case "$(<"$WORK/preflight-error")" in
+        qa_failed:trust_material_missing|qa_failed:download|qa_failed:iso_download|qa_failed:registry_inspect)
+          blocked publication_unavailable;;
+        *) fail preflight_mismatch;;
+      esac
+    fi
+    persist "$WORK/checks.json" "$EVIDENCE/preflight.json" || fail evidence_write
+    printf 'manifest_sha256=%s\n' "$(<"$WORK/hash")" > "$OUT/checks.txt"
+    # Preflight's temporary authenticated ISO is intentionally removed there;
+    # download this exact URL again and verify against the signed index hash.
+    iso_url=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["iso_url"])' "$WORK/normalized.json") || fail manifest_read
+    iso_hash=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["iso_sha256"])' "$WORK/normalized.json") || fail manifest_read
+    install_timeout=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["install"])' "$WORK/normalized.json") || fail manifest_read
+    iso_candidate="/var/lib/snosi-lab/iso/snow-qa-${WORKFLOW_NAME}.iso"
+    [[ ! -e "$iso_candidate" && ! -L "$iso_candidate" ]] || fail iso_path_exists
+    ISO_HOST="$iso_candidate"
+    timeout "$install_timeout" curl -fsSL --max-time "$install_timeout" -o "$ISO_HOST" "$iso_url" >/dev/null 2>&1 || blocked iso_unavailable
+    chmod 0600 "$ISO_HOST" || fail iso_permissions
+    iso_actual=$(sha256sum "$ISO_HOST") || fail iso_hash_read
+    [[ "$iso_actual" == "$iso_hash "* ]] || fail iso_changed
+    tag() {
+      python3 /opt/snow-qa/qa.py tag "$WORK/normalized.json" "$1" "$WORK/checks.json" >/dev/null 2>/dev/null || fail tag_mismatch
+      persist "$WORK/checks.json" "$EVIDENCE/checks.json" || fail evidence_write
+      python3 - "$WORK/checks.json" "$1" >> "$OUT/checks.txt" <<'PY' || fail checks_write
+    import json, sys
+    data = json.load(open(sys.argv[1]))
+    print('tag=' + sys.argv[2] + ' timestamp=' + data['tags'][sys.argv[2]])
+    PY
+      persist "$OUT/checks.txt" "$EVIDENCE/checks.txt" || fail evidence_write
+    }
+    serial() {
+      # Byte-exact child file-size limit matches qa.py's <=1 MiB parser gate.
+      # No unbounded console output is kept, persisted, or sent to pod logs.
+      if ! python3 - "$VM" "$WORK/serial-full" 2>/dev/null <<'PY'
+    import resource, subprocess, sys
+    from pathlib import Path
+    try:
+        def limit():
+            resource.setrlimit(resource.RLIMIT_FSIZE, (1048576, 1048576))
+        with open(sys.argv[2], 'wb') as snapshot:
+            result = subprocess.run(['incus', 'console', sys.argv[1], '--show-log'],
+                                    stdout=snapshot, stderr=subprocess.DEVNULL,
+                                    timeout=30, check=False, preexec_fn=limit)
+        if result.returncode or Path(sys.argv[2]).stat().st_size > 1048576:
+            sys.exit(1)
+    except (OSError, subprocess.SubprocessError):
+        sys.exit(1)
+    PY
+      then blocked serial_capture; fi
+      # The instance may retain prior boots' console lines. Compare the entire
+      # bounded snapshot byte-for-byte with the pre-start baseline, and hand
+      # only the newly appended region to the marker search and phase verifier.
+      # A reset/truncation/changed prefix cannot establish boot lineage.
+      python3 - "$WORK/serial-baseline" "$WORK/serial-full" "$WORK/serial" <<'PY' || blocked channel_lineage
+    import sys
+    from pathlib import Path
+    baseline = Path(sys.argv[1]).read_bytes()
+    snapshot = Path(sys.argv[2]).read_bytes()
+    if not snapshot.startswith(baseline):
+        sys.exit(1)
+    Path(sys.argv[3]).write_bytes(snapshot[len(baseline):])
+    PY
+    }
+    await() {
+      local needle="$1" observed_failure="${3:-}" end=$((SECONDS + $2))
+      while (( SECONDS < end )); do
+        serial
+        if [[ "$needle" == SNOW_QA_V1 ]] && grep -qF 'SNOW_QA_ERR' "$WORK/serial"; then
+          # Console ONLCR may append one CR. Reject extra, malformed or
+          # conflicting markers rather than choosing a convenient code.
+          code=$(python3 - "$WORK/serial" <<'PY'
+    import re, sys
+    from pathlib import Path
+    lines = Path(sys.argv[1]).read_bytes().split(b'\n')
+    errors = [line for line in lines if b'SNOW_QA_ERR' in line]
+    if len(errors) != 1 or any(b'SNOW_QA_V1' in line for line in lines):
+        sys.exit(1)
+    match = re.fullmatch(rb'SNOW_QA_ERR ([a-z_]{1,40})\r?', errors[0])
+    if match is None:
+        sys.exit(1)
+    print(match[1].decode('ascii'))
+    PY
+          ) || fail phase_mismatch
+          case "$code" in
+            updater|rollback_action) fail guest_action_failed;;
+            *) blocked guest_probe_error_observed;;
+          esac
+        fi
+        if [[ -n "$observed_failure" ]] && grep -qF "$observed_failure" "$WORK/serial"; then
+          fail install_failed
+        fi
+        if grep -qF "$needle" "$WORK/serial"; then return 0; fi
+        sleep 5
+      done
+      blocked phase_timeout
+    }
+    # All injected strings are fixed or canonical manifest fields encoded as
+    # data. No manifest text is evaluated as a shell program on the host.
+    n=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["image_n"])' "$WORK/normalized.json") || fail manifest_read
+    target=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["target_ref"])' "$WORK/normalized.json") || fail manifest_read
+    next=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["image_n_plus_1"])' "$WORK/normalized.json") || fail manifest_read
+    manifest_b64=$(base64 -w0 "$WORK/normalized.json") || fail manifest_read
+    # Compress the trusted ConfigMap payload to keep the SMBIOS value below
+    # firmware's 64 KiB string bound; the guest decompresses using Python.
+    python3 -c 'import pathlib,zlib,sys; pathlib.Path(sys.argv[2]).write_bytes(zlib.compress(pathlib.Path(sys.argv[1]).read_bytes(),9))' /opt/snow-qa/qa.py "$WORK/qa.z" || fail qa_payload
+    qa_b64=$(base64 -w0 "$WORK/qa.z") || fail qa_payload
+    # The ISO boot runs only after validation, authenticated preflight and a
+    # persistent manifest hash. A single root disk and a read-only ISO.
+    tag before-install
+    : > "$WORK/serial-baseline" # Empty log for the newly initialized VM.
+    timeout 120 incus init "$VM" --empty --vm -c security.secureboot=true \
+      -c limits.cpu=4 -c limits.memory=8GiB -d root,size=40GiB >/dev/null 2>&1 || fail vm_init
+    INITIALIZED=1
+    timeout 60 incus config device add "$VM" vtpm tpm >/dev/null 2>&1 || fail vm_tpm
+    timeout 60 incus config device add "$VM" installer disk source="$ISO_HOST" boot.priority=10 readonly=true >/dev/null 2>&1 || fail vm_iso
+    # Installer logic is a fixed program with encoded validated data. The
+    # recipe and passwords are ephemeral guest-only files; no trace to serial.
+    cat > "$WORK/install.sh" <<'GUEST'
+    #!/bin/bash
+    set -Eeuo pipefail
+    umask 077
+    printf 'SNOW_INSTALL_BEGIN\n' > /dev/ttyS0
+    mapfile -t disks < <(lsblk -dnpo NAME,RO,TYPE | awk '$2==0 && $3=="disk" {print $1}')
+    [[ ${#disks[@]} == 1 ]] || exit 1
+    disk=${disks[0]}
+    byid=""
+    for item in /dev/disk/by-id/*; do
+      [[ -L "$item" && $(readlink -f "$item") == "$disk" && "$item" != *-part* ]] || continue
+      byid="$item"; break
+    done
+    [[ -n "$byid" && -b "$byid" ]] || exit 1
+    openssl rand -hex 32 > /run/snow-passphrase
+    openssl rand -hex 16 > /run/snow-mok-password
+    chmod 0600 /run/snow-passphrase /run/snow-mok-password
+    cat > /run/snow-recipe.toml <<RECIPE
+    version = 1
+    [image]
+    family = "bootc"
+    ref = "@N@"
+    target_ref = "@TARGET@"
+    cosign_pub_key = "/usr/lib/snosi/cosign.pub"
+    [target]
+    disk = "$byid"
+    filesystem = "btrfs"
+    bootloader = "systemd"
+    [security]
+    encryption = "tpm2-luks-passphrase"
+    passphrase_file = "/run/snow-passphrase"
+    mok = "enroll"
+    mok_password_file = "/run/snow-mok-password"
+    RECIPE
+    if firn install /run/snow-recipe.toml --confirm "$byid" --uefi on --secure-boot on --tpm on >/run/snow-install.log 2>&1; then
+      printf 'SNOW_INSTALL_OK\n' > /dev/ttyS0
+    else
+      printf 'SNOW_INSTALL_FAILED\n' > /dev/ttyS0
+      exit 1
+    fi
+    GUEST
+    # Replace only the two schema-validated literal placeholders.
+    python3 - "$WORK/install.sh" "$n" "$target" <<'PY'
+    import sys
+    from pathlib import Path
+    p = Path(sys.argv[1]); s = p.read_text()
+    p.write_text(s.replace('@N@', sys.argv[2]).replace('@TARGET@', sys.argv[3]))
+    PY
+    install_b64=$(base64 -w0 "$WORK/install.sh") || fail unit_encoding
+    unit="[Unit]
+    After=live-ready.service network-online.target
+    Wants=network-online.target
+    [Service]
+    Type=oneshot
+    TimeoutStartSec=$install_timeout
+    StandardOutput=null
+    StandardError=null
+    ExecStart=/bin/bash -c 'echo $install_b64 | base64 -d > /run/snow-install.sh; chmod 700 /run/snow-install.sh; /run/snow-install.sh'"
+    drop="[Unit]
+    Wants=snow-install.service"
+    ub=$(printf '%s' "$unit" | base64 -w0) || fail unit_encoding
+    [[ ${#ub} -lt 60000 ]] || fail unit_size
+    db=$(printf '%s' "$drop" | base64 -w0) || fail unit_encoding
+    timeout 60 incus config set "$VM" raw.qemu="-smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.snow-install.service=$ub -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.multi-user.target=$db" >/dev/null 2>&1 || fail vm_injection
+    iso_boot=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["iso_boot"])' "$WORK/normalized.json") || fail manifest_read
+    timeout 120 incus start "$VM" >/dev/null 2>&1 || fail iso_start
+    await SNOW_INSTALL_BEGIN "$iso_boot"
+    # Host allowance includes boot/startup and serial polling beyond systemd's unit timer.
+    await SNOW_INSTALL_OK "$((install_timeout + 300))" SNOW_INSTALL_FAILED
+    timeout 120 incus stop "$VM" --force >/dev/null 2>&1 || fail iso_stop
+    # MOK enrollment is a varstore stand-in for a human interaction and only
+    # follows firn's successful secure install; never treat it as human proof.
+    timeout 30 incus config show "$VM" --expanded --format=json > "$WORK/vm-config" 2>/dev/null || blocked host_storage_unsupported
+    pool=$(python3 - "$WORK/vm-config" <<'PY'
+    import json, re, sys
+    try:
+        raw = open(sys.argv[1], 'rb').read(16385)
+        node = json.loads(raw)['expanded_devices']['root']
+        pool = node['pool']
+        if len(raw) > 16384 or node['type'] != 'disk' or node['path'] != '/' or not isinstance(pool, str) or not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_-]{0,50}', pool): raise ValueError()
+        print(pool)
+    except (ValueError, KeyError, TypeError, UnicodeError): sys.exit(1)
+    PY
+    ) || blocked host_storage_unsupported
+    nvram="/var/lib/incus/storage-pools/$pool/virtual-machines/$VM/qemu.nvram"
+    [[ -f "$nvram" && ! -L "$nvram" ]] || blocked host_storage_unsupported
+    commit=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["snosi_commit"])' "$WORK/normalized.json") || fail manifest_read
+    base="https://raw.githubusercontent.com/frostyard/snosi/$commit/"
+    timeout 90 curl -fsSL --max-time 60 -o "$WORK/mok.crt" "${base}shared/native-ab/keys/mok-2026.crt" >/dev/null 2>&1 || blocked mok_unavailable
+    mok_hash=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["mok_cert_sha256"])' "$WORK/normalized.json") || fail manifest_read
+    mok_actual=$(sha256sum "$WORK/mok.crt") || fail mok_hash_read
+    [[ "$mok_actual" == "$mok_hash "* ]] || fail mok_hash
+    mok_guid=$(cat /proc/sys/kernel/random/uuid) || fail mok_guid
+    timeout 120 virt-fw-vars --inplace "$nvram" --add-mok "$mok_guid" "$WORK/mok.crt" -d MokNew -d MokAuth >/dev/null 2>&1 || fail mok_enroll
+    timeout 30 virt-fw-vars -i "$nvram" -p > "$WORK/varstore-check" 2>/dev/null || fail mok_enroll
+    grep -q MokList "$WORK/varstore-check" || fail mok_enroll
+    timeout 60 incus config device remove "$VM" installer >/dev/null 2>&1 || fail iso_detach
+    prior=none
+    seen_boot_ids=':'
+    for phase in installed-n stage boot-n-plus-1 rollback boot-n; do
+      nonce=$(openssl rand -hex 16) || fail nonce
+      tag before-"$phase"
+      # Re-snapshot the stopped instance immediately before the next boot;
+      # old markers must never satisfy a fresh nonce or be fed to qa.py.
+      serial
+      cp -- "$WORK/serial-full" "$WORK/serial-baseline" || fail channel_baseline
+      # Credentials supplied by SMBIOS as base64, not kernel arguments. Each
+      # phase has a fresh unit and a fresh VM boot, never a re-used serial log.
+      case "$phase" in installed-n) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["installed_boot"])' "$WORK/normalized.json") || fail manifest_read;; stage) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["stage"])' "$WORK/normalized.json") || fail manifest_read;; *) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["reboot"])' "$WORK/normalized.json") || fail manifest_read;; esac
+      guestunit="[Unit]
+    After=network-online.target
+    Wants=network-online.target
+    [Service]
+    Type=oneshot
+    TimeoutStartSec=$budget
+    StandardOutput=null
+    StandardError=null
+    ExecStart=/bin/bash -c 'install -d -m 0700 /opt/snow-qa /run/snow-credentials; echo $qa_b64 | base64 -d > /run/snow-qa.z; python3 -c \"import zlib,sys;sys.stdout.buffer.write(zlib.decompress(sys.stdin.buffer.read()))\" < /run/snow-qa.z > /opt/snow-qa/qa.py; echo $manifest_b64 | base64 -d > /opt/snow-qa/normalized.json; printf %%s $phase > /run/snow-credentials/phase; printf %%s $nonce > /run/snow-credentials/nonce; printf %%s $n > /run/snow-credentials/image_n; printf %%s $next > /run/snow-credentials/image_n_plus_1; printf %%s $target > /run/snow-credentials/target_ref; python3 /opt/snow-qa/qa.py guest /run/snow-credentials'"
+      gb=$(printf '%s' "$guestunit" | base64 -w0) || fail unit_encoding
+      [[ ${#gb} -lt 60000 ]] || fail unit_size
+      gd=$(printf '[Unit]\nWants=snow-guest.service' | base64 -w0) || fail unit_encoding
+      timeout 60 incus config set "$VM" raw.qemu="-smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.snow-guest.service=$gb -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.multi-user.target=$gd" >/dev/null 2>&1 || fail phase_injection
+      timeout 120 incus start "$VM" >/dev/null 2>&1 || fail guest_start
+      await SNOW_QA_V1 "$((budget + 300))"
+      python3 /opt/snow-qa/qa.py phase "$WORK/normalized.json" "$phase" "$nonce" "$prior" "$WORK/serial" "$WORK/checks.json" > "$WORK/boot-id" 2>/dev/null || fail phase_mismatch
+      [[ -s "$WORK/boot-id" ]] || fail phase_mismatch
+      prior=$(<"$WORK/boot-id")
+      [[ "$seen_boot_ids" != *":$prior:"* ]] || fail reused_boot_id
+      seen_boot_ids+="$prior:"
+      printf 'phase=%s boot_id=%s\n' "$phase" "$prior" >> "$OUT/checks.txt"
+      persist "$OUT/checks.txt" "$EVIDENCE/checks.txt" || fail evidence_write
+      case "$phase" in stage|boot-n-plus-1|rollback) tag after-"$phase";; esac
+      timeout 120 incus stop "$VM" --force >/dev/null 2>&1 || fail guest_stop
+    done
+    STATE=PASS
+    REASON=verified_five_fresh_boots
+  guest.sh: |
+    #!/bin/sh
+    # Installed as a once-per-fresh-boot unit; systemd credentials must come
+    # from the operator's SMBIOS provisioning, never from kernel arguments.
+    set -eu
+    : "${CREDENTIALS_DIRECTORY:?missing systemd credentials}"
+    exec python3 /opt/snow-qa/qa.py guest "$CREDENTIALS_DIRECTORY"
+  qa.py: |
+    """Fail-closed, read-only gates for a manually approved Snow bootc VM run.
+
+    Operator must independently compare commit and all three key hashes to the
+    committed trusted source before submitting. A manifest is NOT a trust root.
+    This ConfigMap does not provision a VM or submit an Argo workflow.
+    """
+    import base64
+    import datetime
+    import hashlib
+    import json
+    import os
+    import platform
+    import re
+    import resource
+    import struct
+    import subprocess
+    import sys
+    import tempfile
+    import zlib
+    from contextlib import contextmanager
+    from pathlib import Path
+    from time import monotonic
+
+    REPO = "ghcr.io/frostyard/snow"
+    ISO_BASE = "https://repository.frostyard.org/isos/native/v1/"
+    FINGERPRINT = "F37282A35CB6BDFEBFC8FE775A2EAC5C8216FD68"
+    SNOSI_COMMIT = "39cf19887547f83200866e94e5753888706b49fa"
+    ASSEMBLY = "bootc-1.16.8-storage-digest-v1"
+    FIELDS = set("family product iso_url iso_sha256 iso_version image_n version_n version_tag_n image_n_plus_1 version_n_plus_1 version_tag_n_plus_1 target_ref snosi_commit index_key_sha256 cosign_key_sha256 mok_cert_sha256 trust_fingerprint secureboot encryption timeouts".split())
+    CHECK_FIELDS = set("manifest_sha256 timestamp version_n version_n_plus_1 digest_n digest_n_plus_1 snosi_commit iso_sha256 firn_sha256 firn_provenance firn_compatibility index_key_sha256 cosign_key_sha256 mok_cert_sha256 tags".split())
+    LIMITS = {"iso_boot": 1800, "install": 7200, "installed_boot": 1800,
+              "stage": 3600, "reboot": 1800}
+    PHASES = ("installed-n", "stage", "boot-n-plus-1", "rollback", "boot-n")
+    RECORD_FIELDS = set("phase nonce boot_id spec_image spec_transport booted_digest booted_version staged_digest rollback_digest policy_sha256 policy_ok pull_ok pull_digest secure_boot uki_type2 lockdown root_luks root_btrfs tpm_pcr11_tokens action marker_digest".split())
+    GUEST_MANIFEST = Path("/opt/snow-qa/normalized.json")
+    GUEST_PATHS = {"boot_id": Path("/proc/sys/kernel/random/boot_id"),
+                   "policy": Path("/etc/containers/policy.json"), "key": Path("/usr/lib/snosi/cosign.pub"),
+                   "lockdown": Path("/sys/kernel/security/lockdown"),
+                   "esp": Path("/run/task3-esp"),
+                   "update_check": Path("/run/snosi/update-check"),
+                   "update_staged": Path("/run/snosi/update-staged")}
+
+
+    class GateError(Exception):
+        """A bounded, input-free failure code."""
+
+
+    def require(ok, code):
+        if not ok:
+            raise GateError(code)
+
+
+    def full(pattern, value):
+        return type(value) is str and re.fullmatch(pattern, value, flags=re.ASCII) is not None
+
+
+    def normalize(m):
+        require(type(m) is dict and set(m) == FIELDS, "manifest_fields")
+        require(m["family"] == "snow" and m["product"] == "snow", "snow_only")
+        require(m["secureboot"] is True and m["encryption"] == "tpm2-luks-passphrase", "security_mode")
+        for name in ("iso_sha256", "index_key_sha256", "cosign_key_sha256", "mok_cert_sha256"):
+            require(full(r"[0-9a-f]{64}", m[name]), "hash_format")
+        require(full(r"[0-9a-f]{40}", m["snosi_commit"]), "commit_format")
+        require(m["snosi_commit"] == SNOSI_COMMIT, "commit_pin")
+        require(m["trust_fingerprint"] == FINGERPRINT, "fingerprint")
+        for name in ("iso_version", "version_n", "version_n_plus_1"):
+            require(full(r"[0-9]{14}", m[name]), "version_format")
+        require(m["version_n"] < m["version_n_plus_1"], "version_order")
+        require(m["iso_url"] == ISO_BASE + "snosi-installer_" + m["iso_version"] + "_x86-64.iso", "iso_url")
+        for name in ("image_n", "image_n_plus_1"):
+            require(full(re.escape(REPO) + r"@sha256:[0-9a-f]{64}", m[name]), "image_ref")
+        require(m["image_n"] != m["image_n_plus_1"], "digest_distinct")
+        for tag, version in (("version_tag_n", "version_n"), ("version_tag_n_plus_1", "version_n_plus_1")):
+            require(m[tag] == REPO + ":" + m[version], "immutable_tag")
+        require(full(re.escape(REPO) + r":[a-z0-9][a-z0-9._-]{0,127}", m["target_ref"])
+                and m["target_ref"] not in (REPO + ":latest", m["version_tag_n"], m["version_tag_n_plus_1"]), "target_ref")
+        require(type(m["timeouts"]) is dict and set(m["timeouts"]) == set(LIMITS), "timeout_fields")
+        for key, limit in LIMITS.items():
+            require(type(m["timeouts"][key]) is int and 300 <= m["timeouts"][key] <= limit, "timeout_value")
+        return m
+
+
+    def canonical(m):
+        return (json.dumps(m, sort_keys=True, separators=(",", ":"), ensure_ascii=True) + "\n").encode()
+
+
+    def pairs(items):
+        value = {}
+        for key, item in items:
+            require(key not in value, "duplicate_key")
+            value[key] = item
+        return value
+
+
+    def read_json(path):
+        raw = Path(path).read_bytes()
+        require(len(raw) <= 16384, "input_size")
+        try:
+            m = json.loads(raw, object_pairs_hook=pairs,
+                           parse_constant=lambda _: (_ for _ in ()).throw(GateError("json_value")))
+        except (ValueError, UnicodeError) as exc:
+            raise GateError("json_format") from exc
+        return m, raw
+
+
+    def load(path, frozen=False):
+        m, raw = read_json(path)
+        normalize(m)
+        if frozen:
+            require(raw == canonical(m), "not_canonical")
+        return m
+
+
+    def inspect(args, code, timeout=120, status=False):
+        try:
+            result = subprocess.run(args, capture_output=True, timeout=timeout, check=False)
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise GateError(code) from exc
+        require(result.returncode == 0, code)
+        return result.stderr if status else result.stdout
+
+
+    def inspect_file(args, code, destination, timeout=120, max_size=256 * 1024 * 1024, stdin=None):
+        try:
+            with Path(destination).open("wb") as stream:
+                result = subprocess.run(args, stdout=stream, stderr=subprocess.PIPE,
+                                        stdin=stdin, timeout=timeout, check=False,
+                                        preexec_fn=lambda: limit_process(max_size, timeout))
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise GateError(code) from exc
+        require(result.returncode == 0 and 0 < Path(destination).stat().st_size <= max_size, code)
+
+
+    def limit_process(max_size, timeout):
+        resource.setrlimit(resource.RLIMIT_FSIZE, (max_size, max_size))
+        resource.setrlimit(resource.RLIMIT_CPU, (min(timeout, 120), min(timeout, 120) + 1))
+
+
+    def fetch(url, code="download"):
+        return inspect(["curl", "-fsSL", "--max-time", "60", url], code)
+
+
+    def sha(data):
+        return hashlib.sha256(data).hexdigest()
+
+
+    def image_info(ref):
+        try:
+            data = json.loads(inspect(["skopeo", "inspect", "--no-tags", "docker://" + ref], "registry_inspect"), object_pairs_hook=pairs)
+        except (ValueError, UnicodeError) as exc:
+            raise GateError("registry_json") from exc
+        require(type(data) is dict and full(r"sha256:[0-9a-f]{64}", data.get("Digest")), "registry_digest")
+        return data
+
+
+    def resolve(ref, digest):
+        require(image_info(ref)["Digest"] == "sha256:" + digest, "tag_drift")
+
+
+    def catalog_key(node):
+        if type(node) is dict:
+            return node.get("cosign_pub_key") == "/usr/lib/snosi/cosign.pub" or any(
+                catalog_key(value) for value in node.values())
+        if type(node) is list:
+            return any(catalog_key(value) for value in node)
+        return False
+
+
+    def snow_catalog(node):
+        if type(node) is dict:
+            if (node.get("family") == "snow" or node.get("product") == "snow") and catalog_key(node):
+                return True
+            if "snow" in node and catalog_key(node["snow"]):
+                return True
+            return any(snow_catalog(value) for value in node.values())
+        if type(node) is list:
+            return any(snow_catalog(value) for value in node)
+        return False
+
+
+    def esp_offset(iso):
+        """Read GPT partition 2 from ISO bytes; never attach a loop device."""
+        size = iso.stat().st_size
+        with iso.open("rb") as image:
+            image.seek(512)
+            header = image.read(512)
+            require(header[:8] == b"EFI PART", "iso_gpt")
+            length = struct.unpack_from("<I", header, 12)[0]
+            require(92 <= length <= 512, "iso_gpt")
+            crc = struct.unpack_from("<I", header, 16)[0]
+            checked = bytearray(header[:length])
+            checked[16:20] = b"\0" * 4
+            require(zlib.crc32(checked) == crc, "iso_gpt")
+            lba, count, width, entries_crc = struct.unpack_from("<QIII", header, 72)
+            require(2 <= count <= 128 and width == 128 and (lba + 1) * 512 + count * width <= size, "iso_gpt")
+            image.seek(lba * 512)
+            entries = image.read(count * width)
+            require(zlib.crc32(entries) == entries_crc, "iso_gpt")
+        second = entries[128:256]
+        require(second[:16] == bytes.fromhex("28732ac11ff8d211ba4b00a0c93ec93b"), "iso_esp")
+        start, end = struct.unpack_from("<QQ", second, 32)
+        require(0 < start <= end and end * 512 < size, "iso_esp")
+        return start * 512
+
+
+    def validate_firn(firn, pub, root):
+        # No extracted executable ever runs directly. Bubblewrap creates fresh
+        # user, mount, PID, IPC and network namespaces; no host socket or host
+        # filesystem is mounted writable. If sandboxing is unavailable, fail.
+        with firn.open("rb") as binary:
+            elf = binary.read(20)
+        require(platform.machine() == "x86_64" and elf.startswith(b"\x7fELF")
+                and elf[18:20] == b"\x3e\x00", "firn_arch")
+        firn.chmod(0o500)
+        recipe = root / "recipe.toml"
+        common = ('[image]\nfamily = "bootc"\nref = "ghcr.io/frostyard/snow@sha256:' + 'a' * 64 +
+                  '"\ntarget_ref = "ghcr.io/frostyard/snow:qa-controlled"\n'
+                  'cosign_pub_key = "/work/cosign.pub"\n'
+                  '[target]\ndisk = "/dev/example-disk"\nfilesystem = "ext4"\n'
+                  'bootloader = "systemd"\n[security]\nencryption = "none"\n'
+                  '[system]\nhostname = "snow-qa"\n')
+        for version in (1, 2):
+            recipe.write_text("version = " + str(version) + "\n" + common)
+            args = ["bwrap", "--unshare-all", "--unshare-user", "--cap-drop", "ALL", "--disable-userns",
+                    "--clearenv", "--die-with-parent", "--new-session",
+                    "--ro-bind", "/usr", "/usr", "--symlink", "usr/lib", "/lib",
+                    "--symlink", "usr/lib64", "/lib64", "--proc", "/proc", "--dev", "/dev",
+                    "--tmpfs", "/tmp", "--dir", "/work", "--ro-bind", str(firn), "/work/firn",
+                    "--ro-bind", str(pub), "/work/cosign.pub",
+                    "--ro-bind", str(recipe), "/work/recipe.toml", "--chdir", "/work",
+                    "--setenv", "PATH", "/usr/bin", "--", "/work/firn", "validate",
+                    "--secure-boot", "off", "--tpm", "off", "/work/recipe.toml"]
+            try:
+                with tempfile.TemporaryFile() as error_stream:
+                    outcome = subprocess.run(args, stdout=subprocess.DEVNULL, stderr=error_stream,
+                                             timeout=30, check=False,
+                                             preexec_fn=lambda: limit_process(1024 * 1024, 30))
+                    error_stream.seek(0)
+                    error = error_stream.read(1024 * 1024 + 1)
+            except (OSError, subprocess.SubprocessError) as exc:
+                raise GateError("firn_sandbox") from exc
+            require(outcome.returncode == 0 or not error.startswith(b"bwrap:"), "firn_sandbox")
+            if version == 1:
+                require(outcome.returncode == 0, "firn_v1")
+            else:
+                require(outcome.returncode != 0 and b"bad-version" in error, "firn_v2")
+
+
+    def inspect_iso(iso, root, m, key, cosign, mok):
+        # Pinned Snosi ISO appends a GPT ESP (partition 2). The initramfs is
+        # FAT32, not in the ISO9660 tree. mtools reads it without loop/mount.
+        initrd = root / "initrd.img"
+        offset = esp_offset(iso)
+        try:
+            result = subprocess.run(["mcopy", "-i", str(iso) + "@@" + str(offset),
+                                     "::firn-installer/initrd.img", str(initrd)],
+                                    capture_output=True, timeout=120, check=False,
+                                    preexec_fn=lambda: limit_process(1024 * 1024 * 1024, 120))
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise GateError("iso_initramfs") from exc
+        require(result.returncode == 0 and initrd.is_file() and
+                0 < initrd.stat().st_size <= 1024 * 1024 * 1024, "iso_initramfs")
+        archive = root / "initrd.cpio"
+        inspect_file(["zstd", "-dc", "--", str(initrd)], "iso_archive", archive,
+                     max_size=1024 * 1024 * 1024)
+        embedded = {}
+        for entry in ("/usr/bin/firn", "/etc/firn/catalog.json", "/usr/lib/snosi/cosign.pub",
+                      "/usr/lib/snosi/os-update-pubring.gpg", "/usr/lib/snosi/mok.crt",
+                      "/usr/bin/cosign", "/etc/snosi-installer-release"):
+            output = root / ("item-" + str(len(embedded)))
+            with archive.open("rb") as source:
+                inspect_file(["cpio", "-i", "--to-stdout", "." + entry], "iso_embedded",
+                             output, stdin=source)
+            embedded[entry] = output
+        for entry, pinned in (("/usr/lib/snosi/cosign.pub", cosign),
+                              ("/usr/lib/snosi/os-update-pubring.gpg", key),
+                              ("/usr/lib/snosi/mok.crt", mok)):
+            require(embedded[entry].read_bytes() == pinned, "iso_embedded_key")
+        catalog_file = embedded["/etc/firn/catalog.json"]
+        require(catalog_file.stat().st_size <= 16384, "iso_catalog")
+        try:
+            catalog = json.loads(catalog_file.read_bytes(), object_pairs_hook=pairs,
+                                 parse_constant=lambda _: (_ for _ in ()).throw(GateError("iso_catalog")))
+        except GateError as exc:
+            raise GateError("iso_catalog") from exc
+        except (ValueError, UnicodeError) as exc:
+            raise GateError("iso_catalog") from exc
+        require(snow_catalog(catalog), "iso_catalog")
+        release = embedded["/etc/snosi-installer-release"]
+        require(release.stat().st_size <= 4096 and m["iso_version"].encode() in release.read_bytes(), "iso_release")
+        validate_firn(embedded["/usr/bin/firn"], embedded["/usr/lib/snosi/cosign.pub"], root)
+        return sha(embedded["/usr/bin/firn"].read_bytes())
+
+
+    def now():
+        return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
+    def timestamp(value):
+        if not full(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.+\-]{12,32}", value):
+            return False
+        try:
+            return datetime.datetime.fromisoformat(value).utcoffset() is not None
+        except ValueError:
+            return False
+
+
+    def check_state(m, data):
+        require(type(data) is dict and set(data) == CHECK_FIELDS, "checks_state")
+        expected = {"manifest_sha256": sha(canonical(m)), "version_n": m["version_n"],
+                    "version_n_plus_1": m["version_n_plus_1"],
+                    "digest_n": m["image_n"].rsplit(":", 1)[-1],
+                    "digest_n_plus_1": m["image_n_plus_1"].rsplit(":", 1)[-1],
+                    "snosi_commit": m["snosi_commit"], "iso_sha256": m["iso_sha256"],
+                    "index_key_sha256": m["index_key_sha256"],
+                    "cosign_key_sha256": m["cosign_key_sha256"],
+                    "mok_cert_sha256": m["mok_cert_sha256"],
+                    "firn_provenance": "iso-esp-p2/firn-installer/initrd.img",
+                    "firn_compatibility": "sandboxed-v1-recipe-validator-only"}
+        require(all(data[key] == value for key, value in expected.items()) and
+                full(r"[0-9a-f]{64}", data["firn_sha256"]) and timestamp(data["timestamp"]) and
+                type(data["tags"]) is dict and len(data["tags"]) <= 32, "checks_state")
+        require(all(full(r"[a-z][a-z0-9-]{0,39}", key) and timestamp(value)
+                    for key, value in data["tags"].items()), "checks_state")
+
+
+    def save(path, data):
+        dest = Path(path)
+        with tempfile.NamedTemporaryFile(mode="wb", dir=dest.parent, prefix=".snow-qa-", delete=False) as stream:
+            temp = stream.name
+            try:
+                stream.write(canonical(data))
+                stream.flush()
+                os.fsync(stream.fileno())
+            except BaseException:
+                os.unlink(temp)
+                raise
+        os.replace(temp, dest)
+        directory = os.open(dest.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+
+
+    def preflight(m, checks_path):
+        normalize(m)
+        base = "https://raw.githubusercontent.com/frostyard/snosi/" + m["snosi_commit"] + "/"
+        key = fetch(base + "shared/native-ab/keys/import-pubring.gpg", "trust_material_missing")
+        cosign = fetch(base + "cosign.pub", "trust_material_missing")
+        mok = fetch(base + "shared/native-ab/keys/mok-2026.crt", "trust_material_missing")
+        for data, field in ((key, "index_key_sha256"), (cosign, "cosign_key_sha256"), (mok, "mok_cert_sha256")):
+            require(sha(data) == m[field], "key_hash")
+        with tempfile.TemporaryDirectory(prefix="snow-qa-") as folder:
+            root = Path(folder)
+            key_path = root / "index.gpg"
+            key_path.write_bytes(key)
+            fingerprint = inspect(["gpg", "--show-keys", "--with-colons", str(key_path)], "index_key")
+            records = fingerprint.splitlines()
+            primary = [records[index + 1].split(b":")[9] for index, line in enumerate(records[:-1])
+                       if line.startswith(b"pub:") and records[index + 1].startswith(b"fpr:")]
+            require(FINGERPRINT.encode() in primary, "key_fingerprint")
+            pub = root / "cosign.pub"
+            pub.write_bytes(cosign)
+            sums = root / "SHA256SUMS"
+            sig = root / "SHA256SUMS.gpg"
+            sums.write_bytes(fetch(ISO_BASE + "SHA256SUMS"))
+            sig.write_bytes(fetch(ISO_BASE + "SHA256SUMS.gpg"))
+            signature_status = inspect(["gpgv", "--status-fd=2", "--keyring", str(key_path),
+                                        str(sig), str(sums)], "index_signature", status=True)
+            valid = [line.split() for line in signature_status.splitlines()
+                     if line.startswith(b"[GNUPG:] VALIDSIG ")]
+            signers = [parts[-1] if len(parts) > 3 and re.fullmatch(rb"[0-9A-F]{40}", parts[-1])
+                       else parts[2] for parts in valid if len(parts) >= 3]
+            require(signers == [FINGERPRINT.encode()], "index_signer")
+            name = m["iso_url"].rsplit("/", 1)[-1].encode()
+            entries = [line.split() for line in sums.read_bytes().splitlines()]
+            matching = [entry for entry in entries if len(entry) == 2 and entry[1].lstrip(b"*") == name]
+            require(matching == [[m["iso_sha256"].encode(), name]] or
+                    matching == [[m["iso_sha256"].encode(), b"*" + name]], "iso_index")
+            # No redirect-to-latest and no trusting a downloaded checksum without the signed index.
+            iso = root / "installer.iso"
+            inspect(["curl", "-fsSL", "--max-time", str(m["timeouts"]["install"]),
+                     "-o", str(iso), m["iso_url"]], "iso_download", timeout=m["timeouts"]["install"] + 30)
+            digest = hashlib.sha256()
+            with iso.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            require(digest.hexdigest() == m["iso_sha256"], "iso_hash")
+            firn_sha256 = inspect_iso(iso, root, m, key, cosign, mok)
+            for ref, version in ((m["image_n"], m["version_n"]), (m["image_n_plus_1"], m["version_n_plus_1"])):
+                inspect(["cosign", "verify", "--key", str(pub), ref], "oci_signature")
+                info = image_info(ref)
+                require(info["Digest"] == "sha256:" + ref.rsplit(":", 1)[-1], "oci_digest")
+                labels = info.get("Labels")
+                require(type(labels) is dict and labels.get("org.opencontainers.image.version") == version, "oci_version")
+                require(labels.get("io.snosi.bootc.secureboot-assembly") == ASSEMBLY, "oci_assembly")
+                require(labels.get("io.snosi.bootc.secureboot-capable") == "true", "oci_capability")
+        resolve(m["version_tag_n"], m["image_n"].rsplit(":", 1)[-1])
+        resolve(m["version_tag_n_plus_1"], m["image_n_plus_1"].rsplit(":", 1)[-1])
+        resolve(m["target_ref"], m["image_n_plus_1"].rsplit(":", 1)[-1])
+        # This proves only the minimal validator contract in a sandbox, not
+        # the full install or Secure Boot behavior. No VM is started here.
+        save(checks_path, {"manifest_sha256": sha(canonical(m)), "timestamp": now(),
+                           "version_n": m["version_n"], "version_n_plus_1": m["version_n_plus_1"],
+                           "digest_n": m["image_n"].rsplit(":", 1)[-1],
+                           "digest_n_plus_1": m["image_n_plus_1"].rsplit(":", 1)[-1],
+                           "snosi_commit": m["snosi_commit"], "iso_sha256": m["iso_sha256"],
+                           "firn_sha256": firn_sha256, "firn_provenance": "iso-esp-p2/firn-installer/initrd.img",
+                           "firn_compatibility": "sandboxed-v1-recipe-validator-only",
+                           "index_key_sha256": m["index_key_sha256"],
+                           "cosign_key_sha256": m["cosign_key_sha256"],
+                           "mok_cert_sha256": m["mok_cert_sha256"], "tags": {}})
+
+
+    def tag(m, phase, checks_path):
+        normalize(m)
+        require(full(r"[a-z][a-z0-9-]{0,39}", phase), "phase_format")
+        path = Path(checks_path)
+        data, _ = read_json(path)
+        check_state(m, data)
+        require(phase not in data["tags"] and len(data["tags"]) < 32, "checks_state")
+        resolve(m["target_ref"], m["image_n_plus_1"].rsplit(":", 1)[-1])
+        data["tags"][phase] = now()
+        save(path, data)
+
+
+    def nonce_valid(value):
+        return full(r"[0-9a-f]{32}", value)
+
+
+    def boot_id_valid(value):
+        return full(r"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", value)
+
+
+    def verdict(m, phase, nonce, prior, record):
+        require(type(record) is dict and set(record) == RECORD_FIELDS, "record_fields")
+        require(record["phase"] == phase and record["nonce"] == nonce, "record_identity")
+        require(boot_id_valid(record["boot_id"]) and record["boot_id"] != prior, "boot_identity")
+        newer = phase in ("boot-n-plus-1", "rollback")
+        require(record["booted_digest"] == m["image_n_plus_1" if newer else "image_n"].rsplit(":", 1)[-1]
+                and record["booted_version"] == m["version_n_plus_1" if newer else "version_n"], "booted_image")
+        require(record["spec_image"] == (m["image_n"] if phase == "installed-n" else m["target_ref"])
+                and record["spec_transport"] == "registry", "target_spec")
+        require(record["staged_digest"] == (m["image_n_plus_1"].rsplit(":", 1)[-1] if phase == "stage" else None), "staged_image")
+        require(record["rollback_digest"] == (m["image_n"].rsplit(":", 1)[-1] if newer else
+                m["image_n_plus_1"].rsplit(":", 1)[-1] if phase == "boot-n" else None), "rollback_image")
+        require(record["policy_sha256"] == m["cosign_key_sha256"] and
+                record["policy_ok"] is True and record["pull_ok"] is True and
+                record["pull_digest"] == m["image_n_plus_1"].rsplit(":", 1)[-1], "signature_policy")
+        require(all(record[name] is True for name in
+                    ("secure_boot", "uki_type2", "lockdown", "root_luks", "root_btrfs"))
+                and type(record["tpm_pcr11_tokens"]) is int and record["tpm_pcr11_tokens"] == 1, "boot_security")
+        require(record["action"] == ("staged" if phase == "stage" else "rolled-back" if phase == "rollback" else None), "action")
+        require(record["marker_digest"] == (m["image_n_plus_1"].rsplit(":", 1)[-1] if phase == "stage" else None), "stage_marker")
+        return record["boot_id"]
+
+
+    def phase_verdict(m, phase, nonce, prior, serial, checks):
+        require(phase in PHASES and nonce_valid(nonce) and
+                (prior == "none" or boot_id_valid(prior)), "phase_arguments")
+        check_state(m, read_json(checks)[0])
+        # Bound the entire snapshot, including unrelated serial chatter. Every
+        # marker must be valid: never pick a convenient record from a union.
+        raw = Path(serial).read_bytes()
+        require(len(raw) <= 1024 * 1024, "serial_size")
+        lines = raw.splitlines()
+        markers = [line for line in lines if b"SNOW_QA_V1" in line]
+        require(len(markers) == 1, "record_count")
+        match = re.fullmatch(rb"SNOW_QA_V1 ([A-Za-z0-9_-]{1,4096})", markers[0])
+        require(match is not None, "record_encoding")
+        encoded = match[1]
+        try:
+            decoded = base64.b64decode(encoded + b"=" * (-len(encoded) % 4), altchars=b"-_", validate=True)
+            require(base64.urlsafe_b64encode(decoded).rstrip(b"=") == encoded, "record_encoding")
+            record = json.loads(decoded, object_pairs_hook=pairs,
+                                parse_constant=lambda _: (_ for _ in ()).throw(GateError("record_encoding")))
+        except (ValueError, UnicodeError) as exc:
+            raise GateError("record_encoding") from exc
+        return verdict(m, phase, nonce, prior, record)
+
+
+    def guest_command(args, code, timeout=120):
+        return inspect(args, code, timeout=timeout)
+
+
+    def guest_json(args, code):
+        try:
+            return json.loads(guest_command(args, code), object_pairs_hook=pairs)
+        except (ValueError, UnicodeError) as exc:
+            raise GateError(code) from exc
+
+
+    def guest_lockdown():
+        return b"[integrity]" in GUEST_PATHS["lockdown"].read_bytes() or b"[confidentiality]" in GUEST_PATHS["lockdown"].read_bytes()
+
+
+    def guest_status():
+        return guest_json(["bootc", "status", "--format", "json"], "bootc_status")
+
+
+    def status_fields(status):
+        try:
+            spec = status["spec"]["image"]
+            booted = status["status"]["booted"]["image"]
+            staged = status["status"].get("staged")
+            rollback = status["status"].get("rollback")
+            def digest(node):
+                if node is None:
+                    return None
+                value = node["image"]["imageDigest"]
+                require(full(r"sha256:[0-9a-f]{64}", value), "status_digest")
+                return value.removeprefix("sha256:")
+            boot_digest = booted["imageDigest"]
+            require(full(r"sha256:[0-9a-f]{64}", boot_digest), "status_digest")
+            return spec["image"], spec["transport"], boot_digest.removeprefix("sha256:"), booted["version"], digest(staged), digest(rollback)
+        except (KeyError, TypeError, AttributeError, IndexError) as exc:
+            raise GateError("bootc_status") from exc
+
+
+    def status_uki_paths(status):
+        # Normalize only complete UKI path tokens, whether bootctl reports
+        # $BOOT, a mounted absolute ESP path or the ESP-relative path. Reject
+        # even one malformed/prefixed lookalike; repeated identical paths in
+        # current and default blocks are normal, different digests are not.
+        esp_prefix = re.escape(str(GUEST_PATHS["esp"]).encode())
+        pattern = (rb"(?<![A-Za-z0-9_./$-])(?:\$BOOT|/boot/efi|" + esp_prefix + rb")?"
+                   rb"(?P<path>/EFI/Linux/bootc/bootc_composefs-[0-9a-f]{128}\.efi)"
+                   rb"(?![A-Za-z0-9_./-])")
+        matches = list(re.finditer(pattern, status))
+        mentions = re.finditer(rb"/EFI/Linux/bootc/bootc_composefs-", status)
+        if not matches or any(not any(m.start() <= mention.start() < m.end() for m in matches)
+                              for mention in mentions):
+            return set()
+        return {m.group("path") for m in matches}
+
+
+    def current_uki(status, uki_path):
+        # No assumed bootctl heading or Stub label; all path occurrences must
+        # resolve to the single measured UKI on the independent mounted ESP.
+        return (status_uki_paths(status) == {uki_path.encode()} and
+                re.search(rb"(?im)^[ \t]*Secure Boot:[ \t]*enabled\b(?:[ \t]+\([^\r\n]*\))?[ \t]*$", status) is not None and
+                re.search(rb"(?im)^[ \t]*Measured UKI:[ \t]*yes[ \t]*$", status) is not None)
+
+
+    def adjacent_esp(root_device):
+        # Root LUKS backing partition, not a user-supplied ESP or filename.
+        info = guest_json(["lsblk", "--json", "--paths", "--output", "PATH,PKNAME,PARTN,FSTYPE"], "esp_discovery")
+        require(type(info) is dict and type(info.get("blockdevices")) is list, "esp_discovery")
+        nodes = []
+        def collect(items):
+            for node in items:
+                require(type(node) is dict, "esp_discovery")
+                nodes.append(node)
+                children = node.get("children", [])
+                require(type(children) is list, "esp_discovery")
+                collect(children)
+        collect(info["blockdevices"])
+        roots = [n for n in nodes if n.get("path") == root_device]
+        require(len(roots) == 1 and roots[0].get("fstype") == "crypto_LUKS" and
+                full(r"[2-9][0-9]*", str(roots[0].get("partn"))) and
+                full(r"/dev/[a-zA-Z0-9/_-]+", roots[0].get("pkname")), "esp_discovery")
+        root = roots[0]
+        esps = [n for n in nodes if n.get("pkname") == root["pkname"] and
+                str(n.get("partn")) == str(int(root["partn"]) - 1) and
+                n.get("fstype") == "vfat" and full(r"/dev/[a-zA-Z0-9/_-]+", n.get("path"))]
+        require(len(esps) == 1 and esps[0]["path"] != root_device, "esp_discovery")
+        return esps[0]["path"]
+
+
+    @contextmanager
+    def mounted_esp(device):
+        esp = GUEST_PATHS["esp"]
+        require(not esp.is_symlink() and not os.path.ismount(esp), "esp_mount")
+        esp.mkdir(mode=0o700, exist_ok=True)
+        guest_command(["mount", "--no-mtab", "-t", "vfat", "-o", "ro,nosuid,nodev,noexec", device, str(esp)], "esp_mount")
+        try:
+            yield esp
+        finally:
+            guest_command(["umount", str(esp)], "esp_unmount")
+
+
+    def esp_uki(esp, status):
+        # Bootctl supplies the booted measured path. An independent Type #2
+        # BLS entry on the uniquely derived ESP must point at the same UKI.
+        paths = status_uki_paths(status)
+        require(len(paths) == 1, "uki")
+        uki_path = next(iter(paths)).decode()
+        require(current_uki(status, uki_path), "uki")
+        image = esp / uki_path.lstrip("/")
+        require(all(not (esp.joinpath(*image.relative_to(esp).parts[:index])).is_symlink()
+                    for index in range(1, len(image.relative_to(esp).parts) + 1)) and
+                image.is_file() and image.stat().st_size > 0, "uki")
+        require(not (esp / "loader").is_symlink() and not (esp / "loader/entries").is_symlink(), "uki_bls")
+        entries = list((esp / "loader/entries").glob("*.conf"))
+        require(0 < len(entries) <= 128, "uki_bls")
+        matching = []
+        for entry in entries:
+            require(not entry.is_symlink() and entry.stat().st_size <= 4096, "uki_bls")
+            lines = [line.strip().split() for line in entry.read_bytes().splitlines()
+                     if line.strip() and not line.lstrip().startswith(b"#")]
+            directives = [(line[0].lower(), line[1:]) for line in lines]
+            candidates = [value[0] for key, value in directives if key in (b"uki", b"efi") and len(value) == 1]
+            if uki_path.encode() in candidates:
+                require(len(candidates) == 1 and not any(key in (b"linux", b"initrd") for key, _ in directives), "uki_bls")
+                matching.append(entry)
+        require(len(matching) == 1, "uki_bls")
+
+
+    def guest(credentials):
+        # Credentials are installed by the VM's systemd unit from SMBIOS, not
+        # echoed to serial. The normalized manifest is a private host-provided file.
+        creds = Path(credentials)
+        def credential(name):
+            value = (creds / name).read_text().strip()
+            require(len(value) <= 256, "credential")
+            return value
+        phase, nonce = credential("phase"), credential("nonce")
+        require(phase in PHASES and nonce_valid(nonce), "credential")
+        m = load(GUEST_MANIFEST, frozen=True)
+        phase_budget = m["timeouts"]["stage" if phase == "stage" else
+                                      "installed_boot" if phase == "installed-n" else "reboot"]
+        started = monotonic()
+        # Share the phase budget between actions, retaining a probe/evidence window.
+        def action_timeout(code):
+            remaining = phase_budget - 120 - (monotonic() - started)
+            require(remaining > 0, code)
+            return remaining
+        for key in ("image_n", "image_n_plus_1", "target_ref"):
+            require(credential(key) == m[key], "credential")
+        boot_id = GUEST_PATHS["boot_id"].read_text().strip()
+        require(boot_id_valid(boot_id), "boot_identity")
+        policy = GUEST_PATHS["policy"].read_bytes()
+        require(len(policy) <= 16384, "policy")
+        try:
+            parsed = json.loads(policy, object_pairs_hook=pairs)
+        except (ValueError, UnicodeError) as exc:
+            raise GateError("policy") from exc
+        require(parsed == {"default": [{"type": "reject"}], "transports": {"docker": {
+            REPO: [{"type": "sigstoreSigned", "keyPath": "/usr/lib/snosi/cosign.pub"}]}}}, "policy")
+        key = GUEST_PATHS["key"].read_bytes()
+        require(0 < len(key) <= 16384 and sha(key) == m["cosign_key_sha256"], "policy_key")
+        # No --signature-policy, --tls-verify=false or bypass of the installed root policy.
+        guest_command(["podman", "pull", m["target_ref"]], "policy_pull", timeout=action_timeout("policy_pull"))
+        pulled = guest_command(["podman", "image", "inspect", "--format", "{{.Digest}}", m["target_ref"]], "pull_digest").decode().strip()
+        # Podman may report a platform-child digest while skopeo resolved an
+        # index digest. Until that relationship is verified on the pinned
+        # artifact, reject rather than treating a different digest as proof.
+        require(pulled == "sha256:" + m["image_n_plus_1"].rsplit(":", 1)[-1], "pull_digest")
+        require(b"enabled" in guest_command(["mokutil", "--sb-state"], "secure_boot").lower(), "secure_boot")
+        require(guest_lockdown(), "lockdown")
+        luks_status = guest_command(["cryptsetup", "status", "root"], "root_luks")
+        require(b"/dev/mapper/root is active" in luks_status, "root_luks")
+        devices = re.findall(rb"(?m)^\s*device:\s+(/dev/[a-zA-Z0-9/_-]+)\s*$", luks_status)
+        require(len(devices) == 1 and b".." not in devices[0], "root_luks")
+        require(guest_command(["findmnt", "-n", "-o", "FSTYPE", "/"], "root_btrfs").strip() == b"btrfs", "root_btrfs")
+        with mounted_esp(adjacent_esp(devices[0].decode())) as esp:
+            esp_uki(esp, guest_command(["bootctl", "--esp-path=" + str(esp), "--no-pager", "status"], "uki"))
+        # Inspect LUKS metadata without exporting tokens, sealed blobs or recovery material.
+        tokens = guest_json(["cryptsetup", "luksDump", "--dump-json-metadata", devices[0].decode()], "tpm_token")
+        entries = tokens.get("tokens")
+        require(type(entries) is dict and len(entries) == 1 and all(
+            type(token) is dict and token.get("type") == "systemd-tpm2" and
+            token.get("tpm2-pcrs") == [] and token.get("tpm2_pubkey_pcrs") == [11] and
+            "tpm2-pcrlock" not in token and
+            type(token.get("tpm2-pubkey")) is str and len(token["tpm2-pubkey"]) > 0
+            for token in entries.values()), "tpm_token")
+        spec, transport, booted, version, staged, rollback = status_fields(guest_status())
+        action = marker = None
+        if phase == "stage":
+            # Attest the pre-action N boot before invoking the shipped updater.
+            require(booted == m["image_n"].rsplit(":", 1)[-1] and version == m["version_n"]
+                    and spec == m["image_n"] and transport == "registry" and staged is None and rollback is None, "booted_image")
+            guest_command(["/usr/libexec/bootc-update-stage"], "updater", timeout=action_timeout("updater"))
+            spec, transport, booted, version, staged, rollback = status_fields(guest_status())
+            marker_text = GUEST_PATHS["update_check"].read_text()
+            require(len(marker_text) <= 4096 and "outcome=staged" in marker_text.splitlines(), "stage_outcome")
+            marker_text = GUEST_PATHS["update_staged"].read_text().strip()
+            require(marker_text == "sha256:" + m["image_n_plus_1"].rsplit(":", 1)[-1], "stage_marker")
+            action, marker = "staged", m["image_n_plus_1"].rsplit(":", 1)[-1]
+        elif phase == "rollback":
+            require(booted == m["image_n_plus_1"].rsplit(":", 1)[-1] and version == m["version_n_plus_1"]
+                    and spec == m["target_ref"] and transport == "registry" and
+                    staged is None and rollback == m["image_n"].rsplit(":", 1)[-1], "rollback_image")
+            # Preserve the attested pre-action state: rollback changes pending
+            # deployment bookkeeping, not the currently running boot.
+            guest_command(["bootc", "rollback"], "rollback_action", timeout=action_timeout("rollback_action"))
+            action = "rolled-back"
+        record = dict(phase=phase, nonce=nonce, boot_id=boot_id, spec_image=spec, spec_transport=transport,
+                      booted_digest=booted, booted_version=version, staged_digest=staged,
+                      rollback_digest=rollback, policy_sha256=sha(key), policy_ok=True,
+                      pull_ok=True, pull_digest=pulled.removeprefix("sha256:"), secure_boot=True,
+                      uki_type2=True, lockdown=True, root_luks=True, root_btrfs=True,
+                      tpm_pcr11_tokens=1, action=action, marker_digest=marker)
+        verdict(m, phase, nonce, "none", record)
+        return "SNOW_QA_V1 " + base64.urlsafe_b64encode(canonical(record).strip()).decode().rstrip("=")
+
+
+    def main(argv):
+        try:
+            require(len(argv) in (2, 3, 4, 7), "usage")
+            if argv[0] == "validate" and len(argv) == 3:
+                m = load(argv[1])
+                save(argv[2], m)
+                print(sha(canonical(m)))
+            elif argv[0] == "preflight" and len(argv) == 3:
+                preflight(load(argv[1], frozen=True), argv[2])
+            elif argv[0] == "tag" and len(argv) == 4:
+                tag(load(argv[1], frozen=True), argv[2], argv[3])
+            elif argv[0] == "phase" and len(argv) == 7:
+                print(phase_verdict(load(argv[1], frozen=True), argv[2], argv[3], argv[4], argv[5], argv[6]))
+            elif argv[0] == "guest" and len(argv) == 2:
+                # The one-line record is emitted only after all probes and actions succeed.
+                with open("/dev/console", "w") as serial:
+                    print(guest(argv[1]), file=serial, flush=True)
+            else:
+                raise GateError("usage")
+            return 0
+        except (GateError, OSError, TypeError, KeyError, ValueError) as exc:
+            code = str(exc) if isinstance(exc, GateError) and full(r"[a-z_]{1,40}", str(exc)) else "io_error"
+            if argv[:1] == ["guest"] and isinstance(exc, GateError) and code != "io_error":
+                # An observed fixed-code failure is distinct from an absent
+                # channel. Never print arbitrary tool stderr or credentials.
+                try:
+                    with open("/dev/console", "w") as serial:
+                        print("SNOW_QA_ERR " + code, file=serial, flush=True)
+                except OSError:
+                    pass
+            print("qa_failed:" + code, file=sys.stderr)
+            return 1
+
+
+    if __name__ == "__main__":
+        sys.exit(main(sys.argv[1:]))
