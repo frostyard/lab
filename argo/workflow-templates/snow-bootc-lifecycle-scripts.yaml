@@ -80,6 +80,16 @@ data:
     trap 'REASON=interrupted; exit 1' INT TERM HUP
     fail() { REASON="$1"; exit 1; }
     blocked() { STATE=BLOCKED; fail "$1"; }
+    # Only the bounded GateError token may enter a summary; never expose stderr.
+    qa_code() {
+      python3 - "$1" <<'PY'
+    import re, sys
+    from pathlib import Path
+    raw = Path(sys.argv[1]).open('rb').read(52)
+    match = re.fullmatch(rb'qa_failed:([a-z_]{1,40})\n?', raw)
+    print(match[1].decode('ascii') if match else 'unparsed')
+    PY
+    }
     # Reject arbitrary workflow names before using one as a path or VM name.
     [[ "${WORKFLOW_NAME:-}" =~ ^[a-z0-9][a-z0-9-]{0,50}$ ]] || fail workflow_name
     WORK=$(mktemp -d /tmp/snow-lifecycle.XXXXXXXX) || fail work_directory
@@ -110,13 +120,17 @@ data:
     done
     printf '%s' "${MANIFEST_JSON:-}" > "$WORK/input.json"
     unset MANIFEST_JSON
-    python3 /opt/snow-qa/qa.py validate "$WORK/input.json" "$WORK/normalized.json" > "$WORK/hash" 2>/dev/null || fail manifest_invalid
+    if ! python3 /opt/snow-qa/qa.py validate "$WORK/input.json" "$WORK/normalized.json" > "$WORK/hash" 2> "$WORK/validate-error"; then
+      code=$(qa_code "$WORK/validate-error") || code=unparsed
+      fail "manifest_invalid:$code"
+    fi
     persist "$WORK/hash" "$EVIDENCE/manifest-sha256.txt" || fail evidence_write
     if ! python3 /opt/snow-qa/qa.py preflight "$WORK/normalized.json" "$WORK/checks.json" > /dev/null 2> "$WORK/preflight-error"; then
-      case "$(<"$WORK/preflight-error")" in
-        qa_failed:trust_material_missing|qa_failed:download|qa_failed:iso_download|qa_failed:registry_inspect)
-          blocked publication_unavailable;;
-        *) fail preflight_mismatch;;
+      code=$(qa_code "$WORK/preflight-error") || code=unparsed
+      case "$code" in
+        trust_material_missing|download|iso_download|registry_inspect)
+          blocked "publication_unavailable:$code";;
+        *) fail "preflight_mismatch:$code";;
       esac
     fi
     persist "$WORK/checks.json" "$EVIDENCE/preflight.json" || fail evidence_write
@@ -134,7 +148,11 @@ data:
     iso_actual=$(sha256sum "$ISO_HOST") || fail iso_hash_read
     [[ "$iso_actual" == "$iso_hash "* ]] || fail iso_changed
     tag() {
-      python3 /opt/snow-qa/qa.py tag "$WORK/normalized.json" "$1" "$WORK/checks.json" >/dev/null 2>/dev/null || fail tag_mismatch
+      if ! python3 /opt/snow-qa/qa.py tag "$WORK/normalized.json" "$1" "$WORK/checks.json" >/dev/null 2> "$WORK/tag-error"; then
+        local code
+        code=$(qa_code "$WORK/tag-error") || code=unparsed
+        fail "tag_mismatch:$code"
+      fi
       persist "$WORK/checks.json" "$EVIDENCE/checks.json" || fail evidence_write
       python3 - "$WORK/checks.json" "$1" >> "$OUT/checks.txt" <<'PY' || fail checks_write
     import json, sys
