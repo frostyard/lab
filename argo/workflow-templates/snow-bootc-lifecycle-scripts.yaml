@@ -101,12 +101,12 @@ data:
     timeout 900 apt-get update -qq >/dev/null 2>&1 || blocked packages_unavailable
     timeout 900 apt-get install -y -qq --no-install-recommends \
       ca-certificates python3 python3-virt-firmware \
-      curl gnupg skopeo cosign mtools bubblewrap zstd cpio openssl \
+      curl gnupg gpgv skopeo cosign mtools bubblewrap zstd cpio openssl \
       >/dev/null 2>&1 || blocked packages_unavailable
     # No extracted Firn binary executes outside qa.py's bubblewrap sandbox.
     for tool in python3 curl gpg gpgv skopeo cosign mcopy bwrap zstd cpio incus \
                 timeout base64 openssl virt-fw-vars sha256sum; do
-      command -v "$tool" >/dev/null 2>&1 || blocked tool_unavailable
+      command -v "$tool" >/dev/null 2>&1 || blocked "tool_unavailable:$tool"
     done
     printf '%s' "${MANIFEST_JSON:-}" > "$WORK/input.json"
     unset MANIFEST_JSON

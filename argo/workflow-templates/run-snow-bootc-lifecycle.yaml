@@ -7,6 +7,8 @@ metadata:
     description: Manually invoked advisory Snow lifecycle probe; never a release gate.
 spec:
   entrypoint: run
+  # Includes semaphore queue time before the 16h entrypoint deadline starts.
+  activeDeadlineSeconds: 61200
   templates:
   - name: run
     # Max guest windows plus host margins, two ISO downloads, preflight,

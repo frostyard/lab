@@ -1240,6 +1240,29 @@ def test_runner_extracts_and_uses_bounded_serial_and_cleanup(tmp_path):
     assert 'resource.setrlimit(resource.RLIMIT_FSIZE, (1048576, 1048576))' in script
 
 
+def test_runner_installs_gpgv_without_recommends(tmp_path):
+    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    install_command = re.search(
+        r"(?m)^timeout 900 apt-get install .*?(?:\\\n  .*?)*\n  >/dev/null 2>&1 \|\| blocked packages_unavailable",
+        script,
+    )
+    assert install_command
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    apt = tools / "apt-get"
+    apt.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$APT_ARGS"\n')
+    apt.chmod(0o755)
+    result = subprocess.run(
+        ["bash", "-c", 'blocked() { exit 1; }\n' + install_command.group()],
+        env={**os.environ, "PATH": str(tools) + ":" + os.environ["PATH"],
+             "APT_ARGS": str(tmp_path / "apt-args")},
+        capture_output=True, timeout=10,
+    )
+    assert result.returncode == 0
+    assert "--no-install-recommends" in (tmp_path / "apt-args").read_text().splitlines()
+    assert "gpgv" in (tmp_path / "apt-args").read_text().splitlines()
+
+
 @pytest.mark.parametrize(("scenario", "expected"), [
     ("preflight", "BLOCKED: publication_unavailable"),
     ("signature", "FAILED: preflight_mismatch"),
@@ -1248,6 +1271,7 @@ def test_runner_extracts_and_uses_bounded_serial_and_cleanup(tmp_path):
     ("invalid", "FAILED: manifest_invalid"),
     ("invalid_name", "FAILED: workflow_name"),
     ("apt_unavailable", "BLOCKED: packages_unavailable"),
+    ("missing_gpgv", "BLOCKED: tool_unavailable:gpgv"),
     ("iso_changed", "FAILED: iso_changed"),
     ("manifest_read", "FAILED: manifest_read"),
 ])
@@ -1259,6 +1283,10 @@ def test_runner_failure_never_initializes_vm_and_does_not_expose_inputs(tmp_path
     script = script.replace("OUT=/tmp/results", f"OUT={tmp_path}/results")
     script = script.replace("/opt/snow-qa/qa.py", f"{tmp_path}/qa.py")
     script = script.replace('/var/lib/snosi-lab/iso/snow-qa-', f'{tmp_path}/snow-qa-')
+    if scenario == 'missing_gpgv':
+        # gpgv may exist on the test host; hide only that lookup in this shell.
+        script = script.replace('# No extracted Firn binary executes',
+                                'command() { if [[ "$1" == -v && "$2" == gpgv ]]; then return 1; fi; builtin command "$@"; }\n# No extracted Firn binary executes')
     script = script.replace("persist \"$WORK/hash\" \"$EVIDENCE/manifest-sha256.txt\"", "false") if scenario == "evidence" else script
     runner = tmp_path / "run.sh"
     runner.write_text(script)
