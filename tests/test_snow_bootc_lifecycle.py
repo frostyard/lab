@@ -11,6 +11,7 @@ import textwrap
 import os
 import shlex
 import io
+import shutil
 import zlib
 from pathlib import Path
 
@@ -149,7 +150,31 @@ def test_duplicate_key_and_noncanonical_normalized_rejected(qa, tmp_path, capsys
     assert qa.main(["preflight", str(out), str(tmp_path / "checks.json")]) == 1
 
 
-def fake_inspector(args, m, failure, **kwargs):
+REAL_SHAPE_CATALOG = [
+    {"family": "bootc", "name": "snow", "description": "Snow bootc image",
+     "ref": "ghcr.io/frostyard/snow:latest", "cosign_pub_key": "/usr/lib/snosi/cosign.pub",
+     "default_groups": ["wheel"]},
+    {"family": "bootc", "name": "snowfield", "ref": "ghcr.io/frostyard/snowfield:latest"},
+    {"family": "bootc", "name": "floe", "ref": "ghcr.io/frostyard/floe:latest"},
+    {"family": "bootc", "name": "sundog", "ref": "ghcr.io/frostyard/sundog:latest"},
+    {"family": "ab", "product": "snow-ab", "name": "snow", "ref": "ghcr.io/frostyard/snow-ab:latest",
+     "cosign_pub_key": "/usr/lib/snosi/cosign.pub"},
+    {"family": "ab", "product": "floe-ab", "name": "floe"},
+]
+
+
+EMBEDDED_FILES = {
+    "usr/bin/firn": b"\x7fELF" + b"\x00" * 14 + b"\x3e\x00" + b"binary",
+    "etc/firn/catalog.json": json.dumps(REAL_SHAPE_CATALOG).encode(),
+    "usr/lib/snosi/cosign.pub": b"cosign-key",
+    "usr/lib/snosi/os-update-pubring.gpg": b"index-key",
+    "usr/lib/snosi/mok.crt": b"mok-cert",
+    "usr/bin/cosign": b"cosign-binary",
+    "etc/snosi-installer-release": b"SNOSI_VERSION=20260924000000\n",
+}
+
+
+def fake_inspector(args, m, failure, member_prefix="./", duplicate_members=False, catalog_data=None, **kwargs):
     """Only externally observable inspector responses; fail on unexpected commands."""
     assert isinstance(args, list)
     if args[0] == "curl":
@@ -212,30 +237,30 @@ def fake_inspector(args, m, failure, **kwargs):
         kwargs["stdout"].write(b"mock-cpio")
         return subprocess.CompletedProcess(args, 0, b"", b"")
     if args[0] == "cpio":
+        entries = {member_prefix + name: data for name, data in EMBEDDED_FILES.items()}
+        if args[1:] == ["-it"]:
+            names = list(entries)
+            if duplicate_members:
+                names.append(("" if member_prefix else "./") + "usr/bin/firn")
+            kwargs["stdout"].write(("\n".join(names) + "\n").encode())
+            return subprocess.CompletedProcess(args, 0, b"", b"")
         assert args[1:3] == ["-i", "--to-stdout"]
         entry = args[-1]
-        entries = {
-            "./usr/bin/firn": b"\x7fELF" + b"\x00" * 14 + b"\x3e\x00" + b"binary",
-            "./etc/firn/catalog.json": b'{"images":{"snow":{"cosign_pub_key":"/usr/lib/snosi/cosign.pub"}}}',
-            "./usr/lib/snosi/cosign.pub": b"cosign-key",
-            "./usr/lib/snosi/os-update-pubring.gpg": b"index-key",
-            "./usr/lib/snosi/mok.crt": b"mok-cert",
-            "./usr/bin/cosign": b"cosign-binary",
-            "./etc/snosi-installer-release": b"SNOSI_VERSION=20260924000000\n",
-        }
         assert entry in entries
         data = entries[entry]
-        if failure == "embedded_key" and entry == "./usr/lib/snosi/cosign.pub":
+        if catalog_data is not None and entry.endswith("etc/firn/catalog.json"):
+            data = json.dumps(catalog_data).encode()
+        if failure == "embedded_key" and entry.endswith("usr/lib/snosi/cosign.pub"):
             data = b"different-key"
-        if failure == "embedded_mok" and entry == "./usr/lib/snosi/mok.crt":
+        if failure == "embedded_mok" and entry.endswith("usr/lib/snosi/mok.crt"):
             data = b"different-cert"
-        if failure == "embedded_catalog" and entry == "./etc/firn/catalog.json":
-            data = b'{"images":{"snow":{"cosign_pub_key":"/tmp/other-key"}}}'
-        if failure == "catalog_duplicate" and entry == "./etc/firn/catalog.json":
-            data = b'{"snow":{"cosign_pub_key":"/usr/lib/snosi/cosign.pub","cosign_pub_key":"/usr/lib/snosi/cosign.pub"}}'
-        if failure == "catalog_nonfinite" and entry == "./etc/firn/catalog.json":
-            data = b'{"snow":{"cosign_pub_key":"/usr/lib/snosi/cosign.pub","value":NaN}}'
-        if failure == "firn_missing" and entry == "./usr/bin/firn":
+        if failure == "embedded_catalog" and entry.endswith("etc/firn/catalog.json"):
+            data = json.dumps([{**REAL_SHAPE_CATALOG[0], "cosign_pub_key": "/tmp/other-key"}]).encode()
+        if failure == "catalog_duplicate" and entry.endswith("etc/firn/catalog.json"):
+            data = b'[{"family":"bootc","name":"snow","cosign_pub_key":"/usr/lib/snosi/cosign.pub","cosign_pub_key":"/usr/lib/snosi/cosign.pub"}]'
+        if failure == "catalog_nonfinite" and entry.endswith("etc/firn/catalog.json"):
+            data = b'[{"family":"bootc","name":"snow","cosign_pub_key":"/usr/lib/snosi/cosign.pub","value":NaN}]'
+        if failure == "firn_missing" and entry.endswith("usr/bin/firn"):
             return subprocess.CompletedProcess(args, 1, b"", b"missing")
         kwargs["stdout"].write(data)
         return subprocess.CompletedProcess(args, 0, b"", b"")
@@ -290,6 +315,99 @@ def fake_inspector(args, m, failure, **kwargs):
             labels["io.snosi.bootc.secureboot-capable"] = "false"
         return subprocess.CompletedProcess(args, 0, json.dumps({"Digest": "sha256:" + digest, "Labels": labels}).encode(), b"")
     pytest.fail(f"unexpected command {args[0]}")
+
+
+@pytest.mark.parametrize("ref", ["ghcr.io/frostyard/snow:latest", "ghcr.io/frostyard/snow@sha256:" + N])
+def test_iso_accepts_real_shape_snow_bootc_catalog(qa, tmp_path, monkeypatch, ref):
+    image = tmp_path / "installer.iso"
+    image.write_bytes(ISO_BYTES)
+    catalog = [dict(item) for item in REAL_SHAPE_CATALOG]
+    catalog[0]["ref"] = ref
+    monkeypatch.setattr(qa.subprocess, "run", lambda args, **kw: fake_inspector(args, manifest(), None, catalog_data=catalog, **kw))
+    assert qa.inspect_iso(image, tmp_path, manifest(), b"index-key", b"cosign-key", b"mok-cert") == hashlib.sha256(EMBEDDED_FILES["usr/bin/firn"]).hexdigest()
+
+
+@pytest.mark.parametrize("damage", ["wrong_key", "missing", "duplicate", "ab_only", "wrong_ref", "not_list"])
+def test_iso_rejects_catalog_without_unique_pinned_snow_bootc(qa, tmp_path, monkeypatch, damage):
+    image = tmp_path / "installer.iso"
+    image.write_bytes(ISO_BYTES)
+    catalog = [dict(item) for item in REAL_SHAPE_CATALOG]
+    if damage == "wrong_key":
+        catalog[0]["cosign_pub_key"] = "/tmp/other-key"
+    elif damage == "missing":
+        catalog.pop(0)
+    elif damage == "duplicate":
+        catalog.append(dict(catalog[0]))
+    elif damage == "ab_only":
+        catalog = [item for item in catalog if item["family"] == "ab"]
+    elif damage == "wrong_ref":
+        catalog[0]["ref"] = "ghcr.io/frostyard/snow-ab:latest"
+    else:
+        catalog = {"snow": catalog[0]}
+    monkeypatch.setattr(qa.subprocess, "run", lambda args, **kw: fake_inspector(args, manifest(), None, catalog_data=catalog, **kw))
+    with pytest.raises(qa.GateError, match="^iso_catalog$"):
+        qa.inspect_iso(image, tmp_path, manifest(), b"index-key", b"cosign-key", b"mok-cert")
+
+
+@pytest.mark.parametrize("prefix", ["", "./"])
+def test_iso_extracts_exact_listed_member(qa, tmp_path, monkeypatch, prefix):
+    image = tmp_path / "installer.iso"
+    image.write_bytes(ISO_BYTES)
+    m = manifest()
+    calls = []
+
+    def inspector(args, **kwargs):
+        calls.append(args)
+        return fake_inspector(args, m, None, member_prefix=prefix, **kwargs)
+
+    monkeypatch.setattr(qa.subprocess, "run", inspector)
+    assert qa.inspect_iso(image, tmp_path, m, b"index-key", b"cosign-key", b"mok-cert") == hashlib.sha256(EMBEDDED_FILES["usr/bin/firn"]).hexdigest()
+    assert sum(args == ["cpio", "-it"] for args in calls) == 1
+    assert [args[-1] for args in calls if args[:3] == ["cpio", "-i", "--to-stdout"]] == [
+        prefix + name for name in EMBEDDED_FILES]
+
+
+def test_iso_rejects_both_member_spellings(qa, tmp_path, monkeypatch):
+    image = tmp_path / "installer.iso"
+    image.write_bytes(ISO_BYTES)
+    m = manifest()
+    calls = []
+
+    def inspector(args, **kwargs):
+        calls.append(args)
+        return fake_inspector(args, m, None, duplicate_members=True, **kwargs)
+
+    monkeypatch.setattr(qa.subprocess, "run", inspector)
+    with pytest.raises(qa.GateError, match="^iso_embedded$"):
+        qa.inspect_iso(image, tmp_path, m, b"index-key", b"cosign-key", b"mok-cert")
+    assert not any(args[:3] == ["cpio", "-i", "--to-stdout"] for args in calls)
+
+
+@pytest.mark.skipif(shutil.which("cpio") is None, reason="cpio not installed")
+def test_iso_extracts_real_newc_without_dot_prefix(qa, tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    source.mkdir()
+    for name, data in EMBEDDED_FILES.items():
+        path = source / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+    real_run = subprocess.run
+    archive = real_run(["cpio", "-o", "-H", "newc"], input=("\n".join(EMBEDDED_FILES) + "\n").encode(),
+                       cwd=source, capture_output=True, check=True).stdout
+    image = tmp_path / "installer.iso"
+    image.write_bytes(ISO_BYTES)
+    m = manifest()
+
+    def inspector(args, **kwargs):
+        if args[:2] == ["zstd", "-dc"]:
+            kwargs["stdout"].write(archive)
+            return subprocess.CompletedProcess(args, 0, b"", b"")
+        if args[0] == "cpio":
+            return real_run(args, **kwargs)
+        return fake_inspector(args, m, None, **kwargs)
+
+    monkeypatch.setattr(qa.subprocess, "run", inspector)
+    assert qa.inspect_iso(image, tmp_path, m, b"index-key", b"cosign-key", b"mok-cert") == hashlib.sha256(EMBEDDED_FILES["usr/bin/firn"]).hexdigest()
 
 
 @pytest.mark.parametrize("failure", ["index", "duplicate_index", "iso", "fingerprint", "wrong_key", "cosign", "labels", "assembly", "capability", "version_tag", "target", "embedded_key", "embedded_mok", "embedded_catalog", "catalog_duplicate", "catalog_nonfinite", "firn_missing", "sandbox_unavailable", "firn_v2_accepted"])

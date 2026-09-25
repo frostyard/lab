@@ -551,25 +551,17 @@ data:
         require(image_info(ref)["Digest"] == "sha256:" + digest, "tag_drift")
 
 
-    def catalog_key(node):
-        if type(node) is dict:
-            return node.get("cosign_pub_key") == "/usr/lib/snosi/cosign.pub" or any(
-                catalog_key(value) for value in node.values())
-        if type(node) is list:
-            return any(catalog_key(value) for value in node)
-        return False
-
-
-    def snow_catalog(node):
-        if type(node) is dict:
-            if (node.get("family") == "snow" or node.get("product") == "snow") and catalog_key(node):
-                return True
-            if "snow" in node and catalog_key(node["snow"]):
-                return True
-            return any(snow_catalog(value) for value in node.values())
-        if type(node) is list:
-            return any(snow_catalog(value) for value in node)
-        return False
+    def snow_catalog(catalog):
+        if type(catalog) is not list:
+            return False
+        snow = [entry for entry in catalog if type(entry) is dict and
+                entry.get("family") == "bootc" and entry.get("name") == "snow"]
+        if len(snow) != 1:
+            return False
+        ref = snow[0].get("ref")
+        return (type(ref) is str and ref.startswith(("ghcr.io/frostyard/snow:",
+                                                    "ghcr.io/frostyard/snow@sha256:")) and
+                snow[0].get("cosign_pub_key") == "/usr/lib/snosi/cosign.pub")
 
 
     def esp_offset(iso):
@@ -657,13 +649,21 @@ data:
         archive = root / "initrd.cpio"
         inspect_file(["zstd", "-dc", "--", str(initrd)], "iso_archive", archive,
                      max_size=4 * 1024**3)
+        listing = root / "initrd-members"
+        with archive.open("rb") as source:
+            inspect_file(["cpio", "-it"], "iso_embedded", listing,
+                         max_size=16 * 1024 * 1024, stdin=source)
+        members = listing.read_bytes().splitlines()
         embedded = {}
         for entry in ("/usr/bin/firn", "/etc/firn/catalog.json", "/usr/lib/snosi/cosign.pub",
                       "/usr/lib/snosi/os-update-pubring.gpg", "/usr/lib/snosi/mok.crt",
                       "/usr/bin/cosign", "/etc/snosi-installer-release"):
+            name = entry.lstrip("/").encode()
+            matches = [member for member in members if member in (name, b"./" + name)]
+            require(len(matches) == 1, "iso_embedded")
             output = root / ("item-" + str(len(embedded)))
             with archive.open("rb") as source:
-                inspect_file(["cpio", "-i", "--to-stdout", "." + entry], "iso_embedded",
+                inspect_file(["cpio", "-i", "--to-stdout", matches[0].decode("ascii")], "iso_embedded",
                              output, stdin=source)
             embedded[entry] = output
         for entry, pinned in (("/usr/lib/snosi/cosign.pub", cosign),
