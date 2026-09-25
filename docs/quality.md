@@ -78,9 +78,11 @@ Each workflow gets a private 0700 host directory under
 0600 `manifest-sha256.txt`, `preflight.json`, `checks.json`, `checks.txt`, and
 `result-summary.txt` as far as execution reached. Preflight checks the signed
 ISO index against the pinned fingerprint and records the ISO hash, key hashes,
-verified N/N+1 OCI digests, version mappings and narrow sandboxed Firn v1/v2
-validator provenance; it does
-**not** prove full Firn installed compatibility. The ISO `SHA256SUMS.gpg`
+verified N/N+1 OCI digests, version mappings, and the extracted Firn binary's
+hash and provenance. The narrow Firn v1/v2 recipe validator runs inside the
+disposable installer VM before `firn install`, after checking the guest Firn
+hash against preflight. This validator check alone does **not** prove full
+Firn installed compatibility. The ISO `SHA256SUMS.gpg`
 authenticates the ISO index only, not an A/B update index. Registry tag
 resolution is read-only (`skopeo inspect`), not a signature check: cosign
 verification and exact guest policy plus signed pull checks are separate.

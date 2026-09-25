@@ -111,10 +111,10 @@ data:
     timeout 900 apt-get update -qq >/dev/null 2>&1 || blocked packages_unavailable
     timeout 900 apt-get install -y -qq --no-install-recommends \
       ca-certificates python3 python3-virt-firmware \
-      curl gnupg gpgv skopeo cosign mtools bubblewrap zstd cpio openssl \
+      curl gnupg gpgv skopeo cosign mtools zstd cpio openssl \
       >/dev/null 2>&1 || blocked packages_unavailable
-    # No extracted Firn binary executes outside qa.py's bubblewrap sandbox.
-    for tool in python3 curl gpg gpgv skopeo cosign mcopy bwrap zstd cpio incus \
+    # Extracted Firn is hashed in preflight; it runs only inside the installer VM.
+    for tool in python3 curl gpg gpgv skopeo cosign mcopy zstd cpio incus \
                 timeout base64 openssl virt-fw-vars sha256sum; do
       command -v "$tool" >/dev/null 2>&1 || blocked "tool_unavailable:$tool"
     done
@@ -130,6 +130,7 @@ data:
       case "$code" in
         trust_material_missing|download|iso_download|registry_inspect)
           blocked "publication_unavailable:$code";;
+        firn_sandbox) blocked "environment_unavailable:$code";;
         *) fail "preflight_mismatch:$code";;
       esac
     fi
@@ -220,6 +221,19 @@ data:
           esac
         fi
         if [[ -n "$observed_failure" ]] && grep -qF "$observed_failure" "$WORK/serial"; then
+          if [[ "$observed_failure" == SNOW_INSTALL_FAILED ]]; then
+            code=$(python3 - "$WORK/serial" <<'PY'
+    import re, sys
+    from pathlib import Path
+    lines = Path(sys.argv[1]).read_bytes().split(b'\n')
+    matches = [re.fullmatch(rb'SNOW_INSTALL_FAILED (firn_v1|firn_v2|firn_hash)\r?', line)
+               for line in lines if b'SNOW_INSTALL_FAILED' in line]
+    if len(matches) == 1 and matches[0] is not None:
+        print(matches[0][1].decode('ascii'))
+    PY
+            ) || fail install_failed
+            [[ -z "$code" ]] || fail "install_failed:$code"
+          fi
           fail install_failed
         fi
         if grep -qF "$needle" "$WORK/serial"; then return 0; fi
@@ -240,6 +254,8 @@ data:
     # The ISO boot runs only after validation, authenticated preflight and a
     # persistent manifest hash. A single root disk and a read-only ISO.
     tag before-install
+    firn_sha256=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["firn_sha256"])' "$WORK/checks.json") || fail checks_read
+    [[ "$firn_sha256" =~ ^[0-9a-f]{64}$ ]] || fail checks_read
     : > "$WORK/serial-baseline" # Empty log for the newly initialized VM.
     timeout 120 incus init "$VM" --empty --vm -c security.secureboot=true \
       -c limits.cpu=4 -c limits.memory=8GiB -d root,size=40GiB >/dev/null 2>&1 || fail vm_init
@@ -253,6 +269,36 @@ data:
     set -Eeuo pipefail
     umask 077
     printf 'SNOW_INSTALL_BEGIN\n' > /dev/ttyS0
+    if [[ $(sha256sum /usr/bin/firn 2>/dev/null) != "@FIRN_SHA256@  /usr/bin/firn" ]]; then
+      printf 'SNOW_INSTALL_FAILED firn_hash\n' > /dev/ttyS0
+      exit 1
+    fi
+    cat > /run/snow-firn-v1.toml <<'VALIDATOR'
+    version = 1
+    [image]
+    family = "bootc"
+    ref = "ghcr.io/frostyard/snow@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    target_ref = "ghcr.io/frostyard/snow:qa-controlled"
+    cosign_pub_key = "/usr/lib/snosi/cosign.pub"
+    [target]
+    disk = "/dev/example-disk"
+    filesystem = "ext4"
+    bootloader = "systemd"
+    [security]
+    encryption = "none"
+    [system]
+    hostname = "snow-qa"
+    VALIDATOR
+    if ! (ulimit -f 1024; firn validate --secure-boot off --tpm off /run/snow-firn-v1.toml >/run/snow-firn-v1.log 2>&1); then
+      printf 'SNOW_INSTALL_FAILED firn_v1\n' > /dev/ttyS0
+      exit 1
+    fi
+    sed 's/^version = 1$/version = 2/' /run/snow-firn-v1.toml > /run/snow-firn-v2.toml
+    # The validator diagnostic stays in the guest, bounded by RLIMIT_FSIZE.
+    if (ulimit -f 1024; firn validate --secure-boot off --tpm off /run/snow-firn-v2.toml > /run/snow-firn-v2.log 2>&1) || ! grep -qF 'bad-version' /run/snow-firn-v2.log; then
+      printf 'SNOW_INSTALL_FAILED firn_v2\n' > /dev/ttyS0
+      exit 1
+    fi
     mapfile -t disks < <(lsblk -dnpo NAME,RO,TYPE | awk '$2==0 && $3=="disk" {print $1}')
     [[ ${#disks[@]} == 1 ]] || exit 1
     disk=${disks[0]}
@@ -289,12 +335,13 @@ data:
       exit 1
     fi
     GUEST
-    # Replace only the two schema-validated literal placeholders.
-    python3 - "$WORK/install.sh" "$n" "$target" <<'PY'
-    import sys
+    # Replace only the schema-validated literal placeholders.
+    python3 - "$WORK/install.sh" "$n" "$target" "$firn_sha256" <<'PY'
+    import re, sys
     from pathlib import Path
+    if not re.fullmatch(r'[0-9a-f]{64}', sys.argv[4]): sys.exit(1)
     p = Path(sys.argv[1]); s = p.read_text()
-    p.write_text(s.replace('@N@', sys.argv[2]).replace('@TARGET@', sys.argv[3]))
+    p.write_text(s.replace('@N@', sys.argv[2]).replace('@TARGET@', sys.argv[3]).replace('@FIRN_SHA256@', sys.argv[4]))
     PY
     install_b64=$(base64 -w0 "$WORK/install.sh") || fail unit_encoding
     unit="[Unit]
@@ -403,7 +450,6 @@ data:
     import hashlib
     import json
     import os
-    import platform
     import re
     import resource
     import struct
@@ -589,49 +635,6 @@ data:
         return start * 512
 
 
-    def validate_firn(firn, pub, root):
-        # No extracted executable ever runs directly. Bubblewrap creates fresh
-        # user, mount, PID, IPC and network namespaces; no host socket or host
-        # filesystem is mounted writable. If sandboxing is unavailable, fail.
-        with firn.open("rb") as binary:
-            elf = binary.read(20)
-        require(platform.machine() == "x86_64" and elf.startswith(b"\x7fELF")
-                and elf[18:20] == b"\x3e\x00", "firn_arch")
-        firn.chmod(0o500)
-        recipe = root / "recipe.toml"
-        common = ('[image]\nfamily = "bootc"\nref = "ghcr.io/frostyard/snow@sha256:' + 'a' * 64 +
-                  '"\ntarget_ref = "ghcr.io/frostyard/snow:qa-controlled"\n'
-                  'cosign_pub_key = "/work/cosign.pub"\n'
-                  '[target]\ndisk = "/dev/example-disk"\nfilesystem = "ext4"\n'
-                  'bootloader = "systemd"\n[security]\nencryption = "none"\n'
-                  '[system]\nhostname = "snow-qa"\n')
-        for version in (1, 2):
-            recipe.write_text("version = " + str(version) + "\n" + common)
-            args = ["bwrap", "--unshare-all", "--unshare-user", "--cap-drop", "ALL", "--disable-userns",
-                    "--clearenv", "--die-with-parent", "--new-session",
-                    "--ro-bind", "/usr", "/usr", "--symlink", "usr/lib", "/lib",
-                    "--symlink", "usr/lib64", "/lib64", "--proc", "/proc", "--dev", "/dev",
-                    "--tmpfs", "/tmp", "--dir", "/work", "--ro-bind", str(firn), "/work/firn",
-                    "--ro-bind", str(pub), "/work/cosign.pub",
-                    "--ro-bind", str(recipe), "/work/recipe.toml", "--chdir", "/work",
-                    "--setenv", "PATH", "/usr/bin", "--", "/work/firn", "validate",
-                    "--secure-boot", "off", "--tpm", "off", "/work/recipe.toml"]
-            try:
-                with tempfile.TemporaryFile() as error_stream:
-                    outcome = subprocess.run(args, stdout=subprocess.DEVNULL, stderr=error_stream,
-                                             timeout=30, check=False,
-                                             preexec_fn=lambda: limit_process(1024 * 1024, 30))
-                    error_stream.seek(0)
-                    error = error_stream.read(1024 * 1024 + 1)
-            except (OSError, subprocess.SubprocessError) as exc:
-                raise GateError("firn_sandbox") from exc
-            require(outcome.returncode == 0 or not error.startswith(b"bwrap:"), "firn_sandbox")
-            if version == 1:
-                require(outcome.returncode == 0, "firn_v1")
-            else:
-                require(outcome.returncode != 0 and b"bad-version" in error, "firn_v2")
-
-
     def inspect_iso(iso, root, m, key, cosign, mok):
         # Pinned Snosi ISO appends a GPT ESP (partition 2). The initramfs is
         # FAT32, not in the ISO9660 tree. mtools reads it without loop/mount.
@@ -682,7 +685,6 @@ data:
         require(snow_catalog(catalog), "iso_catalog")
         release = embedded["/etc/snosi-installer-release"]
         require(release.stat().st_size <= 4096 and m["iso_version"].encode() in release.read_bytes(), "iso_release")
-        validate_firn(embedded["/usr/bin/firn"], embedded["/usr/lib/snosi/cosign.pub"], root)
         return sha(embedded["/usr/bin/firn"].read_bytes())
 
 
@@ -710,7 +712,7 @@ data:
                     "cosign_key_sha256": m["cosign_key_sha256"],
                     "mok_cert_sha256": m["mok_cert_sha256"],
                     "firn_provenance": "iso-esp-p2/firn-installer/initrd.img",
-                    "firn_compatibility": "sandboxed-v1-recipe-validator-only"}
+                    "firn_compatibility": "installer-vm-v1-recipe-validator-only"}
         require(all(data[key] == value for key, value in expected.items()) and
                 full(r"[0-9a-f]{64}", data["firn_sha256"]) and timestamp(data["timestamp"]) and
                 type(data["tags"]) is dict and len(data["tags"]) <= 32, "checks_state")
@@ -793,15 +795,15 @@ data:
         resolve(m["version_tag_n"], m["image_n"].rsplit(":", 1)[-1])
         resolve(m["version_tag_n_plus_1"], m["image_n_plus_1"].rsplit(":", 1)[-1])
         resolve(m["target_ref"], m["image_n_plus_1"].rsplit(":", 1)[-1])
-        # This proves only the minimal validator contract in a sandbox, not
-        # the full install or Secure Boot behavior. No VM is started here.
+        # The minimal validator contract runs later inside the installer VM;
+        # preflight records only authenticated Firn provenance and its hash.
         save(checks_path, {"manifest_sha256": sha(canonical(m)), "timestamp": now(),
                            "version_n": m["version_n"], "version_n_plus_1": m["version_n_plus_1"],
                            "digest_n": m["image_n"].rsplit(":", 1)[-1],
                            "digest_n_plus_1": m["image_n_plus_1"].rsplit(":", 1)[-1],
                            "snosi_commit": m["snosi_commit"], "iso_sha256": m["iso_sha256"],
                            "firn_sha256": firn_sha256, "firn_provenance": "iso-esp-p2/firn-installer/initrd.img",
-                           "firn_compatibility": "sandboxed-v1-recipe-validator-only",
+                           "firn_compatibility": "installer-vm-v1-recipe-validator-only",
                            "index_key_sha256": m["index_key_sha256"],
                            "cosign_key_sha256": m["cosign_key_sha256"],
                            "mok_cert_sha256": m["mok_cert_sha256"], "tags": {}})

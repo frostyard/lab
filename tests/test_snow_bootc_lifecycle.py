@@ -264,35 +264,6 @@ def fake_inspector(args, m, failure, member_prefix="./", duplicate_members=False
             return subprocess.CompletedProcess(args, 1, b"", b"missing")
         kwargs["stdout"].write(data)
         return subprocess.CompletedProcess(args, 0, b"", b"")
-    if args[0] == "bwrap":
-        assert kwargs.get("stdout") == subprocess.DEVNULL
-        assert kwargs.get("stderr") not in (None, subprocess.PIPE)
-        assert kwargs.get("preexec_fn") is not None
-        assert "--unshare-all" in args and "--unshare-user" in args and "--disable-userns" in args
-        assert "--cap-drop" in args and "--clearenv" in args
-        assert "--ro-bind" in args and "--bind" not in args and "--share-net" not in args
-        assert Path(args[args.index("/work/firn") - 1]).stat().st_mode & 0o111
-        assert "/work/cosign.pub" in args and 'cosign_pub_key = "/work/cosign.pub"' in Path(args[args.index("/work/recipe.toml") - 1]).read_text()
-        recipe = Path(args[args.index("/work/recipe.toml") - 1])
-        text = recipe.read_text()
-        assert 'disk = "/dev/example-disk"' in text and 'filesystem = "ext4"' in text
-        assert 'encryption = "none"' in text and 'hostname = "snow-qa"' in text
-        assert ["validate", "--secure-boot", "off", "--tpm", "off", "/work/recipe.toml"] == args[-6:]
-        if "version = 2" in text:
-            if failure == "firn_v2_accepted":
-                return subprocess.CompletedProcess(args, 0, b"", b"")
-            if failure == "firn_v2_late_error":
-                kwargs["stderr"].write(b"diagnostic " * 500 + b"bad-version")
-                kwargs["stderr"].flush()
-                return subprocess.CompletedProcess(args, 1, b"", b"")
-            kwargs["stderr"].write(b"bad-version")
-            kwargs["stderr"].flush()
-            return subprocess.CompletedProcess(args, 1, b"", b"")
-        if failure == "sandbox_unavailable":
-            kwargs["stderr"].write(b"bwrap: user namespace unavailable")
-            kwargs["stderr"].flush()
-            return subprocess.CompletedProcess(args, 1, b"", b"")
-        return subprocess.CompletedProcess(args, 0, b"", b"")
     if args[:2] == ["cosign", "verify"]:
         assert len(args) == 5 and args[2] == "--key" and args[-1] in (m["image_n"], m["image_n_plus_1"])
         return subprocess.CompletedProcess(args, 1 if failure == "cosign" else 0, b"[]", b"")
@@ -410,7 +381,7 @@ def test_iso_extracts_real_newc_without_dot_prefix(qa, tmp_path, monkeypatch):
     assert qa.inspect_iso(image, tmp_path, m, b"index-key", b"cosign-key", b"mok-cert") == hashlib.sha256(EMBEDDED_FILES["usr/bin/firn"]).hexdigest()
 
 
-@pytest.mark.parametrize("failure", ["index", "duplicate_index", "iso", "fingerprint", "wrong_key", "cosign", "labels", "assembly", "capability", "version_tag", "target", "embedded_key", "embedded_mok", "embedded_catalog", "catalog_duplicate", "catalog_nonfinite", "firn_missing", "sandbox_unavailable", "firn_v2_accepted"])
+@pytest.mark.parametrize("failure", ["index", "duplicate_index", "iso", "fingerprint", "wrong_key", "cosign", "labels", "assembly", "capability", "version_tag", "target", "embedded_key", "embedded_mok", "embedded_catalog", "catalog_duplicate", "catalog_nonfinite", "firn_missing"])
 def test_preflight_fails_closed_on_untrusted_inspection(qa, tmp_path, monkeypatch, failure):
     m = manifest()
     # The fake byte streams have hand-derived checksums, never the manifest's untrusted hashes.
@@ -435,7 +406,6 @@ def test_preflight_fails_closed_on_untrusted_inspection(qa, tmp_path, monkeypatc
         "capability": "oci_capability", "version_tag": "tag_drift", "target": "tag_drift",
         "embedded_key": "iso_embedded_key", "embedded_mok": "iso_embedded_key",
         "embedded_catalog": "iso_catalog", "catalog_duplicate": "iso_catalog", "catalog_nonfinite": "iso_catalog", "firn_missing": "iso_embedded",
-        "sandbox_unavailable": "firn_sandbox", "firn_v2_accepted": "firn_v2",
     }[failure]
     with pytest.raises(qa.GateError, match="^" + reason + "$"):
         qa.preflight(m, checked)
@@ -477,7 +447,7 @@ def test_signed_iso_without_valid_gpt_esp_never_extracts(qa, tmp_path, monkeypat
     monkeypatch.setattr(qa.subprocess, "run", inspector)
     with pytest.raises(qa.GateError, match="^iso_gpt$"):
         qa.preflight(m, tmp_path / "checks.json")
-    assert not any(args[0] in ("mcopy", "bwrap") for args in calls)
+    assert not any(args[0] == "mcopy" for args in calls)
 
 
 @pytest.mark.parametrize(("damage", "code"), [
@@ -538,7 +508,7 @@ def test_iso_archive_allows_four_gib_decompressed_cpio(qa, tmp_path, monkeypatch
     assert archive_limits[0] > 1_500_000_000
 
 
-def test_sandbox_setup_error_is_bounded_and_never_produces_checks(qa, tmp_path, monkeypatch):
+def test_preflight_records_vm_validator_contract_without_executing_firn(qa, tmp_path, monkeypatch):
     m = manifest()
     m.update(index_key_sha256=hashlib.sha256(b"index-key").hexdigest(),
              cosign_key_sha256=hashlib.sha256(b"cosign-key").hexdigest(),
@@ -546,15 +516,21 @@ def test_sandbox_setup_error_is_bounded_and_never_produces_checks(qa, tmp_path, 
              iso_sha256=hashlib.sha256(ISO_BYTES).hexdigest())
     checks = tmp_path / "checks.json"
 
+    calls = []
+
     def inspector(args, **kwargs):
-        if args[0] == "bwrap":
-            raise subprocess.SubprocessError("could not create sandbox")
+        calls.append(args[0])
+        assert args[0] != "bwrap"
         return fake_inspector(args, m, None, **kwargs)
 
     monkeypatch.setattr(qa.subprocess, "run", inspector)
-    with pytest.raises(qa.GateError, match="^firn_sandbox$"):
-        qa.preflight(m, checks)
-    assert not checks.exists()
+    qa.preflight(m, checks)
+    assert "cpio" in calls
+    data = json.loads(checks.read_text())
+    assert data["firn_sha256"] == hashlib.sha256(EMBEDDED_FILES["usr/bin/firn"]).hexdigest()
+    assert data["firn_provenance"] == "iso-esp-p2/firn-installer/initrd.img"
+    assert data["firn_compatibility"] == "installer-vm-v1-recipe-validator-only"
+    qa.check_state(m, data)
 
 
 def test_signed_index_subkey_accepts_pinned_primary(qa, tmp_path, monkeypatch):
@@ -620,7 +596,7 @@ def test_tag_rejects_forged_or_incomplete_checks_before_registry(qa, tmp_path, m
             "digest_n": N, "digest_n_plus_1": NEXT, "snosi_commit": COMMIT,
             "iso_sha256": m["iso_sha256"], "firn_sha256": "f" * 64,
             "firn_provenance": "iso-esp-p2/firn-installer/initrd.img",
-            "firn_compatibility": "sandboxed-v1-recipe-validator-only",
+             "firn_compatibility": "installer-vm-v1-recipe-validator-only",
             "index_key_sha256": m["index_key_sha256"],
             "cosign_key_sha256": m["cosign_key_sha256"],
             "mok_cert_sha256": m["mok_cert_sha256"], "tags": {}}
@@ -641,16 +617,11 @@ def test_success_preflight_and_tag_recheck(qa, tmp_path, monkeypatch):
              mok_cert_sha256=hashlib.sha256(b"mok-cert").hexdigest(),
               iso_sha256=hashlib.sha256(ISO_BYTES).hexdigest())
     calls = []
-    sandbox_file_limits = []
-    monkeypatch.setattr(qa, "limit_process", lambda size, timeout: sandbox_file_limits.append(size))
-
     def inspector(args, **kwargs):
         assert isinstance(args, list) and not kwargs.get("shell")
         if args[0] == "curl" and args[-1] == m["iso_url"]:
             assert kwargs["timeout"] >= m["timeouts"]["install"]
         calls.append(args)
-        if args[0] == "bwrap":
-            kwargs["preexec_fn"]()  # Simulate child setup without modifying test process limits.
         return fake_inspector(args, m, None, **kwargs)
 
     monkeypatch.setattr(qa.subprocess, "run", inspector)
@@ -662,7 +633,7 @@ def test_success_preflight_and_tag_recheck(qa, tmp_path, monkeypatch):
     assert result["firn_sha256"] == hashlib.sha256(b"\x7fELF" + b"\x00" * 14 + b"\x3e\x00" + b"binary").hexdigest()
     assert result["snosi_commit"] == COMMIT
     assert result["timestamp"]
-    assert sandbox_file_limits == [1024 * 1024, 1024 * 1024]
+    assert all(args[0] != "bwrap" for args in calls)
     assert any(a[:2] == ["cosign", "verify"] and m["image_n"] in a for a in calls)
     qa.tag(m, "before-stage", checks)
     assert json.loads(checks.read_text())["tags"]["before-stage"]
@@ -670,17 +641,6 @@ def test_success_preflight_and_tag_recheck(qa, tmp_path, monkeypatch):
     with pytest.raises(qa.GateError):
         qa.tag(m, "after-stage", checks)
     assert "after-stage" not in json.loads(checks.read_text())["tags"]
-
-
-def test_firn_v2_late_bounded_bad_version_is_recognized(qa, tmp_path, monkeypatch):
-    m = manifest()
-    m.update(index_key_sha256=hashlib.sha256(b"index-key").hexdigest(),
-             cosign_key_sha256=hashlib.sha256(b"cosign-key").hexdigest(),
-             mok_cert_sha256=hashlib.sha256(b"mok-cert").hexdigest(),
-             iso_sha256=hashlib.sha256(ISO_BYTES).hexdigest())
-    monkeypatch.setattr(qa.subprocess, "run", lambda args, **kw: fake_inspector(args, m, "firn_v2_late_error", **kw))
-    qa.preflight(m, tmp_path / "checks.json")
-    assert (tmp_path / "checks.json").exists()
 
 
 PHASES = ("installed-n", "stage", "boot-n-plus-1", "rollback", "boot-n")
@@ -724,7 +684,7 @@ def phase_files(tmp_path, qa):
         version_n_plus_1=m["version_n_plus_1"], digest_n=N, digest_n_plus_1=NEXT,
         snosi_commit=COMMIT, iso_sha256=ISO, firn_sha256="f" * 64,
         firn_provenance="iso-esp-p2/firn-installer/initrd.img",
-        firn_compatibility="sandboxed-v1-recipe-validator-only", index_key_sha256="1" * 64,
+        firn_compatibility="installer-vm-v1-recipe-validator-only", index_key_sha256="1" * 64,
         cosign_key_sha256="2" * 64, mok_cert_sha256="3" * 64, tags={})))
     return normalized, checks
 
@@ -1008,6 +968,70 @@ def test_run_install_unit_uses_manifest_install_budget_without_systemd_specifier
                           capture_output=True, check=True, text=True).stdout
     assert unit.splitlines().count(f'TimeoutStartSec={m["timeouts"]["install"]}') == 1
     assert "%" not in unit.replace("%%", "")
+
+
+@pytest.mark.parametrize(("scenario", "marker", "installed"), [
+    ("pass", "SNOW_INSTALL_OK", True),
+    ("v1", "SNOW_INSTALL_FAILED firn_v1", False),
+    ("v2", "SNOW_INSTALL_FAILED firn_v2", False),
+    ("v2_other_error", "SNOW_INSTALL_FAILED firn_v2", False),
+    ("hash", "SNOW_INSTALL_FAILED firn_hash", False),
+])
+def test_installer_vm_checks_firn_before_install(tmp_path, scenario, marker, installed):
+    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    guest = re.search(r"(?ms)^cat > \"\$WORK/install.sh\" <<'GUEST'\n(.*?)^GUEST$", script)
+    replacement = re.search(r"(?ms)^python3 - \"\$WORK/install.sh\".*?^PY$", script[guest.end():]) if guest else None
+    assert guest and replacement
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / "install.sh").write_text(guest[1])
+    expected_hash = hashlib.sha256(b"firn-in-iso").hexdigest()
+    env = {**os.environ, "WORK": str(work), "n": f"{REPO}@sha256:{N}",
+           "target": f"{REPO}:qa-controlled", "firn_sha256": expected_hash,
+           "PATH": str(tmp_path / "bin") + ":" + os.environ["PATH"],
+           "SCENARIO": scenario, "TEST_ROOT": str(tmp_path)}
+    subprocess.run(["bash", "-e", "-c", replacement.group()], env=env, check=True)
+    guest_text = (work / "install.sh").read_text()
+    assert "@N@" not in guest_text and "@TARGET@" not in guest_text and "@FIRN_SHA256@" not in guest_text
+    # Isolate guest paths and the disk discovery from the test host; run the
+    # actual validator/installation section with stub executables in PATH.
+    guest_text = guest_text.replace("/run/", str(tmp_path / "run") + "/")
+    guest_text = guest_text.replace("/dev/ttyS0", str(tmp_path / "serial"))
+    guest_text = re.sub(r"mapfile -t disks .*?\[\[ -n \"\$byid\" && -b \"\$byid\" \]\] \|\| exit 1",
+                        'byid="/dev/example-disk"', guest_text, flags=re.S)
+    assert 'byid="/dev/example-disk"' in guest_text
+    (tmp_path / "run").mkdir()
+    (tmp_path / "bin").mkdir()
+    firn = tmp_path / "bin/firn"
+    firn.write_text("#!/bin/bash\nprintf '%s %s\\n' \"$1\" \"${@: -1}\" >> \"$TEST_ROOT/calls\"\n"
+                    "if [[ $1 == validate ]]; then\n"
+                    "  if grep -q 'version = 1' \"${@: -1}\"; then [[ $SCENARIO != v1 ]]; exit; fi\n"
+                    "  [[ $SCENARIO == v2 ]] && exit 0\n"
+                    "  [[ $SCENARIO == v2_other_error ]] && { printf 'other-error\\n' >&2; exit 1; }\n"
+                    "  printf 'bad-version\\n' >&2; exit 1\n"
+                    "fi\nexit 0\n")
+    firn.chmod(0o755)
+    sums = tmp_path / "bin/sha256sum"
+    sums.write_text("#!/bin/bash\nif [[ $SCENARIO == hash ]]; then printf '%064d  %s\\n' 0 \"$1\"; "
+                    "else printf '%s  %s\\n' \"$firn_sha256\" \"$1\"; fi\n")
+    sums.chmod(0o755)
+    (tmp_path / "bin/openssl").write_text("#!/bin/sh\nprintf '0123456789abcdef\\n'\n")
+    (tmp_path / "bin/openssl").chmod(0o755)
+    guest_text = guest_text.replace("/usr/bin/firn", str(firn))
+    result = subprocess.run(["bash", "-e", "-c", guest_text], env=env, capture_output=True, timeout=10)
+    assert result.returncode == (0 if installed else 1), result.stderr
+    assert (tmp_path / "serial").read_text().splitlines()[-1] == marker
+    if scenario != "hash":
+        recipe = (tmp_path / "run/snow-firn-v1.toml").read_text()
+        assert all(field in recipe for field in ('version = 1', 'disk = "/dev/example-disk"',
+                                                 'filesystem = "ext4"', 'encryption = "none"',
+                                                 'hostname = "snow-qa"'))
+        if scenario != "v1":
+            assert (tmp_path / "run/snow-firn-v2.toml").read_text() == recipe.replace("version = 1", "version = 2")
+    calls = (tmp_path / "calls").read_text().splitlines() if (tmp_path / "calls").exists() else []
+    assert ("install" in [line.split()[0] for line in calls]) == installed
+    if scenario not in ("hash", "v1"):
+        assert calls[:2] == [f"validate {tmp_path}/run/snow-firn-v1.toml", f"validate {tmp_path}/run/snow-firn-v2.toml"]
 
 
 @pytest.mark.parametrize(("phase", "key"), [
@@ -1436,6 +1460,7 @@ def test_runner_installs_gpgv_without_recommends(tmp_path):
 @pytest.mark.parametrize(("scenario", "expected"), [
     ("preflight", "BLOCKED: publication_unavailable:trust_material_missing"),
     ("signature", "FAILED: preflight_mismatch:oci_signature"),
+    ("firn_sandbox", "BLOCKED: environment_unavailable:firn_sandbox"),
     ("preflight_garbage", "FAILED: preflight_mismatch:unparsed"),
     ("preflight_multiline", "FAILED: preflight_mismatch:unparsed"),
     ("preflight_injection", "FAILED: preflight_mismatch:unparsed"),
@@ -1462,8 +1487,8 @@ def test_runner_failure_never_initializes_vm_and_does_not_expose_inputs(tmp_path
     script = script.replace('/var/lib/snosi-lab/iso/snow-qa-', f'{tmp_path}/snow-qa-')
     if scenario == 'missing_gpgv':
         # gpgv may exist on the test host; hide only that lookup in this shell.
-        script = script.replace('# No extracted Firn binary executes',
-                                'command() { if [[ "$1" == -v && "$2" == gpgv ]]; then return 1; fi; builtin command "$@"; }\n# No extracted Firn binary executes')
+        script = script.replace('# Extracted Firn is hashed in preflight',
+                                'command() { if [[ "$1" == -v && "$2" == gpgv ]]; then return 1; fi; builtin command "$@"; }\n# Extracted Firn is hashed in preflight')
     script = script.replace("persist \"$WORK/hash\" \"$EVIDENCE/manifest-sha256.txt\"", "false") if scenario == "evidence" else script
     runner = tmp_path / "run.sh"
     runner.write_text(script)
@@ -1478,8 +1503,8 @@ def test_runner_failure_never_initializes_vm_and_does_not_expose_inputs(tmp_path
             Path(sys.argv[3]).write_text(json.dumps(json.loads(Path(sys.argv[2]).read_text())))
             print('a' * 64)
         elif command == 'preflight':
-            if os.environ['SCENARIO'] in ('preflight', 'signature', 'preflight_garbage', 'preflight_multiline', 'preflight_injection', 'preflight_overlong'):
-                messages = {'preflight': 'qa_failed:trust_material_missing', 'signature': 'qa_failed:oci_signature',
+            if os.environ['SCENARIO'] in ('preflight', 'signature', 'firn_sandbox', 'preflight_garbage', 'preflight_multiline', 'preflight_injection', 'preflight_overlong'):
+                messages = {'preflight': 'qa_failed:trust_material_missing', 'signature': 'qa_failed:oci_signature', 'firn_sandbox': 'qa_failed:firn_sandbox',
                             'preflight_garbage': 'nonsense', 'preflight_multiline': 'qa_failed:download\\nextra',
                             'preflight_injection': 'qa_failed:download; sensitive-value',
                             'preflight_overlong': 'qa_failed:' + 'a' * 41}
@@ -1524,7 +1549,7 @@ def test_runner_failure_never_initializes_vm_and_does_not_expose_inputs(tmp_path
     assert (tmp_path / "results/result-summary.txt").read_text().strip() == expected
 
 
-@pytest.mark.parametrize("scenario", ["pass", "stage", "no_reboot", "tag_drift", "evidence_write", "output_write", "stage_teardown", "teardown", "serial_oversize", "serial_unreadable", "blocked_teardown", "phase_missing", "phase_malformed", "guest_error", "guest_error_crlf", "updater_error_crlf", "rollback_error_crlf", "duplicate_error_crlf", "conflicting_error_crlf", "install_missing", "install_failed", "cumulative_pass", "cumulative_stale", "cumulative_reset", "cumulative_prefix"])
+@pytest.mark.parametrize("scenario", ["pass", "stage", "no_reboot", "tag_drift", "evidence_write", "output_write", "stage_teardown", "teardown", "serial_oversize", "serial_unreadable", "blocked_teardown", "phase_missing", "phase_malformed", "guest_error", "guest_error_crlf", "updater_error_crlf", "rollback_error_crlf", "duplicate_error_crlf", "conflicting_error_crlf", "install_missing", "install_failed", "install_firn_v1", "install_firn_v2", "install_firn_hash", "install_fake_code", "cumulative_pass", "cumulative_stale", "cumulative_reset", "cumulative_prefix"])
 def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario):
     script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
     for old, new in (("ROOT=/var/lib/snosi-lab/snow-bootc-evidence", f"ROOT={tmp_path}/evidence"),
@@ -1560,7 +1585,7 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
             print(hashlib.sha256(Path(sys.argv[3]).read_bytes()).hexdigest())
         elif cmd == 'preflight':
             log('preflight')
-            Path(sys.argv[3]).write_text(json.dumps({'tags': {}}))
+            Path(sys.argv[3]).write_text(json.dumps({'tags': {}, 'firn_sha256': 'f' * 64}))
         elif cmd == 'tag':
             phase = sys.argv[3]; log('tag ' + phase)
             if os.environ['SCENARIO'] == 'tag_drift' and phase == 'after-stage': sys.exit(1)
@@ -1605,6 +1630,8 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
             if count == 1:
                 content = 'SNOW_INSTALL_BEGIN\\n'
                 if os.environ['SCENARIO'] == 'install_failed': content += 'SNOW_INSTALL_FAILED\\n'
+                elif os.environ['SCENARIO'].startswith('install_firn_'): content += 'SNOW_INSTALL_FAILED ' + os.environ['SCENARIO'][8:] + '\\r\\n'
+                elif os.environ['SCENARIO'] == 'install_fake_code': content += 'SNOW_INSTALL_FAILED arbitrary\\r\\n'
                 elif os.environ['SCENARIO'] != 'install_missing': content += 'SNOW_INSTALL_OK\\n'
             else:
                 unit = (root / 'unit').read_text()
@@ -1712,7 +1739,11 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
                                      'duplicate_error_crlf': 'FAILED: phase_mismatch',
                                      'conflicting_error_crlf': 'FAILED: phase_mismatch',
                                     'install_missing': 'BLOCKED: phase_timeout',
-                                    'install_failed': 'FAILED: install_failed',
+                                     'install_failed': 'FAILED: install_failed',
+                                     'install_firn_v1': 'FAILED: install_failed:firn_v1',
+                                     'install_firn_v2': 'FAILED: install_failed:firn_v2',
+                                     'install_firn_hash': 'FAILED: install_failed:firn_hash',
+                                     'install_fake_code': 'FAILED: install_failed',
                                     'cumulative_stale': 'BLOCKED: phase_timeout',
                                     'cumulative_reset': 'BLOCKED: channel_lineage',
                                     'cumulative_prefix': 'BLOCKED: channel_lineage'}[scenario]
