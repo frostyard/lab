@@ -1044,6 +1044,20 @@ def test_installer_vm_checks_firn_before_install(tmp_path, scenario, marker, ins
 
 @pytest.mark.parametrize("without_python", [False, True], ids=["python", "shell-fallback"])
 @pytest.mark.parametrize(("stream", "expected", "fallback"), [
+    ('{"event":"start","protocol":1,"firn":"76518f0","steps":[{"name":"partition","weight":1}]}\n'
+     '{"event":"error","step":"partition","code":"step_failed","message":"SECRET-MESSAGE"}\n',
+     "firn_install:partition:step_failed", "firn_install:unknown:step_failed"),
+    ('', "firn_install:unknown:empty_stream", "firn_install:unknown:empty_stream"),
+    ('{"event":"done"}\n', "firn_install:unknown:unparsed", "firn_install:unknown:unparsed"),
+    ('{"event":"error","step":"partition","code":"step_failed","message":"SECRET-MESSAGE"}\n',
+     "firn_install:unknown:unparsed", "firn_install:unknown:step_failed"),
+    ('{"event":"start","protocol":1,"firn":"76518f0","steps":[]}\n'
+     '{"event":"recovery_key","key":"SECRET-RECOVERY"}\n'
+     '{"event":"error","step":"","code":"step_failed","message":"SECRET-MESSAGE"}\n',
+     "firn_install:run:step_failed", "firn_install:unknown:step_failed"),
+    ('{"event":"start","steps":[]}\x00\n'
+     '{"event":"error","step":"","code":"step_failed","message":"SECRET-MESSAGE"}\n',
+     "firn_install:unknown:unparsed", "firn_install:unknown:step_failed"),
     ('{"event":"start","steps":[{"name":"partition"}]}\n'
      '{"event":"step_start","step":"partition"}\n'
      '{"event":"recovery_key","key":"SECRET-RECOVERY"}\n'
@@ -1092,6 +1106,8 @@ def test_installer_vm_checks_firn_before_install(tmp_path, scenario, marker, ins
     ('{"event":"start","steps":[{"name":"partition"}]}\n'
      '{"event":"error","step":"partition","code":"step_failed","message":"bad \x00 nul"}\n',
      "firn_install:unknown:unparsed", "firn_install:unknown:unparsed"),
+    pytest.param('{"event":"error","step":"","code":"step_failed","message":"\x00' + 'x' * 60000 + '"}\n',
+                 "firn_install:unknown:unparsed", "firn_install:unknown:unparsed", id="early-nul-long-terminal"),
     ('{"event":"start","steps":[{"name":"partition"}]}\n'
      '{"event":"error","step":"partition","code":"step_failed","message":"escaped \\n and \\u00e9"}\n',
      "firn_install:partition:step_failed", "firn_install:unknown:step_failed"),
@@ -1101,7 +1117,7 @@ def test_installer_vm_checks_firn_before_install(tmp_path, scenario, marker, ins
     ('{"event":"start","steps":[{"name":"partition"}]}\n'
      '{"event":"step_start","step":"partition"}\n',
      "firn_install:unknown:stream_truncated", "firn_install:unknown:stream_truncated"),
-    ('not json\n', "firn_install:unknown:unparsed", "firn_install:unknown:unparsed"),
+    ('not json\n', "firn_install:unknown:unparsed", "firn_install:unknown:stream_truncated"),
 ])
 def test_installer_failure_summary_is_bounded_and_secret_free(tmp_path, stream, expected, fallback, without_python):
     script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
@@ -1142,7 +1158,7 @@ def test_installer_failure_summary_is_bounded_and_secret_free(tmp_path, stream, 
     if without_python:
         # A command lookup must genuinely fail while bash, grep, sed etc. remain usable.
         env["PATH"] = str(bin_dir)
-        for name in ("bash", "grep", "sed", "cp", "chmod", "cat"):
+        for name in ("bash", "grep", "sed", "cp", "chmod", "cat", "tail", "wc"):
             binary = shutil.which(name)
             if binary:
                 (bin_dir / name).symlink_to(binary)
@@ -1153,6 +1169,21 @@ def test_installer_failure_summary_is_bounded_and_secret_free(tmp_path, stream, 
     assert b"SECRET-MESSAGE" not in (tmp_path / "serial").read_bytes()
     assert (tmp_path / "run/snow-install.ndjson").read_text() == stream
     assert (tmp_path / "run/snow-install.ndjson").stat().st_mode & 0o777 == 0o600
+    if without_python:
+        terminal = tmp_path / "run/snow-install.terminal"
+        last_line = stream.rsplit('\n', 2)[-2] + '\n' if stream.endswith('\n') else stream.rsplit('\n', 1)[-1]
+        assert terminal.read_bytes() == last_line.encode()
+        assert terminal.stat().st_mode & 0o777 == 0o600
+
+
+def test_installer_fallback_raw_control_check_does_not_pipe_into_grep():
+    # grep -q may exit on an early NUL, causing upstream SIGPIPE; with pipefail
+    # the negated pipeline can then wrongly classify a dirty line as clean.
+    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    guest = re.search(r"(?ms)^cat > \"\$WORK/install.sh\" <<'GUEST'\n(.*?)^GUEST$", script)
+    assert guest
+    fallback = guest[1].split('export LC_ALL=C', 1)[1].split("printf 'SNOW_INSTALL_FAILED firn_install:", 1)[0]
+    assert not re.search(r"\|\s*grep\b", fallback)
 
 
 @pytest.mark.parametrize(("phase", "key"), [
@@ -1670,7 +1701,7 @@ def test_runner_failure_never_initializes_vm_and_does_not_expose_inputs(tmp_path
     assert (tmp_path / "results/result-summary.txt").read_text().strip() == expected
 
 
-@pytest.mark.parametrize("scenario", ["pass", "stage", "no_reboot", "tag_drift", "evidence_write", "output_write", "stage_teardown", "teardown", "serial_oversize", "serial_unreadable", "blocked_teardown", "phase_missing", "phase_malformed", "guest_error", "guest_error_crlf", "updater_error_crlf", "rollback_error_crlf", "duplicate_error_crlf", "conflicting_error_crlf", "install_missing", "install_failed", "install_firn_v1", "install_firn_v2", "install_firn_hash", "install_fake_code", "install_disk_detect", "install_disk_byid", "install_progress", "install_bad_progress", "install_secret_code", "install_fallback", "cumulative_pass", "cumulative_stale", "cumulative_reset", "cumulative_prefix"])
+@pytest.mark.parametrize("scenario", ["pass", "stage", "no_reboot", "tag_drift", "evidence_write", "output_write", "stage_teardown", "teardown", "serial_oversize", "serial_unreadable", "blocked_teardown", "phase_missing", "phase_malformed", "guest_error", "guest_error_crlf", "updater_error_crlf", "rollback_error_crlf", "duplicate_error_crlf", "conflicting_error_crlf", "install_missing", "install_failed", "install_firn_v1", "install_firn_v2", "install_firn_hash", "install_fake_code", "install_disk_detect", "install_disk_byid", "install_progress", "install_bad_progress", "install_secret_code", "install_fallback", "install_empty_stream", "cumulative_pass", "cumulative_stale", "cumulative_reset", "cumulative_prefix"])
 def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario):
     script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
     for old, new in (("ROOT=/var/lib/snosi-lab/snow-bootc-evidence", f"ROOT={tmp_path}/evidence"),
@@ -1757,6 +1788,7 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
                 elif os.environ['SCENARIO'] == 'install_bad_progress': content += 'SNOW_INSTALL_FAILED firn_install:partition:SECRET-CODE\\r\\n'
                 elif os.environ['SCENARIO'] == 'install_secret_code': content += 'SNOW_INSTALL_FAILED firn_install:recovery_key:secret\\r\\n'
                 elif os.environ['SCENARIO'] == 'install_fallback': content += 'SNOW_INSTALL_FAILED firn_install:unknown:step_failed\\r\\n'
+                elif os.environ['SCENARIO'] == 'install_empty_stream': content += 'SNOW_INSTALL_FAILED firn_install:unknown:empty_stream\\r\\n'
                 elif os.environ['SCENARIO'] in ('install_disk_detect', 'install_disk_byid'):
                     content += 'SNOW_INSTALL_FAILED ' + os.environ['SCENARIO'][8:] + '\\r\\n'
                 elif os.environ['SCENARIO'] != 'install_missing': content += 'SNOW_INSTALL_OK\\n'
@@ -1875,6 +1907,7 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
                                       'install_bad_progress': 'FAILED: install_failed:unparsed',
                                       'install_secret_code': 'FAILED: install_failed:unparsed',
                                       'install_fallback': 'FAILED: install_failed:firn_install:unknown:step_failed',
+                                      'install_empty_stream': 'FAILED: install_failed:firn_install:unknown:empty_stream',
                                       'install_disk_detect': 'FAILED: install_failed:disk_detect',
                                       'install_disk_byid': 'FAILED: install_failed:disk_byid',
                                     'cumulative_stale': 'BLOCKED: phase_timeout',

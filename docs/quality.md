@@ -115,7 +115,10 @@ if cleanup fails after a `BLOCKED` result, the verdict changes to `FAILED:
 cleanup_after_blocked:<original-reason>;<cleanup-reason>` so neither failure is
 lost.
 The reported Firn step is a listed start-event step, `run` for Firn run-level
-failures (empty step), `unlisted`, or `unknown` when only the compact-JSON shell fallback can parse it.
+failures (empty step), `unlisted`, or `unknown` when only the compact-JSON shell
+fallback can parse the terminal event. Without Python the fallback does not
+validate the start event or report step names; an empty stream reports
+`unknown:empty_stream` and an incomplete stream reports `unknown:stream_truncated`.
 Neither is a passing lane. The host-side MOK varstore stand-in is **not** human
 enrollment. An untested SMBIOS injection/serial channel is not a passing lane;
 no real Incus/cluster/registry run is claimed. Even a VM `PASS` would prove
