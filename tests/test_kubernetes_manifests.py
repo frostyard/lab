@@ -434,6 +434,19 @@ def test_workflows_have_service_accounts_and_bounded_defaults(manifests):
             assert cron_spec.get("schedules"), manifest.source
 
 
+def test_long_entrypoint_deadlines_override_workflow_defaults(manifests):
+    controller = manifest_named(manifests, "ConfigMap", "workflow-controller-configmap").body
+    default = yaml.load(controller["data"]["workflowDefaults"], Loader=UniqueKeyLoader)["spec"]["activeDeadlineSeconds"]
+    for manifest in resources_by_kind(manifests, "WorkflowTemplate"):
+        spec = manifest.body["spec"]
+        entry = next((t for t in spec.get("templates", []) if t["name"] == spec.get("entrypoint")), None)
+        if entry is None or entry.get("activeDeadlineSeconds", 0) <= default:
+            continue
+        assert type(spec.get("activeDeadlineSeconds")) is int and spec["activeDeadlineSeconds"] >= entry["activeDeadlineSeconds"], (
+            f"{manifest.source} workflow deadline must cover entrypoint deadline"
+        )
+
+
 def test_workload_containers_declare_cpu_and_memory_bounds(manifests):
     checked = 0
     for manifest in manifests:

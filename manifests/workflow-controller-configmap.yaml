@@ -10,10 +10,10 @@
 #     submitting in a tight loop) exhausting the API server. Parallelism caps
 #     are not: they bound concurrency, not creation rate.
 #
-#   workflowDefaults.activeDeadlineSeconds — hard 2-hour kill. The longest
-#     legitimate lane today (pull a multi-GB bootc image, boot it nested, run
-#     the smoke suite) finishes well inside 20 minutes; 2h is a generous buffer
-#     that still reaps genuinely stuck workflows.
+#   workflowDefaults.activeDeadlineSeconds — 2-hour default for workflows
+#     without an explicit deadline. Longer lanes (such as the manual Snow
+#     lifecycle) set their own workflow-level deadline to cover queue and run
+#     time; the default still reaps other stuck workflows.
 #
 #   ttlStrategy — 7 days for success, 30 days for failure. Long enough to answer
 #     "did the last N runs pass?" from the cluster without an archive database.
