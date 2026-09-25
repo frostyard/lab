@@ -231,7 +231,7 @@ data:
     allowed = {'image_verification_failed', 'step_failed', 'cleanup_failed',
                'flatpak_unreachable', 'group_missing', 'no_core_set', 'no_tpm',
                'store_cleanup_failed', 'store_umount_failed', 'stream_truncated',
-               'unlisted', 'unparsed'}
+               'empty_stream', 'unlisted', 'unparsed'}
     if len(matches) == 1 and matches[0] is not None:
         token = matches[0][1].decode('ascii')
         if not token.startswith('firn_install:') or token.rsplit(':', 1)[-1] in allowed:
@@ -353,7 +353,10 @@ data:
                'store_cleanup_failed', 'store_umount_failed'}
     try:
         raw = Path(sys.argv[1]).read_bytes()
-        if not raw or len(raw) > 524288:
+        if not raw:
+            print('unknown:empty_stream')
+            sys.exit(0)
+        if len(raw) > 524288:
             raise ValueError()
         if not raw.endswith(b'\n'):
             print('unknown:stream_truncated')
@@ -391,23 +394,36 @@ data:
         # Python handles general JSON. Never trust a step name from text.
         export LC_ALL=C
         progress=/run/snow-install.ndjson
-        start=$(grep -E '^\{"event":"start","steps":\[' "$progress" 2>/dev/null) || start=
         terminal=
         line=
         while IFS= read -r line; do terminal=$line; done < "$progress"
-        terminal_length=${#terminal}
-        # POSIX [:cntrl:] under LC_ALL=C rejects raw control bytes; only
-        # JSON's defined escapes may occur inside the message string.
+        # Check only the final event; earlier events may carry recovery data.
+        # POSIX [:cntrl:] under LC_ALL=C rejects raw terminal control bytes;
+        # only JSON's defined escapes may occur inside the message string.
+        event_line='^\{"event":[[:blank:]]*"(error|done)"'
         error_line='^\{"event":"error","step":"[a-z0-9_-]{0,40}","code":"([a-z_]{1,40})","message":"(\\(["\\/bfnrt]|u[0-9a-fA-F]{4})|[^"\\[:cntrl:]])*"\}$'
-        if [[ -n "$start" && "$start" != *$'\n'* && "$start" == *']}' ]]; then
-          if [[ -n "$line" || ( "$terminal" != *'"event":"error"'* && "$terminal" != *'"event":"done"'* ) ]]; then
-            summary=unknown:stream_truncated
-          # Check raw bytes because Bash's read drops NUL before regex matching.
-          elif (( terminal_length <= 65536 )) && ! grep -aEq '[[:cntrl:]]' "$progress" && [[ "$terminal" =~ $error_line ]]; then
-            code=${BASH_REMATCH[1]}
-            case "$code" in
-              image_verification_failed|step_failed|cleanup_failed|flatpak_unreachable|group_missing|no_core_set|no_tpm|store_cleanup_failed|store_umount_failed) summary="unknown:$code";;
-            esac
+        terminal_file=/run/snow-install.terminal
+        if ! tail -n 1 "$progress" > "$terminal_file"; then
+          summary=unknown:unparsed
+        elif ! terminal_length=$(wc -c < "$terminal_file"); then
+          summary=unknown:unparsed
+        elif [[ ! -s "$progress" ]]; then
+          summary=unknown:empty_stream
+        elif [[ -n "$line" || ! "$terminal" =~ $event_line ]]; then
+          summary=unknown:stream_truncated
+        # Subtract the final newline; Bash's read drops NUL, so inspect the
+        # raw terminal file separately. Only grep status 1 means no controls.
+        elif (( terminal_length - 1 <= 65536 )); then
+          if grep -aEq '[[:cntrl:]]' "$terminal_file"; then
+            summary=unknown:unparsed
+          else
+            control_status=$?
+            if (( control_status == 1 )) && [[ "$terminal" =~ $error_line ]]; then
+              code=${BASH_REMATCH[1]}
+              case "$code" in
+                image_verification_failed|step_failed|cleanup_failed|flatpak_unreachable|group_missing|no_core_set|no_tpm|store_cleanup_failed|store_umount_failed) summary="unknown:$code";;
+              esac
+            fi
           fi
         fi
       fi
