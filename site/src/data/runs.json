@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-25T15:30:16Z",
+  "generated": "2026-09-25T16:00:16Z",
   "lanes": [
     {
       "laneKey": "orphan-pod-gc",
@@ -30,9 +30,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1790350200",
+        "name": "publish-results-1790352000",
         "phase": "Running",
-        "started": "2026-09-25T15:30:00Z",
+        "started": "2026-09-25T16:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -53,23 +53,23 @@
       "label": "run-snow-bootc-lifecycle",
       "kind": "other",
       "latest": {
-        "name": "run-snow-bootc-lifecycle-d5j9p",
+        "name": "run-snow-bootc-lifecycle-z7wsv",
         "phase": "Failed",
-        "started": "2026-09-25T15:28:35Z",
-        "finished": "2026-09-25T15:29:06Z",
-        "durationSeconds": 31,
+        "started": "2026-09-25T15:49:33Z",
+        "finished": "2026-09-25T15:50:22Z",
+        "durationSeconds": 49,
         "template": "run-snow-bootc-lifecycle",
         "laneKey": "run-snow-bootc-lifecycle",
         "qaOutcome": "unknown",
         "kind": "other",
         "label": "run-snow-bootc-lifecycle",
         "trigger": "scheduled",
-        "result": "BLOCKED: tool_unavailable",
+        "result": "FAILED: preflight_mismatch",
         "checks": [
           "status=not-verified"
         ]
       },
-      "runs": 1,
+      "runs": 2,
       "everGreen": false
     },
     {
@@ -144,11 +144,43 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1790350200",
+      "name": "publish-results-1790352000",
       "phase": "Running",
-      "started": "2026-09-25T15:30:00Z",
+      "started": "2026-09-25T16:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "run-snow-bootc-lifecycle-z7wsv",
+      "phase": "Failed",
+      "started": "2026-09-25T15:49:33Z",
+      "finished": "2026-09-25T15:50:22Z",
+      "durationSeconds": 49,
+      "template": "run-snow-bootc-lifecycle",
+      "laneKey": "run-snow-bootc-lifecycle",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "run-snow-bootc-lifecycle",
+      "trigger": "scheduled",
+      "result": "FAILED: preflight_mismatch",
+      "checks": [
+        "status=not-verified"
+      ]
+    },
+    {
+      "name": "publish-results-1790350200",
+      "phase": "Succeeded",
+      "started": "2026-09-25T15:30:00Z",
+      "finished": "2026-09-25T15:30:30Z",
+      "durationSeconds": 30,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -226,21 +258,6 @@
       "started": "2026-09-25T14:30:00Z",
       "finished": "2026-09-25T14:30:30Z",
       "durationSeconds": 30,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1790344800",
-      "phase": "Succeeded",
-      "started": "2026-09-25T14:00:00Z",
-      "finished": "2026-09-25T14:00:32Z",
-      "durationSeconds": 32,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
