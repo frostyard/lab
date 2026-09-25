@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-25T21:30:17Z",
+  "generated": "2026-09-25T22:00:17Z",
   "lanes": [
     {
       "laneKey": "orphan-pod-gc",
@@ -30,9 +30,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1790371800",
+        "name": "publish-results-1790373600",
         "phase": "Running",
-        "started": "2026-09-25T21:30:00Z",
+        "started": "2026-09-25T22:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -145,11 +145,26 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1790371800",
+      "name": "publish-results-1790373600",
       "phase": "Running",
-      "started": "2026-09-25T21:30:00Z",
+      "started": "2026-09-25T22:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1790371800",
+      "phase": "Succeeded",
+      "started": "2026-09-25T21:30:00Z",
+      "finished": "2026-09-25T21:30:30Z",
+      "durationSeconds": 30,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -236,21 +251,6 @@
         "manifest_sha256=bc4128fcd6cbfc0669da668aa0a928401e0fa7b6f266eb0fd91cbb85187c448a",
         "tag=before-install timestamp=2026-09-25T20:13:26.042145+00:00"
       ]
-    },
-    {
-      "name": "publish-results-1790366400",
-      "phase": "Succeeded",
-      "started": "2026-09-25T20:00:00Z",
-      "finished": "2026-09-25T20:00:30Z",
-      "durationSeconds": 30,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
     },
     {
       "name": "run-snow-bootc-lifecycle-wfjc9",
