@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-25T16:30:19Z",
+  "generated": "2026-09-25T17:00:16Z",
   "lanes": [
     {
       "laneKey": "orphan-pod-gc",
@@ -30,9 +30,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1790353800",
+        "name": "publish-results-1790355600",
         "phase": "Running",
-        "started": "2026-09-25T16:30:00Z",
+        "started": "2026-09-25T17:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -53,23 +53,23 @@
       "label": "run-snow-bootc-lifecycle",
       "kind": "other",
       "latest": {
-        "name": "run-snow-bootc-lifecycle-z7wsv",
+        "name": "run-snow-bootc-lifecycle-shf8r",
         "phase": "Failed",
-        "started": "2026-09-25T15:49:33Z",
-        "finished": "2026-09-25T15:50:22Z",
-        "durationSeconds": 49,
+        "started": "2026-09-25T16:41:15Z",
+        "finished": "2026-09-25T16:41:58Z",
+        "durationSeconds": 43,
         "template": "run-snow-bootc-lifecycle",
         "laneKey": "run-snow-bootc-lifecycle",
         "qaOutcome": "unknown",
         "kind": "other",
         "label": "run-snow-bootc-lifecycle",
         "trigger": "scheduled",
-        "result": "FAILED: preflight_mismatch",
+        "result": "FAILED: preflight_mismatch:iso_gpt",
         "checks": [
           "status=not-verified"
         ]
       },
-      "runs": 2,
+      "runs": 3,
       "everGreen": false
     },
     {
@@ -144,11 +144,43 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1790353800",
+      "name": "publish-results-1790355600",
       "phase": "Running",
-      "started": "2026-09-25T16:30:00Z",
+      "started": "2026-09-25T17:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "run-snow-bootc-lifecycle-shf8r",
+      "phase": "Failed",
+      "started": "2026-09-25T16:41:15Z",
+      "finished": "2026-09-25T16:41:58Z",
+      "durationSeconds": 43,
+      "template": "run-snow-bootc-lifecycle",
+      "laneKey": "run-snow-bootc-lifecycle",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "run-snow-bootc-lifecycle",
+      "trigger": "scheduled",
+      "result": "FAILED: preflight_mismatch:iso_gpt",
+      "checks": [
+        "status=not-verified"
+      ]
+    },
+    {
+      "name": "publish-results-1790353800",
+      "phase": "Succeeded",
+      "started": "2026-09-25T16:30:00Z",
+      "finished": "2026-09-25T16:30:32Z",
+      "durationSeconds": 32,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -250,21 +282,6 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "19 passed, 1 failed",
-      "checks": []
-    },
-    {
-      "name": "publish-results-1790348400",
-      "phase": "Succeeded",
-      "started": "2026-09-25T15:00:00Z",
-      "finished": "2026-09-25T15:00:30Z",
-      "durationSeconds": 30,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
       "checks": []
     },
     {
