@@ -1,0 +1,70 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: run-snow-bootc-lifecycle
+  namespace: argo
+  annotations:
+    description: Manually invoked advisory Snow lifecycle probe; never a release gate.
+spec:
+  entrypoint: run
+  templates:
+  - name: run
+    # Max guest windows plus host margins, two ISO downloads, preflight,
+    # provisioning and teardown; 16h leaves >10% headroom.
+    activeDeadlineSeconds: 57600
+    nodeSelector:
+      node-role.kubernetes.io/control-plane: "true"
+    synchronization:
+      semaphores:
+      - configMapKeyRef:
+          name: workflow-semaphores
+          key: snosi-vm-qa
+    inputs:
+      parameters:
+      - name: manifest-json
+    outputs:
+      parameters:
+      - name: result
+        valueFrom:
+          path: /tmp/results/result-summary.txt
+          default: "FAILED: result unavailable"
+      - name: checks
+        valueFrom:
+          path: /tmp/results/checks.txt
+          default: "evidence unavailable"
+    container:
+      image: docker.io/library/debian:trixie-slim
+      command: [/bin/bash, /opt/snow-qa/run.sh]
+      env:
+      - name: MANIFEST_JSON
+        value: "{{inputs.parameters.manifest-json}}"
+      - name: WORKFLOW_NAME
+        value: "{{workflow.name}}"
+      - name: PATH
+        value: /usr/incus/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - name: LD_LIBRARY_PATH
+        value: /usr/incus/lib
+      securityContext:
+        runAsUser: 0
+      resources:
+        requests: {cpu: "1", memory: 1Gi}
+        limits: {cpu: "4", memory: 4Gi}
+      volumeMounts:
+      - {name: scripts, mountPath: /opt/snow-qa, readOnly: true}
+      - {name: incus-bin, mountPath: /usr/incus, readOnly: true}
+      - {name: incus-sock, mountPath: /var/lib/incus/unix.socket}
+      - {name: incus-pools, mountPath: /var/lib/incus/storage-pools}
+      - {name: iso-cache, mountPath: /var/lib/snosi-lab/iso}
+      - {name: evidence, mountPath: /var/lib/snosi-lab/snow-bootc-evidence}
+      - {name: results, mountPath: /tmp/results}
+  volumes:
+  - name: scripts
+    configMap:
+      name: snow-bootc-lifecycle-scripts
+      defaultMode: 0555
+  - {name: incus-bin, hostPath: {path: /usr/incus, type: Directory}}
+  - {name: incus-sock, hostPath: {path: /var/lib/incus/unix.socket, type: Socket}}
+  - {name: incus-pools, hostPath: {path: /var/lib/incus/storage-pools, type: Directory}}
+  - {name: iso-cache, hostPath: {path: /var/lib/snosi-lab/iso, type: DirectoryOrCreate}}
+  - {name: evidence, hostPath: {path: /var/lib/snosi-lab/snow-bootc-evidence, type: DirectoryOrCreate}}
+  - {name: results, emptyDir: {}}

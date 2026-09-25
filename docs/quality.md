@@ -21,6 +21,68 @@ The operational QA dashboard at <https://frostyard.github.io/lab/> is a
 different signal: it reports the images and QA lanes exercised by Argo. It
 does not report whether this repository's code passed the checks above.
 
+## Manual Snow bootc lifecycle evidence
+
+The [manual Snow bootc WorkflowTemplate](../argo/workflow-templates/run-snow-bootc-lifecycle.yaml)
+accepts explicit public `manifest-json` only; the exact fields, trust pins,
+operator-controlled N+1 target tag and submission interface are in the
+[README](../README.md#manual-snow-bootc-lifecycle). It is not scheduled, not a
+release gate, and has no live pass documented. Offline mocked tests cannot
+establish published ISO/OCI availability or Snowfield hardware qualification.
+Submission includes the JSON in the `argo` process argv; workflow/pod parameters
+and env are visible: no secrets in the manifest. After tool provisioning,
+before `qa.py`, the runner writes it to a private 0600 file, but this is not a
+metadata secrecy boundary.
+
+Each workflow gets a private 0700 host directory under
+`/var/lib/snosi-lab/snow-bootc-evidence/<workflow-name>/` containing sanitized
+0600 `manifest-sha256.txt`, `preflight.json`, `checks.json`, `checks.txt`, and
+`result-summary.txt` as far as execution reached. Preflight checks the signed
+ISO index against the pinned fingerprint and records the ISO hash, key hashes,
+verified N/N+1 OCI digests, version mappings and narrow sandboxed Firn v1/v2
+validator provenance; it does
+**not** prove full Firn installed compatibility. The ISO `SHA256SUMS.gpg`
+authenticates the ISO index only, not an A/B update index. Registry tag
+resolution is read-only (`skopeo inspect`), not a signature check: cosign
+verification and exact guest policy plus signed pull checks are separate.
+`checks.json` records the preflight checks of both immutable version tags and
+controlled target-tag rechecks before install and each phase and after stage,
+N+1 boot and rollback; `checks.txt` records manifest hash, target-tag check
+timestamps and fresh boot IDs for `installed-n`, `stage`, `boot-n-plus-1`,
+`rollback`, `boot-n`. Workflow outputs `result` and `checks` are non-secret
+sanitized summaries; a missing file/check is not a pass. Each stopped VM's
+bounded console snapshot becomes the byte-exact baseline before its next start;
+only newly appended bytes are checked for that boot's nonce and record. A
+truncated, reset or changed prefix makes lineage ambiguous (`BLOCKED`), not
+a fresh proof. The full snapshots and per-boot slices are transient only. Raw
+serial console, installer traces, passwords, recovery material and NVRAM are never retained
+as evidence or output parameters; transient raw serial is deleted.
+
+`PASS` requires every preflight, tag, install, fresh-boot, signature-policy,
+state/action and cleanup check. `BLOCKED` is nonzero for unavailable publication,
+host support or tools, or for a missing/unreadable/oversize serial capture or
+timeout with no authenticated phase record, or an observed bounded `SNOW_QA_ERR`
+guest probe/tool code (not itself proof of a product failure). Observed `SNOW_QA_ERR`
+updater or rollback action failures are `FAILED: guest_action_failed`, not `BLOCKED`.
+An absent record due to a guest hang or installer timeout without an explicit
+failure marker remains `BLOCKED`: investigate it rather
+than assuming either a product failure or a pass. `FAILED` is nonzero for a
+present but malformed or contradictory `SNOW_QA_V1` record, an explicit
+`SNOW_INSTALL_FAILED` marker, another observed mismatch/action failure or
+cleanup failure. A capture error cannot validate a partial serial snapshot;
+if cleanup fails after a `BLOCKED` result, the verdict changes to `FAILED:
+cleanup_after_blocked:<original-reason>;<cleanup-reason>` so neither failure is
+lost.
+Neither is a passing lane. The host-side MOK varstore stand-in is **not** human
+enrollment. An untested SMBIOS injection/serial channel is not a passing lane;
+no real Incus/cluster/registry run is claimed. Even a VM `PASS` would prove
+only this bounded N/N+1 Snow bootc path: not recovery, key rotation,
+reconciliation, Snowfield hardware or release readiness. Interpret alongside
+the [console marker](adr/0005-console-marker-protocol-for-agentless-guests.md),
+[semaphore](adr/0007-cross-workflow-concurrency-via-template-semaphores.md),
+[private evidence limitation](adr/0009-no-artifact-store-logs-are-the-surface.md),
+and [non-vacuous success](adr/0010-vacuous-success-is-forbidden.md) decisions.
+
 ## Evidence expected by change
 
 | Changed area | Expected evidence |

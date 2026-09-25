@@ -290,6 +290,84 @@ matrix now owns secure-boot + encrypted bootc coverage. See the
 [secure installer status and blocker history](docs/roadmap.md#status-at-a-glance)
 for the complete evidence and limits of the retired lane.
 
+### Manual Snow bootc lifecycle
+
+[`run-snow-bootc-lifecycle`](argo/workflow-templates/run-snow-bootc-lifecycle.yaml)
+is an advisory WorkflowTemplate for Snow bootc only; it is not scheduled,
+not a release gate and has no live pass on record here. It instantiates the
+existing console, concurrency, logging and non-vacuous-evidence decisions in
+[ADR-0005](docs/adr/0005-console-marker-protocol-for-agentless-guests.md),
+[ADR-0007](docs/adr/0007-cross-workflow-concurrency-via-template-semaphores.md),
+[ADR-0009](docs/adr/0009-no-artifact-store-logs-are-the-surface.md), and
+[ADR-0010](docs/adr/0010-vacuous-success-is-forbidden.md).
+Offline mocked tests are not published-media or hardware qualification.
+
+Prepare a local UTF-8 JSON object with **exactly** these keys (no extras).
+Every value is public: the submission passes JSON in the `argo` process argv,
+and Argo workflow/pod metadata and the pod environment expose `manifest-json`
+to readers. After tool provisioning, before `qa.py` runs, the runner writes
+the env value to a private 0600 working file and unsets it; this does **not**
+make the workflow parameter secret. Never put a password, token, recovery key or other
+secret in the manifest, workflow parameters, or submission command.
+
+| JSON key | Required value |
+|---|---|
+| `family` | `snow` (bootc, not snow-ab). |
+| `product` | `snow`. |
+| `iso_url` | Published immutable versioned `snosi-installer_<iso_version>_x86-64.iso` URL under `https://repository.frostyard.org/isos/native/v1/`; never `latest`. |
+| `iso_sha256` | Lowercase 64-hex SHA-256 of that ISO, independently checked against the signed ISO index. |
+| `iso_version` | 14-digit ISO version matching the URL and extracted release metadata. |
+| `image_n` | `ghcr.io/frostyard/snow@sha256:<64 lowercase hex>` for N. |
+| `version_n` | 14-digit OCI image version for N. |
+| `version_tag_n` | Immutable `ghcr.io/frostyard/snow:<version_n>` mapping to `image_n`. |
+| `image_n_plus_1` | Distinct signed `ghcr.io/frostyard/snow@sha256:<64 lowercase hex>` for N+1. |
+| `version_n_plus_1` | 14-digit OCI version newer than N. |
+| `version_tag_n_plus_1` | Immutable `ghcr.io/frostyard/snow:<version_n_plus_1>` mapping to `image_n_plus_1`. |
+| `target_ref` | Operator-owned, non-`latest` mutable `ghcr.io/frostyard/snow:<controlled-tag>` mapping to N+1; not either version tag. |
+| `snosi_commit` | Exact pinned source commit `39cf19887547f83200866e94e5753888706b49fa`. |
+| `index_key_sha256` | SHA-256 of public `shared/native-ab/keys/import-pubring.gpg` at that commit. |
+| `cosign_key_sha256` | SHA-256 of public `cosign.pub` at that commit. |
+| `mok_cert_sha256` | SHA-256 of public `shared/native-ab/keys/mok-2026.crt` at that commit. |
+| `trust_fingerprint` | Signed ISO index primary-key fingerprint `F37282A35CB6BDFEBFC8FE775A2EAC5C8216FD68`. |
+| `secureboot` | JSON boolean `true`. |
+| `encryption` | `tpm2-luks-passphrase`. |
+| `timeouts` | Object of integer seconds, each at least 300, with maxima: `iso_boot` 1800, `install` 7200, `installed_boot` 1800, `stage` 3600, `reboot` 1800. |
+
+Before submitting, independently compare the Snosi commit and all three
+public key/cert hashes against committed source (not a mutable branch); verify
+the ISO checksum with `SHA256SUMS` authenticated by `SHA256SUMS.gpg` and the
+pinned fingerprint. That signature covers the **ISO index only**, not the
+native A/B update index. Confirm both signed OCI digest references, their
+immutable version-tag mappings, and **your ownership** of the nonlatest N+1
+target tag; do not race another publisher. There is deliberately no runnable
+placeholder digest or tag. After reviewing kube context, Argo permissions,
+manifest content and controlled tag ownership, submit explicitly from a local
+file (do not paste the JSON into shell history):
+
+```bash
+if [[ -n ${MANIFEST_FILE:-} && -s "$MANIFEST_FILE" ]]; then
+  argo submit --namespace argo --from workflowtemplate/run-snow-bootc-lifecycle \
+    -p "manifest-json=$(<"$MANIFEST_FILE")"
+else
+  printf '%s\n' 'Set MANIFEST_FILE to a reviewed nonempty public JSON file' >&2
+  false
+fi
+```
+
+This is a manual submission interface, **not** a command run in this repo.
+Preflight authenticates the ISO and embedded public keys, checks narrow
+sandboxed Firn v1/v2 recipe validation (not full installed compatibility),
+verifies signed OCI images with the pinned cosign key and checks version/tag
+mapping. Installed guest checks enforce exact signature policy and signed
+pulls; read-only `skopeo inspect` tag resolution alone is **not** signature
+verification. Both immutable version tags are checked once in preflight; the
+controlled mutable target tag is rechecked before install and each phase, and
+after stage, N+1 boot and rollback. The lane attempts a secure UEFI
+vTPM Firn v1 encrypted-btrfs install, then five distinct fresh boots:
+`installed-n`, `stage`, `boot-n-plus-1`, `rollback`, `boot-n`. See
+[private evidence and verdict limits](docs/quality.md#manual-snow-bootc-lifecycle-evidence)
+before treating any result as evidence.
+
 ### Driving a guest with no agent and no SSH
 
 snosi images ship no incus guest agent, and a live ISO has no provisioned SSH
