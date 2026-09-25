@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-25T17:30:16Z",
+  "generated": "2026-09-25T18:00:17Z",
   "lanes": [
     {
       "laneKey": "orphan-pod-gc",
@@ -30,9 +30,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1790357400",
+        "name": "publish-results-1790359200",
         "phase": "Running",
-        "started": "2026-09-25T17:30:00Z",
+        "started": "2026-09-25T18:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -53,23 +53,46 @@
       "label": "run-snow-bootc-lifecycle",
       "kind": "other",
       "latest": {
-        "name": "run-snow-bootc-lifecycle-ckdhc",
+        "name": "run-snow-bootc-lifecycle-sjvs7",
         "phase": "Failed",
-        "started": "2026-09-25T17:05:39Z",
-        "finished": "2026-09-25T17:06:26Z",
-        "durationSeconds": 47,
+        "started": "2026-09-25T17:38:28Z",
+        "finished": "2026-09-25T17:39:12Z",
+        "durationSeconds": 44,
         "template": "run-snow-bootc-lifecycle",
         "laneKey": "run-snow-bootc-lifecycle",
         "qaOutcome": "unknown",
         "kind": "other",
         "label": "run-snow-bootc-lifecycle",
         "trigger": "scheduled",
-        "result": "FAILED: preflight_mismatch:iso_archive",
+        "result": "FAILED: preflight_mismatch:iso_embedded",
         "checks": [
           "status=not-verified"
         ]
       },
-      "runs": 4,
+      "runs": 5,
+      "everGreen": false
+    },
+    {
+      "laneKey": "image-poll-snow-latest",
+      "template": "image-poller",
+      "label": "Registry digest poll",
+      "kind": "poll",
+      "latest": {
+        "name": "image-poll-snow-latest-1790359200",
+        "phase": "Running",
+        "started": "2026-09-25T18:00:00Z",
+        "finished": null,
+        "durationSeconds": null,
+        "template": "image-poller",
+        "laneKey": "image-poll-snow-latest",
+        "qaOutcome": "unknown",
+        "kind": "poll",
+        "label": "Registry digest poll",
+        "trigger": "scheduled",
+        "result": null,
+        "checks": []
+      },
+      "runs": 2,
       "everGreen": false
     },
     {
@@ -93,29 +116,6 @@
         "checks": []
       },
       "runs": 3,
-      "everGreen": false
-    },
-    {
-      "laneKey": "image-poll-snow-latest",
-      "template": "image-poller",
-      "label": "Registry digest poll",
-      "kind": "poll",
-      "latest": {
-        "name": "image-poll-snow-latest-1790348400",
-        "phase": "Failed",
-        "started": "2026-09-25T15:00:00Z",
-        "finished": "2026-09-25T15:01:26Z",
-        "durationSeconds": 86,
-        "template": "image-poller",
-        "laneKey": "image-poll-snow-latest",
-        "qaOutcome": "failed",
-        "kind": "poll",
-        "label": "Registry digest poll",
-        "trigger": "scheduled",
-        "result": "19 passed, 1 failed",
-        "checks": []
-      },
-      "runs": 1,
       "everGreen": false
     },
     {
@@ -144,11 +144,58 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1790357400",
+      "name": "image-poll-snow-latest-1790359200",
       "phase": "Running",
-      "started": "2026-09-25T17:30:00Z",
+      "started": "2026-09-25T18:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "image-poller",
+      "laneKey": "image-poll-snow-latest",
+      "qaOutcome": "unknown",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1790359200",
+      "phase": "Running",
+      "started": "2026-09-25T18:00:00Z",
+      "finished": null,
+      "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "run-snow-bootc-lifecycle-sjvs7",
+      "phase": "Failed",
+      "started": "2026-09-25T17:38:28Z",
+      "finished": "2026-09-25T17:39:12Z",
+      "durationSeconds": 44,
+      "template": "run-snow-bootc-lifecycle",
+      "laneKey": "run-snow-bootc-lifecycle",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "run-snow-bootc-lifecycle",
+      "trigger": "scheduled",
+      "result": "FAILED: preflight_mismatch:iso_embedded",
+      "checks": [
+        "status=not-verified"
+      ]
+    },
+    {
+      "name": "publish-results-1790357400",
+      "phase": "Succeeded",
+      "started": "2026-09-25T17:30:00Z",
+      "finished": "2026-09-25T17:30:30Z",
+      "durationSeconds": 30,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -213,21 +260,6 @@
       "started": "2026-09-25T16:30:00Z",
       "finished": "2026-09-25T16:30:32Z",
       "durationSeconds": 32,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1790352000",
-      "phase": "Succeeded",
-      "started": "2026-09-25T16:00:00Z",
-      "finished": "2026-09-25T16:00:30Z",
-      "durationSeconds": 30,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
