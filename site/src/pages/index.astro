@@ -1,9 +1,11 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import { duration, laneLabel, laneState, stampOf, state, when } from '../dashboard.mjs';
+import { displayLanes, duration, laneLabel, laneState, productEvidenceCounts, productOf, stampOf, state, when } from '../dashboard.mjs';
 import data from '../data/runs.json';
 
-const { generated, lanes = [], runs = [] } = data;
+const { generated, runs = [] } = data;
+const lanes = displayLanes(data);
+const productName = (run) => productOf(run)?.split('-')[2];
 
 const KIND_ORDER = ['container', 'install', 'vm', 'poll', 'maintenance', 'other'];
 const KIND_LABEL = {
@@ -20,62 +22,51 @@ const grouped = KIND_ORDER
   .filter((g) => g.lanes.length);
 
 const recent = runs.slice(0, 40);
-const empty = runs.length === 0;
 
-const passing = lanes.filter((l) => laneState(l) === 'ok').length;
-const failing = lanes.filter((l) => laneState(l) === 'danger').length;
-const moving = lanes.filter((l) => laneState(l) === 'warn').length;
-const unproven = lanes.filter((l) => laneState(l) === 'unproven').length;
-const retained = lanes.reduce((n, l) => n + (l.runs || 0), 0);
+const { passed: passing, failed: failing, unknown, stale } = productEvidenceCounts(lanes, generated);
+const retained = runs.length;
 ---
 <Layout stamp={stampOf(generated)}>
   <section class="hero">
     <div class="hero-kicker"><span></span>selfie cluster · argo workflows</div>
     <h2>Keep the base still. <em>Prove it every build.</em></h2>
     <p>
-      Continuous QA for <a href="https://github.com/frostyard/snosi">snosi</a> bootc images —
-      container suites, VM boot, and both install paths. Every lane below runs against a
-      freshly published image; nothing here is asserted by hand.
+      Polling and QA evidence for <a href="https://github.com/frostyard/snosi">snosi</a> bootc images.
+      Container suites run on image changes; VM boot and install entries are manual, not automatically continuous.
+      A successful registry poll alone does not prove image QA.
     </p>
   </section>
 
-  {empty && (
-    <p class="empty">
-      No run data yet. The collector CronWorkflow publishes
-      <span class="mono">site/src/data/runs.json</span> once a GitHub token secret exists in the
-      cluster — see <a href="https://github.com/frostyard/lab#reporting">the README</a>.
-    </p>
-  )}
-
-  {!empty && (
+  {(
     <>
       <div class="stats">
         <div class="stat">
           <span>Lanes</span>
           <strong>{lanes.length}</strong>
-          <small>tracked pipelines</small>
+          <small>tracked workflows and expected products</small>
         </div>
         <div class="stat">
-          <span>Passing</span>
+          <span>Image QA passed</span>
           <strong class="ok">{passing}</strong>
-          <small>latest run succeeded</small>
+          <small>fresh verified QA pass</small>
         </div>
         <div class="stat">
-          <span>Failing</span>
+          <span>Known QA failure</span>
           <strong class={failing > 0 ? 'danger' : ''}>{failing}</strong>
-          <small>{moving > 0 ? `${moving} still moving` : 'latest run failed'}</small>
+          <small>includes stale failures; not current image status</small>
         </div>
         <div class="stat">
-          <span>Unproven</span>
-          <strong>{unproven}</strong>
-          <small>never passed once</small>
+          <span>Unknown / stale evidence</span>
+          <strong>{unknown} / {stale}</strong>
+          <small>stale overlaps unknown and failures; older than 6h</small>
         </div>
         <div class="stat">
           <span>Runs</span>
           <strong>{retained}</strong>
-          <small>retained in cluster</small>
+          <small>in published snapshot</small>
         </div>
       </div>
+      <p class="legend">Image QA badges: passed = fresh Behave evidence; failed = confirmed failure (stale failures stay red but do not establish current image status); unknown = missing, unchanged poll, or legacy evidence; stale = poll older than 6 hours at snapshot generation (old success is not green). Unknown and stale counts overlap for old unverified polls; stale also includes old failures. Workflow phase is separate; other workflow badges describe execution only, not image QA. No retained runs does not establish whether the collector or its credentials are healthy.</p>
 
       {grouped.map((group, i) => (
         <section class="group">
@@ -87,16 +78,19 @@ const retained = lanes.reduce((n, l) => n + (l.runs || 0), 0);
           </div>
           <div class="cards">
             {group.lanes.map((lane) => (
-              <article class={`card ${laneState(lane)}`}>
+              <article class={`card ${laneState(lane, generated)}`}>
                 <div class="card-head">
-                  <strong class="name">{lane.label}</strong>
-                  <span class={`badge ${laneState(lane)}`}>{laneLabel(lane)}</span>
+                  <strong class="name">{productName(lane.latest) || productName({ laneKey: lane.laneKey }) ? `${productName(lane.latest) || productName({ laneKey: lane.laneKey })} · ` : ''}{lane.label}</strong>
+                  <span class={`badge ${laneState(lane, generated)}`}>{laneLabel(lane, generated)}</span>
                 </div>
-                {laneState(lane) === 'unproven' && (
+                {laneState(lane, generated) === 'unproven' && (
                   <p class="unproven-note">This lane has never passed. Treat its red as a question about the lane, not a finding about the image.</p>
                 )}
-                {lane.latest.result && <p class="result">{lane.latest.result}</p>}
-                {lane.latest.checks?.length > 0 && (
+                {productName(lane.latest) || productName({ laneKey: lane.laneKey }) ? (
+                  <p class="meta">Poll execution: <span class={`badge ${lane.latest ? state(lane.latest.phase) : 'unknown'}`}>{lane.latest?.phase || 'no record'}</span> · Last actual QA in retained runs: {runs.find((run) => productOf(run) === lane.laneKey && ['passed', 'failed'].includes(run.qaOutcome))?.qaOutcome || 'not verified in this snapshot'} (historical, not current status)</p>
+                ) : <p class="meta">Workflow phase: {lane.latest?.phase || 'no record'} · not product QA</p>}
+                {lane.latest?.result && <p class="result">Reported result: {lane.latest.result}{!lane.latest.qaOutcome ? ' (legacy, unverified)' : ''}</p>}
+                {lane.latest?.checks?.length > 0 && (
                   <ul class="checks">
                     {lane.latest.checks.map((c) => {
                       const [k, v] = c.split('=');
@@ -105,7 +99,7 @@ const retained = lanes.reduce((n, l) => n + (l.runs || 0), 0);
                   </ul>
                 )}
                 <p class="meta">
-                  {when(lane.latest.finished || lane.latest.started)} · {duration(lane.latest.durationSeconds)} · {lane.runs} run{lane.runs === 1 ? '' : 's'} retained
+                  {when(lane.latest?.finished || lane.latest?.started)} · {duration(lane.latest?.durationSeconds)} · {lane.runs} run{lane.runs === 1 ? '' : 's'} retained
                 </p>
               </article>
             ))}
@@ -113,7 +107,7 @@ const retained = lanes.reduce((n, l) => n + (l.runs || 0), 0);
         </section>
       ))}
 
-      <section class="card table-card">
+      {runs.length > 0 && <section class="card table-card">
         <div class="table-toolbar">
           <h3>Recent runs</h3>
           <span>{recent.length} of {runs.length} retained</span>
@@ -122,23 +116,24 @@ const retained = lanes.reduce((n, l) => n + (l.runs || 0), 0);
         <div class="tablewrap">
           <table>
             <thead>
-              <tr><th>Run</th><th>Lane</th><th>Phase</th><th>Started</th><th>Duration</th><th>Result</th></tr>
+              <tr><th>Run</th><th>Product / lane</th><th>Workflow phase</th><th>Image QA</th><th>Started</th><th>Duration</th><th>Result</th></tr>
             </thead>
             <tbody>
               {recent.map((run) => (
                 <tr>
                   <td class="mono nowrap">{run.name}</td>
-                  <td>{run.label}</td>
+                  <td>{productName(run) ? `${productName(run)} · ` : ''}{run.label}</td>
                   <td><span class={`badge ${state(run.phase)}`}>{run.phase}</span></td>
+                  <td><span class={`badge ${productName(run) ? (run.qaOutcome === 'passed' ? 'ok' : run.qaOutcome === 'failed' ? 'danger' : 'unknown') : 'unknown'}`}>{productName(run) ? (run.qaOutcome || 'legacy unknown') : 'not product QA'}</span></td>
                   <td class="nowrap mono dim">{when(run.started)}</td>
                   <td class="nowrap mono dim">{duration(run.durationSeconds)}</td>
-                  <td class="result-cell">{run.result || '—'}</td>
+                  <td class="result-cell">{run.result || '—'}{productName(run) && !run.qaOutcome && run.result ? ' (legacy, unverified)' : ''}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      </section>
+      </section>}
     </>
   )}
 </Layout>
@@ -178,14 +173,6 @@ const retained = lanes.reduce((n, l) => n + (l.runs || 0), 0);
     max-width: 62ch;
   }
 
-  .empty {
-    background: var(--gradient-card);
-    border: 1px solid var(--line);
-    color: var(--text-muted);
-    font-size: var(--text-body-size);
-    padding: 1.25rem;
-  }
-
   /* Stat tiles */
   .stats {
     display: grid;
@@ -210,6 +197,7 @@ const retained = lanes.reduce((n, l) => n + (l.runs || 0), 0);
   .stat strong.ok { color: var(--state-ok); }
   .stat strong.danger { color: var(--state-danger); }
   .stat small { color: var(--text-footer); font-size: 9.5px; }
+  .legend { color: var(--text-dim); font-size: 11px; line-height: 1.5; margin: -1rem 0 1.5rem; }
 
   /* Group heading — mono index marker, then a hairline out to the count. */
   .group { margin-bottom: 1.75rem; }
@@ -259,8 +247,8 @@ const retained = lanes.reduce((n, l) => n + (l.runs || 0), 0);
   /* Deliberately muted, not alarming: unproven is an absence of evidence,
      not a failure, and colouring it like one recreates the problem it exists
      to solve. */
-  .badge.unproven { border-color: var(--line-strong); color: var(--text-dim); }
-  .card.unproven { border-left-color: var(--line-strong); }
+  .badge.unproven, .badge.unknown, .badge.stale { border-color: var(--line-strong); color: var(--text-dim); }
+  .card.unproven, .card.unknown, .card.stale { border-left-color: var(--line-strong); }
   .unproven-note { margin: .55rem 0 0; font-size: .8rem; color: var(--text-dim); line-height: 1.5; }
 
   .result { font-size: 11.5px; line-height: 1.6; margin: .6rem 0 0; }

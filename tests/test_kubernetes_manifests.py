@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import importlib.util
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -14,6 +16,13 @@ from yaml.constructor import ConstructorError
 from yaml.resolver import BaseResolver
 
 ROOT = Path(__file__).resolve().parents[1]
+spec = importlib.util.spec_from_file_location(
+    "collect_runs_manifest_roster", ROOT / "scripts" / "collect_runs.py"
+)
+collect_runs = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = collect_runs
+spec.loader.exec_module(collect_runs)  # type: ignore[union-attr]
+
 MANIFEST_ROOTS = ("argocd", "argo", "manifests")
 KUBERNETES_VERSION = "1.36.0"
 
@@ -542,6 +551,13 @@ def test_image_pollers_and_digest_state_are_one_to_one(manifests):
     ]
     assert pollers, "no image-poll CronWorkflows found"
 
+    manifest_names = {poller.body["metadata"]["name"] for poller in pollers}
+    assert manifest_names == set(collect_runs.PRODUCT_POLLS), (
+        f"collector product roster differs from image-poll CronWorkflows: "
+        f"missing {sorted(manifest_names - set(collect_runs.PRODUCT_POLLS))}, "
+        f"extra {sorted(set(collect_runs.PRODUCT_POLLS) - manifest_names)}"
+    )
+
     state_keys: set[str] = set()
     schedules: set[str] = set()
     for poller in pollers:
@@ -573,6 +589,16 @@ def test_image_pollers_and_digest_state_are_one_to_one(manifests):
     ).body["data"]
     assert set(digest_state) == state_keys
     assert all(value == "" for value in digest_state.values())
+
+
+def test_image_poller_roster_rejects_an_unmatched_product(manifests, monkeypatch):
+    monkeypatch.setattr(
+        collect_runs,
+        "PRODUCT_POLLS",
+        (*collect_runs.PRODUCT_POLLS, "image-poll-fourth-latest"),
+    )
+    with pytest.raises(AssertionError, match="extra .*image-poll-fourth-latest"):
+        test_image_pollers_and_digest_state_are_one_to_one(manifests)
 
 
 def test_image_poller_persists_only_after_qa_or_explicit_opt_out(manifests):

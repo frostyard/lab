@@ -23,6 +23,9 @@ sys.modules["collect_runs"] = collect_runs
 spec.loader.exec_module(collect_runs)  # type: ignore[union-attr]
 
 
+UNSPECIFIED_RESULT = object()
+
+
 def make_workflow(
     name="run-container-tests-abc123",
     template_ref="run-container-tests",
@@ -30,6 +33,7 @@ def make_workflow(
     started="2024-01-01T00:00:00Z",
     finished="2024-01-01T00:05:00Z",
     trigger=None,
+    result=UNSPECIFIED_RESULT,
 ):
     labels = {}
     if trigger is not None:
@@ -41,9 +45,97 @@ def make_workflow(
             "phase": phase,
             "startedAt": started,
             "finishedAt": finished,
-            "nodes": {},
+            "nodes": (
+                {"qa": {"outputs": {"parameters": [{"name": "result", "value": result}]}}}
+                if result is not UNSPECIFIED_RESULT
+                else {}
+            ),
         },
     }
+
+
+@pytest.mark.parametrize(
+    ("name", "phase", "result", "lane_key", "outcome"),
+    [
+        ("image-poll-snow-latest-1", "Failed", "19 passed, 1 failed", "image-poll-snow-latest", "failed"),
+        ("image-poll-floe-latest-2", "Succeeded", "14 passed, 6 skipped", "image-poll-floe-latest", "passed"),
+        ("image-poll-floe-latest-3", "Succeeded", None, "image-poll-floe-latest", "not-run"),
+        ("image-poll-snowfield-latest-4", "Running", None, "image-poll-snowfield-latest", "unknown"),
+        ("image-poll-snow-latest-5", "Failed", None, "image-poll-snow-latest", "unknown"),
+        ("image-poll-snow-latest-6", "Succeeded", "Execution failed before any scenario ran", "image-poll-snow-latest", "unknown"),
+        ("image-poll-snow-latest-7", "Succeeded", "0 passed, 0 skipped", "image-poll-snow-latest", "unknown"),
+        ("image-poll-snow-latest-8", "Failed", "Execution failed before any scenario ran", "image-poll-snow-latest", "unknown"),
+        ("image-poll-floe-latest-9", "Succeeded", "6 skipped", "image-poll-floe-latest", "unknown"),
+        ("image-poll-snow-latest-10", "Succeeded", "19 passed, 1 failed", "image-poll-snow-latest", "unknown"),
+    ],
+)
+def test_product_poll_qa_requires_scenario_evidence_and_phase(name, phase, result, lane_key, outcome):
+    # Catches treating a successful registry-only poll (or failed resolution) as QA.
+    summary = collect_runs.summarize(make_workflow(name=name, template_ref="image-poller", phase=phase, result=result))
+    assert summary["name"] == name
+    assert summary["template"] == "image-poller"
+    assert summary["result"] == result
+    assert summary["laneKey"] == lane_key
+    assert summary["qaOutcome"] == outcome
+
+
+@pytest.mark.parametrize("phase", ["Failed", "Succeeded"])
+def test_empty_behave_result_is_present_but_has_no_qa_evidence(phase):
+    # The workflow template filters zero counts into an empty result parameter.
+    # Neither a failed workflow nor a successful poll establishes a QA outcome.
+    workflow = make_workflow(name="image-poll-snow-latest-empty", template_ref="image-poller", phase=phase, result="")
+    assert workflow["status"]["nodes"]["qa"]["outputs"]["parameters"] == [
+        {"name": "result", "value": ""}
+    ]
+    summary = collect_runs.summarize(workflow)
+    assert summary["result"] == ""
+    assert summary["qaOutcome"] == "unknown"
+
+
+def test_workflow_fixture_distinguishes_omitted_result_from_explicit_value():
+    # Even an explicit null must not be silently modeled as an absent parameter;
+    # the empty-string case above exercises the actual zero-scenario output.
+    assert make_workflow()["status"]["nodes"] == {}
+    assert make_workflow(result=None)["status"]["nodes"]["qa"]["outputs"]["parameters"] == [
+        {"name": "result", "value": None}
+    ]
+
+
+@pytest.mark.parametrize("name", ["other-image-poll-snow-latest-1", "image-poll-unknown-latest-1", "image-poll-snow-latestish-1"])
+def test_only_known_product_prefixes_get_product_identity(name):
+    # Catches substring matching or inventing new product lanes.
+    summary = collect_runs.summarize(make_workflow(name=name, template_ref="image-poller", result="2 passed"))
+    assert summary["laneKey"] == "image-poller"
+    assert summary["qaOutcome"] == "unknown"
+
+
+def test_non_product_success_is_not_image_qa():
+    # Catches treating publisher and maintenance success as image QA.
+    for template in ("orphan-pod-gc", "publish", "run-container-tests"):
+        summary = collect_runs.summarize(make_workflow(template_ref=template))
+        assert summary["laneKey"] == template
+        assert summary["qaOutcome"] == "unknown"
+    summary = collect_runs.summarize(make_workflow(name="image-poll-floe-latest-1", template_ref="publish", result="2 passed"))
+    assert summary["laneKey"] == "publish"
+    assert summary["qaOutcome"] == "unknown"
+
+
+def test_rollup_keeps_product_failures_separate_and_requires_observed_pass():
+    # Catches floe success masking snow failure, and registry-only success marking snow green.
+    runs = [
+        collect_runs.summarize(make_workflow(name="image-poll-snow-latest-3", template_ref="image-poller", phase="Failed", result="19 passed, 1 failed")),
+        collect_runs.summarize(make_workflow(name="image-poll-floe-latest-2", template_ref="image-poller", result="14 passed, 6 skipped")),
+        collect_runs.summarize(make_workflow(name="image-poll-snow-latest-1", template_ref="image-poller")),
+        collect_runs.summarize(make_workflow(name="image-poll-floe-latest-1", template_ref="image-poller")),
+    ]
+    lanes = {lane["laneKey"]: lane for lane in collect_runs.rollup(runs)}
+    assert set(lanes) == {"image-poll-snow-latest", "image-poll-floe-latest"}
+    assert lanes["image-poll-snow-latest"]["latest"] is runs[0]
+    assert lanes["image-poll-snow-latest"]["runs"] == 2
+    assert lanes["image-poll-snow-latest"]["everGreen"] is False
+    assert lanes["image-poll-floe-latest"]["latest"] is runs[1]
+    assert lanes["image-poll-floe-latest"]["runs"] == 2
+    assert lanes["image-poll-floe-latest"]["everGreen"] is True
 
 
 def test_summarize_known_template_maps_to_lane_kind():
@@ -176,8 +268,26 @@ def test_main_writes_capped_sorted_runs_and_lane_rollups(tmp_path, monkeypatch):
     assert len(payload["runs"]) == collect_runs.MAX_RUNS
     assert payload["runs"][0]["name"] == "latest-failure"
     lane = next(
-        item for item in payload["lanes"] if item["template"] == "run-container-tests"
+        item for item in payload["lanes"] if item["laneKey"] == "run-container-tests"
     )
+    assert lane["template"] == "run-container-tests"
     assert lane["latest"]["name"] == "latest-failure"
     assert lane["runs"] == 2
     assert lane["everGreen"] is True
+
+
+def test_main_writes_distinct_product_lanes(tmp_path, monkeypatch):
+    # Catches main bypassing the product-aware rollup despite correct summaries.
+    workflows = [
+        make_workflow(name="image-poll-floe-latest-2", template_ref="image-poller", result="14 passed, 6 skipped", started="2026-09-24T21:20:00Z"),
+        make_workflow(name="image-poll-snow-latest-1", template_ref="image-poller", phase="Failed", result="19 passed, 1 failed", started="2026-09-24T21:00:00Z"),
+    ]
+    monkeypatch.setattr(collect_runs, "kubectl", lambda *args: json.dumps({"items": workflows}))
+    output = tmp_path / "runs.json"
+    monkeypatch.setattr(sys, "argv", ["collect_runs.py", str(output)])
+
+    assert collect_runs.main() == 0
+    lanes = {lane["laneKey"]: lane for lane in json.loads(output.read_text())["lanes"]}
+    assert lanes["image-poll-floe-latest"]["everGreen"] is True
+    assert lanes["image-poll-snow-latest"]["everGreen"] is False
+    assert lanes["image-poll-snow-latest"]["latest"]["qaOutcome"] == "failed"

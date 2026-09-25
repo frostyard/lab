@@ -19,7 +19,46 @@ request's checks rather than these default-branch badges.
 
 The operational QA dashboard at <https://frostyard.github.io/lab/> is a
 different signal: it reports the images and QA lanes exercised by Argo. It
-does not report whether this repository's code passed the checks above.
+does not report whether this repository's code passed the checks above. Its
+`generated` time is the age of the committed snapshot, not a live cluster
+timestamp; a successful unchanged-digest poll establishes registry polling,
+not image QA. Product QA requires a recorded Behave outcome, while manual VM
+and installer workflows provide separate, non-continuous evidence.
+
+## Triaging product QA evidence
+
+1. Start with the committed `site/src/data/runs.json`: note `generated`, exact
+   workflow `name`, `phase`, `started`/`finished`, `result`, and whether this is
+   a scheduled `image-poll-{snow,floe,snowfield}-latest-*` or a manual VM run.
+   Per-product `laneKey` and `qaOutcome` (`passed`, `failed`, `not-run`,
+   `unknown`) separate products and distinguish QA from poll execution.
+   Older entries may instead share one `image-poller` lane; identify their
+   product by workflow name, never by the mixed lane's latest run. A record
+   without `qaOutcome` remains legacy unknown despite suggestive `result` text.
+   A Failed phase with zero observed scenarios is also unknown; empty container
+   `checks` are not per-step coverage.
+2. Interpret the snapshot as retained, bounded evidence, not live status:
+   `generated` is its collection time, not proof of a current image result.
+   Compare each product's own latest retained poll time with `generated`;
+   evidence older than six hours is stale (an old confirmed failure remains
+   failed but is not a current image diagnosis). `Succeeded` can mean an
+   unchanged digest and QA not run. `qaOutcome: passed`/`failed` records observed
+   Behave evidence; `not-run`/`unknown` and absent or expired records are not
+   observed failures or passes. A missing later run does not prove polling
+   stopped. Summary `result` text cannot identify the cause or exact failing
+   step, and the snapshot may omit the digest and testsuite commit.
+3. For a workflow whose original evidence is available, record its exact name
+   and phase; use `check-digest`/`run-pipeline` to determine whether QA ran or
+   was skipped. Take the pinned `image-digest` passed to `run-pipeline` from
+   Argo parameters or the runner's `Testing pinned digest` log (not the current
+   `latest` tag). Record the testsuite commit SHA from the clone log **if
+   present**; otherwise mark it `unknown` (a branch name is not a commit).
+   For an observed Behave failure, capture the exact failing scenario and step
+   from the runner log, not just the summary. Poll workflow retention is 7 days
+   for success and 30 days for failure (see poll manifests); distinguish an
+   observed failure from an absent or expired workflow and report missing
+   details without inferring a cause. Route reproduced product findings to the
+   relevant snosi/firn owner rather than changing those repos here.
 
 ## Evidence expected by change
 
@@ -28,7 +67,7 @@ does not report whether this repository's code passed the checks above.
 | `site/`, `e2e/`, or Playwright configuration | `just site-e2e`; run `cd site && npm test` when changing the API/data helpers. |
 | `scripts/`, `tests/`, or `policies/` | `python -m pytest -q`; for governance changes also run `python3 policies/check_agent_governance.py`. |
 | `argo/`, `manifests/`, `argocd/`, or Kubernetes resources | `python -m pytest -q` for offline schema and cross-resource contracts; also run `argo lint` where applicable and `just validate` against a configured cluster. |
-| Documentation | Commands and links resolve, and claims about lane status agree with `README.md` and `docs/roadmap.md`. |
+| Documentation | Commands and links resolve; present-tense lane claims agree with the committed run snapshot and `README.md`. August statements in `docs/roadmap.md` are historical. |
 | Every pull request | Follow the [contributing guide](../CONTRIBUTING.md) and record the relevant result in the pull request's Testing section. Same-repository, non-draft pull requests also receive the advisory [Claude review](claude-code-review.md). |
 
 ## Known gaps

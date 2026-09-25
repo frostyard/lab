@@ -16,8 +16,12 @@ Nothing in this lab proves that yet. This is the path.
 
 ## Status at a glance
 
-Updated 2026-08-12 after the secure lane's retirement. If you read one
-section, read this one.
+Historical status snapshot as of 2026-08-12, after the secure lane's
+retirement; the table below is **not current lane evidence**. For the latest
+published snapshot, see the [dashboard](https://frostyard.github.io/lab/) and
+its source, [generated runs.json](../site/src/data/runs.json) (check its
+`generated` timestamp). Product poll evidence and its freshness are interpreted
+under [ADR-0011](adr/0011-product-poll-qa-evidence-is-rostered-and-fresh.md).
 
 | Lane | State |
 |---|---|
@@ -30,8 +34,9 @@ section, read this one.
 | firn installer matrix | 🟢 — latest run `firn-install-matrix-sz9rv`, all 10 cells green 2026-08-12 |
 | Registry digest poll, orphan GC | 🟢 |
 
-**Every live lane is currently green; the retired secure lane ended red with
-prior green evidence.** The secure install path first went green on 2026-08-07
+**At that date the listed live lanes were green; the retired secure lane ended
+red with prior green evidence.** The secure install path first went green on
+2026-08-07
 (`snosi-secure-install-5dpkq`, 18 assertions, 0 failed, 0 blocked) against
 **published media and a published image** — `snow-live-latest.iso` and
 `cayo@sha256:b3375f6c`. It passed repeatedly through

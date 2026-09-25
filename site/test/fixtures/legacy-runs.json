@@ -1,0 +1,45 @@
+{
+  "generated": "2026-09-24T23:30:17Z",
+  "lanes": [
+    {
+      "template": "image-poller",
+      "label": "Registry digest poll",
+      "kind": "poll",
+      "latest": {
+        "name": "image-poll-floe-latest-3",
+        "phase": "Succeeded",
+        "started": "2026-09-24T21:20:00Z",
+        "finished": "2026-09-24T21:21:30Z",
+        "result": "14 passed, 6 skipped"
+      },
+      "runs": 3,
+      "everGreen": true
+    }
+  ],
+  "runs": [
+    {
+      "name": "image-poll-floe-latest-3",
+      "phase": "Succeeded",
+      "started": "2026-09-24T21:20:00Z",
+      "finished": "2026-09-24T21:21:30Z",
+      "template": "image-poller",
+      "result": "14 passed, 6 skipped"
+    },
+    {
+      "name": "image-poll-snow-latest-2",
+      "phase": "Failed",
+      "started": "2026-09-24T21:00:00Z",
+      "finished": "2026-09-24T21:01:30Z",
+      "template": "image-poller",
+      "result": "19 passed, 1 failed"
+    },
+    {
+      "name": "image-poll-snowfield-latest-1",
+      "phase": "Running",
+      "started": "2026-09-08T18:40:00Z",
+      "finished": null,
+      "template": "image-poller",
+      "result": null
+    }
+  ]
+}
