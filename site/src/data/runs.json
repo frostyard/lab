@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-25T20:00:17Z",
+  "generated": "2026-09-25T20:30:21Z",
   "lanes": [
     {
       "laneKey": "orphan-pod-gc",
@@ -30,9 +30,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1790366400",
+        "name": "publish-results-1790368200",
         "phase": "Running",
-        "started": "2026-09-25T20:00:00Z",
+        "started": "2026-09-25T20:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -53,24 +53,24 @@
       "label": "run-snow-bootc-lifecycle",
       "kind": "other",
       "latest": {
-        "name": "run-snow-bootc-lifecycle-wfjc9",
+        "name": "run-snow-bootc-lifecycle-nbx95",
         "phase": "Failed",
-        "started": "2026-09-25T19:11:41Z",
-        "finished": "2026-09-25T19:15:20Z",
-        "durationSeconds": 219,
+        "started": "2026-09-25T20:12:40Z",
+        "finished": "2026-09-25T20:16:11Z",
+        "durationSeconds": 211,
         "template": "run-snow-bootc-lifecycle",
         "laneKey": "run-snow-bootc-lifecycle",
         "qaOutcome": "unknown",
         "kind": "other",
         "label": "run-snow-bootc-lifecycle",
         "trigger": "scheduled",
-        "result": "FAILED: install_failed",
+        "result": "FAILED: install_failed:firn_install:unknown:unparsed",
         "checks": [
           "manifest_sha256=bc4128fcd6cbfc0669da668aa0a928401e0fa7b6f266eb0fd91cbb85187c448a",
-          "tag=before-install timestamp=2026-09-25T19:12:34.537230+00:00"
+          "tag=before-install timestamp=2026-09-25T20:13:26.042145+00:00"
         ]
       },
-      "runs": 7,
+      "runs": 8,
       "everGreen": false
     },
     {
@@ -145,11 +145,44 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1790366400",
+      "name": "publish-results-1790368200",
       "phase": "Running",
-      "started": "2026-09-25T20:00:00Z",
+      "started": "2026-09-25T20:30:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "run-snow-bootc-lifecycle-nbx95",
+      "phase": "Failed",
+      "started": "2026-09-25T20:12:40Z",
+      "finished": "2026-09-25T20:16:11Z",
+      "durationSeconds": 211,
+      "template": "run-snow-bootc-lifecycle",
+      "laneKey": "run-snow-bootc-lifecycle",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "run-snow-bootc-lifecycle",
+      "trigger": "scheduled",
+      "result": "FAILED: install_failed:firn_install:unknown:unparsed",
+      "checks": [
+        "manifest_sha256=bc4128fcd6cbfc0669da668aa0a928401e0fa7b6f266eb0fd91cbb85187c448a",
+        "tag=before-install timestamp=2026-09-25T20:13:26.042145+00:00"
+      ]
+    },
+    {
+      "name": "publish-results-1790366400",
+      "phase": "Succeeded",
+      "started": "2026-09-25T20:00:00Z",
+      "finished": "2026-09-25T20:00:30Z",
+      "durationSeconds": 30,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -223,21 +256,6 @@
       "checks": [
         "status=not-verified"
       ]
-    },
-    {
-      "name": "publish-results-1790361000",
-      "phase": "Succeeded",
-      "started": "2026-09-25T18:30:00Z",
-      "finished": "2026-09-25T18:30:30Z",
-      "durationSeconds": 30,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
     },
     {
       "name": "image-poll-floe-latest-1790360400",
