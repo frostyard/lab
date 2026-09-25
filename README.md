@@ -355,10 +355,11 @@ fi
 ```
 
 This is a manual submission interface, **not** a command run in this repo.
-Preflight authenticates the ISO and embedded public keys, checks narrow
-sandboxed Firn v1/v2 recipe validation (not full installed compatibility),
-verifies signed OCI images with the pinned cosign key and checks version/tag
-mapping. Installed guest checks enforce exact signature policy and signed
+Preflight authenticates the ISO and embedded public keys, records Firn provenance
+and its hash, verifies signed OCI images with the pinned cosign key and checks
+version/tag mapping. The disposable installer VM then checks the Firn hash and
+narrow Firn v1/v2 recipe validation before install (validator only, not full
+installed compatibility). Installed guest checks enforce exact signature policy and signed
 pulls; read-only `skopeo inspect` tag resolution alone is **not** signature
 verification. Both immutable version tags are checked once in preflight; the
 controlled mutable target tag is rechecked before install and each phase, and
