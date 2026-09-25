@@ -400,6 +400,26 @@ def test_gpt_more_than_1024_entries_rejected(qa, tmp_path):
         qa.esp_offset(image)
 
 
+def test_iso_archive_allows_four_gib_decompressed_cpio(qa, tmp_path, monkeypatch):
+    image = tmp_path / "installer.iso"
+    image.write_bytes(ISO_BYTES)
+    m = manifest()
+    archive_limits = []
+    original_inspect_file = qa.inspect_file
+
+    def inspect_file(args, code, destination, **kwargs):
+        if args[:2] == ["zstd", "-dc"]:
+            assert code == "iso_archive"
+            archive_limits.append(kwargs["max_size"])
+        return original_inspect_file(args, code, destination, **kwargs)
+
+    monkeypatch.setattr(qa, "inspect_file", inspect_file)
+    monkeypatch.setattr(qa.subprocess, "run", lambda args, **kw: fake_inspector(args, m, None, **kw))
+    qa.inspect_iso(image, tmp_path, m, b"index-key", b"cosign-key", b"mok-cert")
+    assert archive_limits == [4 * 1024**3]
+    assert archive_limits[0] > 1_500_000_000
+
+
 def test_sandbox_setup_error_is_bounded_and_never_produces_checks(qa, tmp_path, monkeypatch):
     m = manifest()
     m.update(index_key_sha256=hashlib.sha256(b"index-key").hexdigest(),

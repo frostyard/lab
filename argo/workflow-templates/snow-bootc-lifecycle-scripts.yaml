@@ -656,7 +656,7 @@ data:
                 0 < initrd.stat().st_size <= 1024 * 1024 * 1024, "iso_initramfs")
         archive = root / "initrd.cpio"
         inspect_file(["zstd", "-dc", "--", str(initrd)], "iso_archive", archive,
-                     max_size=1024 * 1024 * 1024)
+                     max_size=4 * 1024**3)
         embedded = {}
         for entry in ("/usr/bin/firn", "/etc/firn/catalog.json", "/usr/lib/snosi/cosign.pub",
                       "/usr/lib/snosi/os-update-pubring.gpg", "/usr/lib/snosi/mok.crt",
