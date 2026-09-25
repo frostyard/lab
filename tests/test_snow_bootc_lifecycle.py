@@ -48,6 +48,25 @@ def iso_bytes():
 ISO_BYTES = iso_bytes()
 
 
+def iso_bytes_with_entry_count(count):
+    """GPT with a valid ESP in entry 2 and enough ISO space for 1025 entries."""
+    raw = bytearray(302 * 512)
+    entries = bytearray(count * 128)
+    entries[128:144] = bytes.fromhex("28732ac11ff8d211ba4b00a0c93ec93b")
+    struct.pack_into("<QQ", entries, 128 + 32, 204, 300)
+    raw[1024:1024 + len(entries)] = entries
+    header = bytearray(92)
+    header[:8] = b"EFI PART"
+    struct.pack_into("<I", header, 8, 0x10000)
+    struct.pack_into("<I", header, 12, 92)
+    struct.pack_into("<Q", header, 72, 2)
+    struct.pack_into("<II", header, 80, count, 128)
+    struct.pack_into("<I", header, 88, zlib.crc32(entries))
+    struct.pack_into("<I", header, 16, zlib.crc32(header))
+    raw[512:604] = header
+    return raw
+
+
 def manifest():
     return dict(family="snow", product="snow", iso_url="https://repository.frostyard.org/isos/native/v1/snosi-installer_20260924000000_x86-64.iso",
                 iso_sha256=ISO, iso_version="20260924000000", image_n=f"{REPO}@sha256:{N}", version_n="20260923000000",
@@ -365,6 +384,19 @@ def test_gpt_partition_two_rejects_corrupt_checksums_type_and_bounds(qa, tmp_pat
     image = tmp_path / "installer.iso"
     image.write_bytes(raw)
     with pytest.raises(qa.GateError, match="^" + code + "$"):
+        qa.esp_offset(image)
+
+
+def test_gpt_248_entries_accepts_esp_in_partition_two(qa, tmp_path):
+    image = tmp_path / "installer.iso"
+    image.write_bytes(iso_bytes_with_entry_count(248))
+    assert qa.esp_offset(image) == 204 * 512
+
+
+def test_gpt_more_than_1024_entries_rejected(qa, tmp_path):
+    image = tmp_path / "installer.iso"
+    image.write_bytes(iso_bytes_with_entry_count(1025))
+    with pytest.raises(qa.GateError, match="^iso_gpt$"):
         qa.esp_offset(image)
 
 
