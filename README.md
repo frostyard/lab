@@ -184,7 +184,7 @@ with dm-verity; bootc owns its deployment layout; secure bootc assembly must go
 through the external recipe-driven installer. None of these lanes substitutes
 for another.
 
-The native A/B install lane is verified green against `floe-ab`:
+In the August 2026 run, the native A/B install lane passed against `floe-ab`:
 
 ```
 installed and verified: floe-ab (verity+luks+erofs, secureboot=false, skip-mok=true)
@@ -248,7 +248,7 @@ Note that `/var` ships as plain ext4 here, while `snosi-install --encrypt-var`
 produces a LUKS `/var`. The two paths genuinely produce different systems, so
 this lane and the install lane are not redundant.
 
-### The mechanics install is green; the secure lane has moved on
+### The mechanics install passed in August; the secure lane has moved on
 
 Corrected 2026-08-10 and re-run as `snosi-bootc-install-fkplf`. The mechanics
 lane installed the current `snow:mechanics` image and booted it successfully:
@@ -347,11 +347,20 @@ does. This is a decision for the snosi maintainer, not the lab.
 
 ## Image lanes
 
-| Image | Tag | Schedule | Suites | Last verified |
-|---|---|---|---|---|
-| `ghcr.io/frostyard/snow` | `latest` | digest poll, `0 */3 * * *` | smoke | 20 passed |
-| `ghcr.io/frostyard/floe` | `latest` | digest poll, `20 */3 * * *` | smoke | 14 passed, 6 skipped |
-| `ghcr.io/frostyard/snowfield` | `latest` | digest poll, `40 */3 * * *` | smoke | 20 passed |
+| Image | Tag | Schedule (UTC) | Suites |
+|---|---|---|---|
+| `ghcr.io/frostyard/snow` | `latest` | digest poll, `0 */3 * * *` | smoke |
+| `ghcr.io/frostyard/floe` | `latest` | digest poll, `20 */3 * * *` | smoke |
+| `ghcr.io/frostyard/snowfield` | `latest` | digest poll, `40 */3 * * *` | smoke |
+
+All three CronWorkflows are declared `suspend: false` in git. For retained
+polls and QA evidence, see the [dashboard](https://frostyard.github.io/lab/)
+and its source, the committed [`runs.json`](site/src/data/runs.json).
+`generated` marks when that snapshot was collected; the publisher replaces it
+as runs arrive and old records leave its retention window. Neither the table
+nor a missing record establishes current cluster or image status. See
+[quality triage](docs/quality.md#triaging-product-qa-evidence) before attributing
+any failure to an image.
 
 floe skips the desktop scenarios by design — it is the headless server image,
 and the suite gates them on variant so one set of features runs unmodified
@@ -473,8 +482,8 @@ Public aggregate dashboards and pull request metrics:
 showing per-lane status and recent run history:
 **<https://frostyard.github.io/lab/>**
 
-The pipeline-results data flow deliberately has no link between GitHub and the
-cluster in either direction:
+The pipeline-results data flow is one-way: the cluster publishes a git snapshot;
+GitHub Pages does not query the cluster:
 
 ```
 publish-results CronWorkflow (in cluster)
@@ -487,12 +496,44 @@ git push main
 ```
 
 The collector reads the Kubernetes API rather than being wired into each lane,
-so a lane added tomorrow appears with no reporting change
+so workflows appear without per-lane reporting hooks
 ([ADR-0004](docs/adr/0004-one-way-evidence-pipeline.md); the `unproven`
 lane state it carries is
-[ADR-0003](docs/adr/0003-unproven-is-distinct-from-failed.md)). It skips the commit
-when only the generation timestamp moved, so an idle cluster does not push a
-commit every 30 minutes.
+[ADR-0003](docs/adr/0003-unproven-is-distinct-from-failed.md); the product-only
+QA evidence refinement is
+[ADR-0011](docs/adr/0011-product-poll-qa-evidence-is-rostered-and-fresh.md)).
+It skips the commit when only the generation timestamp moved, so an idle cluster
+does not push a commit every 30 minutes.
+
+Each published run records `name`, `phase`, `started`, `finished`,
+`durationSeconds`, `template`, `laneKey`, `qaOutcome`, `kind`, `label`,
+`trigger`, `result`, and `checks`. `lanes` groups runs by `laneKey` with
+`latest`, retained `runs` count and `everGreen`; `generated` timestamps the
+snapshot. Scheduled product polls have distinct keys
+`image-poll-{snow,floe,snowfield}-latest` (from the workflow name), despite all
+using the `image-poller` template. For those polls, `qaOutcome` is `passed` or
+`failed` only with observed Behave scenario counts and a matching terminal
+workflow phase; `not-run` means a successful poll with an absent or null Behave
+result, and `unknown` means insufficient or ambiguous evidence (including an
+empty result string or zero-count failures). For non-product runs,
+`qaOutcome: unknown` means image QA is not applicable; the workflow phase is
+the relevant status.
+`phase: Succeeded` alone can mean unchanged-digest polling, **not**
+passing QA; a Failed phase may still carry a Behave result. `result` is a
+summary, not a failing step, and empty container `checks` does not mean all
+steps passed. `trigger` defaults to `scheduled` unless the workflow supplies a
+label; VM/installer runs are manual evidence, not continuous product QA. Other
+lanes' phases describe workflow execution only.
+
+Older snapshots may predate `laneKey`/`qaOutcome` publication and group all
+product polls under one `image-poller` lane. The dashboard separates those
+legacy runs by workflow name but leaves their QA outcome **unknown**, even
+when their `result` text looks conclusive. Freshness is measured against `generated`:
+poll evidence older than six hours is stale, not current image status; an old
+confirmed failure stays a failure with a stale qualifier. Old unknown or not-run
+polls remain unverified and count as both unknown and stale; an old pass is not
+green. New fields take effect through collector publication, not by
+hand-editing `runs.json`.
 
 `e2e/` holds the [Playwright](https://playwright.dev) end-to-end suite. It
 builds the site and drives the same static output GitHub Pages serves, asserting
@@ -507,16 +548,16 @@ from that repo — change tokens there and re-copy rather than patching them her
 or the next copy silently reverts the edit. Because those tokens define no light
 palette, the page is dark-only by design.
 
-`publish-results` ships **suspended** and needs a token that can push to this
-repo:
-
-```bash
-kubectl create secret generic github-token -n argo \
-  --from-literal=token=<PAT with contents:write on frostyard/lab>
-```
-
-Then set `spec.suspend: false` in `manifests/publish-results.yaml` and push.
-Until that exists the page renders from whatever `runs.json` is committed.
+`publish-results` is declared **unsuspended** in
+`manifests/publish-results.yaml`, scheduled every 30 minutes. Publication
+requires a cluster-side `github-token` secret; if absent the job exits without
+publishing.
+For secret creation instructions, see the header of
+[`manifests/publish-results.yaml`](manifests/publish-results.yaml); do not commit
+the credential to git.
+Neither the manifest nor the committed snapshot proves the credential or
+publisher is healthy now. The page always renders the last committed snapshot,
+which may be stale.
 
 Locally: `just collect` regenerates the data from the cluster, `just site-dev`
 serves the page.
@@ -530,9 +571,10 @@ serves the page.
   snosi's postinst is a no-op and `/etc/systemd/system/display-manager.service`
   is absent from the built image. Whether GDM still starts on a real boot is
   unresolved — a container cannot answer it. Tracked for the VM lane.
-- **No result publication.** Bluefin's lab publishes per-suite results back into
-  the repo and renders them with Astro. Results here live in the workflow's
-  output parameters and the pod logs only.
+- **Published summaries are not full diagnostics.** The collector commits
+  bounded, retained workflow summaries to `runs.json`, not per-step Behave or
+  full VM console artifacts. Diagnose a failure using the original workflow
+  and logs while retained; a missing/expired workflow is not a passed run.
 - **No artifact storage.** Argo needs a configured artifact repository to save
   output artifacts, and the lab has no object store. The VM lane's full serial
   console therefore goes to the workflow log rather than an artifact — 400

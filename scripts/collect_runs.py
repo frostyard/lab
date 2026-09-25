@@ -12,6 +12,7 @@ Output contract is site/src/data/runs.json; the Astro site reads nothing else.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -35,6 +36,9 @@ LANE_KINDS = {
     "run-firn-install-tests": ("install", "firn installer matrix"),
     "orphan-pod-gc": ("maintenance", "Orphan pod GC"),
 }
+
+PRODUCT_POLLS = tuple(f"image-poll-{product}-latest" for product in ("snow", "floe", "snowfield"))
+SCENARIO_COUNTS = re.compile(r"\d+ (?:passed|failed|skipped|undefined)(?:, \d+ (?:passed|failed|skipped|undefined))*")
 
 
 def kubectl(*args: str) -> str:
@@ -89,6 +93,28 @@ def summarize(workflow: dict) -> dict:
             template = fallback
 
     kind, label = LANE_KINDS.get(template, ("other", template or "unknown"))
+    lane_key = template or label
+    qa_outcome = "unknown"
+    if template == "image-poller":
+        name = meta.get("name") or ""
+        lane_key = next((key for key in PRODUCT_POLLS if name.startswith(key + "-")), lane_key)
+        if lane_key in PRODUCT_POLLS:
+            # The output is written by Behave's scenario summarizer, not by
+            # the digest poll. A successful poll with no counts proves no QA.
+            counts = result if isinstance(result, str) and SCENARIO_COUNTS.fullmatch(result) else None
+            scenario_counts = {status: int(n) for n, status in re.findall(
+                r"(\d+) (passed|failed|skipped|undefined)", counts or ""
+            )}
+            observed = any(scenario_counts.values())
+            if observed and status.get("phase") == "Failed":
+                qa_outcome = "failed"
+            elif (observed and status.get("phase") == "Succeeded"
+                  and scenario_counts.get("passed", 0) > 0
+                  and not scenario_counts.get("failed", 0)
+                  and not scenario_counts.get("undefined", 0)):
+                qa_outcome = "passed"
+            elif status.get("phase") == "Succeeded" and result is None:
+                qa_outcome = "not-run"
 
     started, finished = status.get("startedAt"), status.get("finishedAt")
     duration = None
@@ -110,6 +136,8 @@ def summarize(workflow: dict) -> dict:
         "finished": finished,
         "durationSeconds": duration,
         "template": template,
+        "laneKey": lane_key,
+        "qaOutcome": qa_outcome,
         "kind": kind,
         "label": label,
         "trigger": (meta.get("labels") or {}).get("snosi.io/trigger", "scheduled"),
@@ -117,6 +145,34 @@ def summarize(workflow: dict) -> dict:
         # checks arrive as newline-separated key=value pairs from the VM lanes
         "checks": [c for c in (checks or "").splitlines() if "=" in c],
     }
+
+
+def rollup(runs: list[dict]) -> list[dict]:
+    """Group newest-first runs by lane, preserving distinct product QA evidence."""
+    lanes: dict[str, dict] = {}
+    for run in runs:
+        key = run["laneKey"]
+        green = (run["qaOutcome"] == "passed" if key in PRODUCT_POLLS
+                 else run["phase"] == "Succeeded")
+        if key in lanes:
+            lanes[key]["runs"] += 1
+            lanes[key]["everGreen"] |= green
+            continue
+        lanes[key] = {
+            "laneKey": key,
+            "template": run["template"],
+            "label": run["label"],
+            "kind": run["kind"],
+            "latest": run,
+            "runs": 1,
+            # A lane that has never once succeeded is not reporting a finding
+            # about the thing under test — it is reporting that nobody has shown
+            # the lane can pass. Two false bug reports against snosi came from
+            # reading a never-green lane's red as evidence (see docs/roadmap.md).
+            # The site renders this as `unproven` rather than `Failed`.
+            "everGreen": green,
+        }
+    return sorted(lanes.values(), key=lambda item: (item["kind"], item["label"]))
 
 
 def main() -> int:
@@ -127,34 +183,11 @@ def main() -> int:
     # Newest first; runs without a start time sort last rather than crashing.
     runs.sort(key=lambda r: r["started"] or "", reverse=True)
     runs = runs[:MAX_RUNS]
-
-    # Per-lane rollup: the most recent run of each lane is what the dashboard
-    # leads with, since "is this lane green right now" is the question the page
-    # exists to answer.
-    lanes: dict[str, dict] = {}
-    for run in runs:
-        key = run["template"] or run["label"]
-        if key in lanes:
-            lanes[key]["runs"] += 1
-            lanes[key]["everGreen"] |= run["phase"] == "Succeeded"
-            continue
-        lanes[key] = {
-            "template": key,
-            "label": run["label"],
-            "kind": run["kind"],
-            "latest": run,
-            "runs": 1,
-            # A lane that has never once succeeded is not reporting a finding
-            # about the thing under test — it is reporting that nobody has shown
-            # the lane can pass. Two false bug reports against snosi came from
-            # reading a never-green lane's red as evidence (see docs/roadmap.md).
-            # The site renders this as `unproven` rather than `Failed`.
-            "everGreen": run["phase"] == "Succeeded",
-        }
+    lanes = rollup(runs)
 
     payload = {
         "generated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "lanes": sorted(lanes.values(), key=lambda item: (item["kind"], item["label"])),
+        "lanes": lanes,
         "runs": runs,
     }
 
