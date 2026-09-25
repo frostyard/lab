@@ -226,10 +226,20 @@ data:
     import re, sys
     from pathlib import Path
     lines = Path(sys.argv[1]).read_bytes().split(b'\n')
-    matches = [re.fullmatch(rb'SNOW_INSTALL_FAILED (firn_v1|firn_v2|firn_hash)\r?', line)
-               for line in lines if b'SNOW_INSTALL_FAILED' in line]
+    matches = [re.fullmatch(rb'SNOW_INSTALL_FAILED (firn_v1|firn_v2|firn_hash|disk_detect|disk_byid|firn_install:[a-z0-9_-]{1,40}:[a-z_]{1,40})\r?', line)
+                for line in lines if b'SNOW_INSTALL_FAILED' in line]
+    allowed = {'image_verification_failed', 'step_failed', 'cleanup_failed',
+               'flatpak_unreachable', 'group_missing', 'no_core_set', 'no_tpm',
+               'store_cleanup_failed', 'store_umount_failed', 'stream_truncated',
+               'unlisted', 'unparsed'}
     if len(matches) == 1 and matches[0] is not None:
-        print(matches[0][1].decode('ascii'))
+        token = matches[0][1].decode('ascii')
+        if not token.startswith('firn_install:') or token.rsplit(':', 1)[-1] in allowed:
+            print(token)
+        else:
+            print('unparsed')
+    elif any(b'SNOW_INSTALL_FAILED' in line for line in lines):
+        print('unparsed')
     PY
             ) || fail install_failed
             [[ -z "$code" ]] || fail "install_failed:$code"
@@ -300,14 +310,14 @@ data:
       exit 1
     fi
     mapfile -t disks < <(lsblk -dnpo NAME,RO,TYPE | awk '$2==0 && $3=="disk" {print $1}')
-    [[ ${#disks[@]} == 1 ]] || exit 1
+    [[ ${#disks[@]} == 1 ]] || { printf 'SNOW_INSTALL_FAILED disk_detect\n' > /dev/ttyS0; exit 1; }
     disk=${disks[0]}
     byid=""
     for item in /dev/disk/by-id/*; do
       [[ -L "$item" && $(readlink -f "$item") == "$disk" && "$item" != *-part* ]] || continue
       byid="$item"; break
     done
-    [[ -n "$byid" && -b "$byid" ]] || exit 1
+    [[ -n "$byid" && -b "$byid" ]] || { printf 'SNOW_INSTALL_FAILED disk_byid\n' > /dev/ttyS0; exit 1; }
     openssl rand -hex 32 > /run/snow-passphrase
     openssl rand -hex 16 > /run/snow-mok-password
     chmod 0600 /run/snow-passphrase /run/snow-mok-password
@@ -328,10 +338,80 @@ data:
     mok = "enroll"
     mok_password_file = "/run/snow-mok-password"
     RECIPE
-    if firn install /run/snow-recipe.toml --confirm "$byid" --uefi on --secure-boot on --tpm on >/run/snow-install.log 2>&1; then
+    # Firn's progress stream contains the literal recovery key. Keep it only
+    # in the private guest /run; bound both outputs before invoking Firn.
+    if (ulimit -f 1024; firn install /run/snow-recipe.toml --confirm "$byid" --uefi on --secure-boot on --tpm on --json-progress >/run/snow-install.ndjson 2>/run/snow-install.log); then
       printf 'SNOW_INSTALL_OK\n' > /dev/ttyS0
     else
-      printf 'SNOW_INSTALL_FAILED\n' > /dev/ttyS0
+      summary=unknown:unparsed
+      if command -v python3 >/dev/null 2>&1; then
+        summary=$(python3 - /run/snow-install.ndjson 2>/dev/null <<'PY' || printf 'unknown:unparsed'
+    import json, re, sys
+    from pathlib import Path
+    allowed = {'image_verification_failed', 'step_failed', 'cleanup_failed',
+               'flatpak_unreachable', 'group_missing', 'no_core_set', 'no_tpm',
+               'store_cleanup_failed', 'store_umount_failed'}
+    try:
+        raw = Path(sys.argv[1]).read_bytes()
+        if not raw or len(raw) > 524288:
+            raise ValueError()
+        if not raw.endswith(b'\n'):
+            print('unknown:stream_truncated')
+            sys.exit(0)
+        events = [json.loads(line) for line in raw.splitlines()]
+        if not all(type(event) is dict and type(event.get('event')) is str for event in events):
+            raise ValueError()
+        starts = [event for event in events if event['event'] == 'start']
+        if len(starts) != 1 or type(starts[0].get('steps')) is not list:
+            raise ValueError()
+        names = {step.get('name') for step in starts[0]['steps'] if type(step) is dict
+                 and type(step.get('name')) is str}
+        terminal = events[-1]
+        if terminal['event'] not in ('done', 'error'):
+            print('unknown:stream_truncated')
+        elif terminal['event'] == 'done' or sum(e['event'] == 'error' for e in events) != 1:
+            raise ValueError()
+        else:
+            step, code = terminal.get('step'), terminal.get('code')
+            if type(step) is not str or type(code) is not str:
+                raise ValueError()
+            # Firn defines an empty step as a run-level failure; "run" is
+            # synthetic, not a name required in start.steps[].
+            step = ('run' if step == '' else step if re.fullmatch(r'[a-z0-9_-]{1,40}', step, re.ASCII)
+                    and step in names else 'unlisted')
+            code = code if code in allowed else 'unlisted'
+            print(step + ':' + code)
+    except (OSError, ValueError, TypeError):
+        print('unknown:unparsed')
+    PY
+        )
+      else
+        # Firn's Go encoding/json encoder emits compact NDJSON with no
+        # separator whitespace. Only accept that layout without Python;
+        # Python handles general JSON. Never trust a step name from text.
+        export LC_ALL=C
+        progress=/run/snow-install.ndjson
+        start=$(grep -E '^\{"event":"start","steps":\[' "$progress" 2>/dev/null) || start=
+        terminal=
+        line=
+        while IFS= read -r line; do terminal=$line; done < "$progress"
+        terminal_length=${#terminal}
+        # POSIX [:cntrl:] under LC_ALL=C rejects raw control bytes; only
+        # JSON's defined escapes may occur inside the message string.
+        error_line='^\{"event":"error","step":"[a-z0-9_-]{0,40}","code":"([a-z_]{1,40})","message":"(\\(["\\/bfnrt]|u[0-9a-fA-F]{4})|[^"\\[:cntrl:]])*"\}$'
+        if [[ -n "$start" && "$start" != *$'\n'* && "$start" == *']}' ]]; then
+          if [[ -n "$line" || ( "$terminal" != *'"event":"error"'* && "$terminal" != *'"event":"done"'* ) ]]; then
+            summary=unknown:stream_truncated
+          # Check raw bytes because Bash's read drops NUL before regex matching.
+          elif (( terminal_length <= 65536 )) && ! grep -aEq '[[:cntrl:]]' "$progress" && [[ "$terminal" =~ $error_line ]]; then
+            code=${BASH_REMATCH[1]}
+            case "$code" in
+              image_verification_failed|step_failed|cleanup_failed|flatpak_unreachable|group_missing|no_core_set|no_tpm|store_cleanup_failed|store_umount_failed) summary="unknown:$code";;
+            esac
+          fi
+        fi
+      fi
+      printf 'SNOW_INSTALL_FAILED firn_install:%s\n' "$summary" > /dev/ttyS0
       exit 1
     fi
     GUEST
