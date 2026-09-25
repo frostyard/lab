@@ -347,7 +347,7 @@ data:
     TimeoutStartSec=$budget
     StandardOutput=null
     StandardError=null
-    ExecStart=/bin/bash -c 'install -d -m 0700 /opt/snow-qa /run/snow-credentials; echo $qa_b64 | base64 -d > /run/snow-qa.z; python3 -c \"import zlib,sys;sys.stdout.buffer.write(zlib.decompress(sys.stdin.buffer.read()))\" < /run/snow-qa.z > /opt/snow-qa/qa.py; echo $manifest_b64 | base64 -d > /opt/snow-qa/normalized.json; printf %%s $phase > /run/snow-credentials/phase; printf %%s $nonce > /run/snow-credentials/nonce; printf %%s $n > /run/snow-credentials/image_n; printf %%s $next > /run/snow-credentials/image_n_plus_1; printf %%s $target > /run/snow-credentials/target_ref; python3 /opt/snow-qa/qa.py guest /run/snow-credentials'"
+    ExecStart=/bin/bash -ec 'install -d -m 0700 /run/snow-credentials; cut -d\" \" -f1 /proc/uptime > /run/snow-credentials/unit_started; install -d -m 0700 /opt/snow-qa; echo $qa_b64 | base64 -d > /run/snow-qa.z; python3 -c \"import zlib,sys;sys.stdout.buffer.write(zlib.decompress(sys.stdin.buffer.read()))\" < /run/snow-qa.z > /opt/snow-qa/qa.py; echo $manifest_b64 | base64 -d > /opt/snow-qa/normalized.json; printf %%s $phase > /run/snow-credentials/phase; printf %%s $nonce > /run/snow-credentials/nonce; printf %%s $n > /run/snow-credentials/image_n; printf %%s $next > /run/snow-credentials/image_n_plus_1; printf %%s $target > /run/snow-credentials/target_ref; python3 /opt/snow-qa/qa.py guest /run/snow-credentials'"
       gb=$(printf '%s' "$guestunit" | base64 -w0) || fail unit_encoding
       [[ ${#gb} -lt 60000 ]] || fail unit_size
       gd=$(printf '[Unit]\nWants=snow-guest.service' | base64 -w0) || fail unit_encoding
@@ -395,7 +395,6 @@ data:
     import zlib
     from contextlib import contextmanager
     from pathlib import Path
-    from time import monotonic
 
     REPO = "ghcr.io/frostyard/snow"
     ISO_BASE = "https://repository.frostyard.org/isos/native/v1/"
@@ -410,6 +409,7 @@ data:
     RECORD_FIELDS = set("phase nonce boot_id spec_image spec_transport booted_digest booted_version staged_digest rollback_digest policy_sha256 policy_ok pull_ok pull_digest secure_boot uki_type2 lockdown root_luks root_btrfs tpm_pcr11_tokens action marker_digest".split())
     GUEST_MANIFEST = Path("/opt/snow-qa/normalized.json")
     GUEST_PATHS = {"boot_id": Path("/proc/sys/kernel/random/boot_id"),
+                   "uptime": Path("/proc/uptime"),
                    "policy": Path("/etc/containers/policy.json"), "key": Path("/usr/lib/snosi/cosign.pub"),
                    "lockdown": Path("/sys/kernel/security/lockdown"),
                    "esp": Path("/run/task3-esp"),
@@ -996,10 +996,23 @@ data:
         m = load(GUEST_MANIFEST, frozen=True)
         phase_budget = m["timeouts"]["stage" if phase == "stage" else
                                       "installed_boot" if phase == "installed-n" else "reboot"]
-        started = monotonic()
+        def uptime_value(path, first_field=False):
+            try:
+                with path.open("rb") as source:
+                    raw = source.read(128)
+            except OSError as exc:
+                raise GateError("unit_start") from exc
+            if first_field:
+                raw = raw.split(b" ", 1)[0]
+            require(len(raw) <= 64 and re.fullmatch(rb"[0-9]+(?:\.[0-9]+)?\n?", raw) is not None, "unit_start")
+            return float(raw)
+        started = uptime_value(creds / "unit_started")
+        require(started <= uptime_value(GUEST_PATHS["uptime"], first_field=True), "unit_start")
         # Share the phase budget between actions, retaining a probe/evidence window.
         def action_timeout(code):
-            remaining = phase_budget - 120 - (monotonic() - started)
+            now = uptime_value(GUEST_PATHS["uptime"], first_field=True)
+            require(now >= started, "unit_start")
+            remaining = phase_budget - 120 - (now - started)
             require(remaining > 0, code)
             return remaining
         for key in ("image_n", "image_n_plus_1", "target_ref"):
