@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-25T18:30:17Z",
+  "generated": "2026-09-25T19:00:16Z",
   "lanes": [
     {
       "laneKey": "orphan-pod-gc",
@@ -30,9 +30,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1790361000",
+        "name": "publish-results-1790362800",
         "phase": "Running",
-        "started": "2026-09-25T18:30:00Z",
+        "started": "2026-09-25T19:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -53,23 +53,23 @@
       "label": "run-snow-bootc-lifecycle",
       "kind": "other",
       "latest": {
-        "name": "run-snow-bootc-lifecycle-sjvs7",
+        "name": "run-snow-bootc-lifecycle-49bm7",
         "phase": "Failed",
-        "started": "2026-09-25T17:38:28Z",
-        "finished": "2026-09-25T17:39:12Z",
-        "durationSeconds": 44,
+        "started": "2026-09-25T18:31:20Z",
+        "finished": "2026-09-25T18:32:08Z",
+        "durationSeconds": 48,
         "template": "run-snow-bootc-lifecycle",
         "laneKey": "run-snow-bootc-lifecycle",
         "qaOutcome": "unknown",
         "kind": "other",
         "label": "run-snow-bootc-lifecycle",
         "trigger": "scheduled",
-        "result": "FAILED: preflight_mismatch:iso_embedded",
+        "result": "FAILED: preflight_mismatch:firn_sandbox",
         "checks": [
           "status=not-verified"
         ]
       },
-      "runs": 5,
+      "runs": 6,
       "everGreen": false
     },
     {
@@ -144,11 +144,43 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1790361000",
+      "name": "publish-results-1790362800",
       "phase": "Running",
-      "started": "2026-09-25T18:30:00Z",
+      "started": "2026-09-25T19:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "run-snow-bootc-lifecycle-49bm7",
+      "phase": "Failed",
+      "started": "2026-09-25T18:31:20Z",
+      "finished": "2026-09-25T18:32:08Z",
+      "durationSeconds": 48,
+      "template": "run-snow-bootc-lifecycle",
+      "laneKey": "run-snow-bootc-lifecycle",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "run-snow-bootc-lifecycle",
+      "trigger": "scheduled",
+      "result": "FAILED: preflight_mismatch:firn_sandbox",
+      "checks": [
+        "status=not-verified"
+      ]
+    },
+    {
+      "name": "publish-results-1790361000",
+      "phase": "Succeeded",
+      "started": "2026-09-25T18:30:00Z",
+      "finished": "2026-09-25T18:30:30Z",
+      "durationSeconds": 30,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -266,21 +298,6 @@
       "checks": [
         "status=not-verified"
       ]
-    },
-    {
-      "name": "publish-results-1790355600",
-      "phase": "Succeeded",
-      "started": "2026-09-25T17:00:00Z",
-      "finished": "2026-09-25T17:00:30Z",
-      "durationSeconds": 30,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
     },
     {
       "name": "run-snow-bootc-lifecycle-shf8r",
