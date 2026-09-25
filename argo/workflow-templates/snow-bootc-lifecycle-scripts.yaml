@@ -586,7 +586,7 @@ data:
             checked[16:20] = b"\0" * 4
             require(zlib.crc32(checked) == crc, "iso_gpt")
             lba, count, width, entries_crc = struct.unpack_from("<QIII", header, 72)
-            require(2 <= count <= 128 and width == 128 and (lba + 1) * 512 + count * width <= size, "iso_gpt")
+            require(2 <= count <= 1024 and width == 128 and (lba + 1) * 512 + count * width <= size, "iso_gpt")
             image.seek(lba * 512)
             entries = image.read(count * width)
             require(zlib.crc32(entries) == entries_crc, "iso_gpt")
