@@ -82,7 +82,8 @@ verified N/N+1 OCI digests, version mappings, and the extracted Firn binary's
 hash and provenance. The narrow Firn v1/v2 recipe validator runs inside the
 disposable installer VM before `firn install`, after checking the guest Firn
 hash against preflight. This validator check alone does **not** prove full
-Firn installed compatibility. The ISO `SHA256SUMS.gpg`
+Firn installed compatibility. Before install, real-recipe validation reports
+an allowlisted Firn issue code or `unclassified`, never its diagnostic text. The ISO `SHA256SUMS.gpg`
 authenticates the ISO index only, not an A/B update index. Registry tag
 resolution is read-only (`skopeo inspect`), not a signature check: cosign
 verification and exact guest policy plus signed pull checks are separate.
