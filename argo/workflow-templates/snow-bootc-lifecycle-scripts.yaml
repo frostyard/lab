@@ -340,6 +340,8 @@ data:
     passphrase_file = "/run/snow-passphrase"
     mok = "enroll"
     mok_password_file = "/run/snow-mok-password"
+    [system]
+    hostname = "snow-qa"
     RECIPE
     # Validate the real recipe before Firn can reject it without an NDJSON emitter.
     # Diagnostics remain private in /run; only an allowlisted final issue code
