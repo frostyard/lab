@@ -24,6 +24,8 @@ spec:
     inputs:
       parameters:
       - name: manifest-json
+      - name: keep-vm-on-failure
+        value: "false"
     outputs:
       parameters:
       - name: result
@@ -40,6 +42,8 @@ spec:
       env:
       - name: MANIFEST_JSON
         value: "{{inputs.parameters.manifest-json}}"
+      - name: KEEP_VM_ON_FAILURE
+        value: "{{inputs.parameters.keep-vm-on-failure}}"
       - name: WORKFLOW_NAME
         value: "{{workflow.name}}"
       - name: PATH

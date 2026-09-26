@@ -936,6 +936,446 @@ def test_guest_unit_records_uptime_before_bootstrap(tmp_path):
     assert not (tmp_path / "opt/snow-qa/qa.py").exists()
 
 
+def run_extracted_finish(tmp_path, state, serial, *, initialized=False, capture=b'', persist_failure=False,
+                         capture_failure=False, keep_vm='false', iso_host=False,
+                         detach_failure=False, kept_write_failure=False,
+                         persist_failure_target=None, output_write_failure=False,
+                         delete_failure=False, iso_cleanup_failure=False,
+                         installer_attached=True, work_removal_failure=False,
+                         out_unwritable=False, serial_copy_cleanup_failure=False):
+    """Run the real shell functions with only Incus and evidence persistence substituted."""
+    script = yaml.safe_load(SOURCE.read_text())['data']['run.sh']
+    functions = []
+    for name in ('capture_serial', 'redact_serial', 'finish'):
+        match = re.search(r'(?ms)^' + name + r'\(\) \{\n.*?^\}', script)
+        if match:
+            functions.append(match.group())
+    assert any(part.startswith('finish()') for part in functions)
+    work, evidence, out = (tmp_path / part for part in ('work', 'evidence', 'out'))
+    for path in (work, evidence, out):
+        path.mkdir()
+    (out / 'checks.txt').write_text('status=not-verified\n')
+    if serial is not None:
+        (work / 'serial-full').write_bytes(serial)
+    incus = tmp_path / 'incus'
+    incus.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$INCUS_CALLS"\n'
+                     'if [ "$*" = "config device remove test-vm installer" ]; then '
+                     '[ -f "$ISO_HOST" ] && [ "$INSTALLER_ATTACHED" = 1 ] || exit 2; '
+                     '[ "$DETACH_FAILURE" != 1 ] || exit 1; fi\n'
+                     'if [ "$*" = "delete --force test-vm" ] && '
+                     '[ "$DELETE_FAILURE" = 1 ]; then exit 1; fi\n'
+                     'if [ "$1" = console ]; then printf "%s" "$CAPTURE"; '
+                     '[ "$CAPTURE_FAILURE" != 1 ] || exit 1; fi\n')
+    incus.chmod(0o755)
+    if work_removal_failure or serial_copy_cleanup_failure:
+        rm = tmp_path / 'rm'
+        rm.write_text('#!/bin/sh\n'
+                      'if [ "$WORK_REMOVAL_FAILURE" = 1 ] && [ "$1" = -rf ] && '
+                      '[ "$3" = "$WORK" ]; then /bin/rm "$@"; exit 1; fi\n'
+                      'if [ "$SERIAL_COPY_CLEANUP_FAILURE" = 1 ] && [ "$1" = -f ]; then '
+                      'case "$3" in "$OUT"/.snow-serial.*) exit 1;; esac; fi\n'
+                      'exec /bin/rm "$@"\n')
+        rm.chmod(0o755)
+    if serial_copy_cleanup_failure:
+        cp = tmp_path / 'cp'
+        cp.write_text('#!/bin/sh\ncase "$3" in "$OUT"/.snow-serial.*) exit 1;; esac\n'
+                      'exec /bin/cp "$@"\n')
+        cp.chmod(0o755)
+    if iso_host:
+        if iso_cleanup_failure:
+            (tmp_path / 'installer.iso').mkdir()
+        else:
+            (tmp_path / 'installer.iso').write_bytes(b'iso')
+    if kept_write_failure:
+        (work / 'kept-vm.txt').mkdir()
+    if output_write_failure or out_unwritable:
+        (out / 'result-summary.txt').mkdir()
+    if out_unwritable:
+        mktemp = tmp_path / 'mktemp'
+        mktemp.write_text('#!/bin/sh\ncase "$1" in "$OUT"/*) exit 1;; esac\nexec /usr/bin/mktemp "$@"\n')
+        mktemp.chmod(0o755)
+    env = {**os.environ, 'PATH': str(tmp_path) + ':' + os.environ['PATH'],
+           'CAPTURE': capture.decode(), 'WORK': str(work), 'EVIDENCE': str(evidence),
+           'OUT': str(out), 'STATE': state, 'REASON': 'original',
+           'INITIALIZED': '1' if initialized else '0', 'VM': 'test-vm',
+           'INSTALLER_ATTACHED': '1' if installer_attached else '0',
+           'PERSIST_FAILURE': '1' if persist_failure else '0',
+           'PERSIST_FAILURE_TARGET': persist_failure_target or '',
+           'CAPTURE_FAILURE': '1' if capture_failure else '0',
+           'DETACH_FAILURE': '1' if detach_failure else '0',
+           'DELETE_FAILURE': '1' if delete_failure else '0',
+           'WORK_REMOVAL_FAILURE': '1' if work_removal_failure else '0',
+           'SERIAL_COPY_CLEANUP_FAILURE': '1' if serial_copy_cleanup_failure else '0',
+           'KEEP_VM_ON_FAILURE': keep_vm, 'INCUS_CALLS': str(tmp_path / 'incus-calls'),
+           'ISO_HOST': str(tmp_path / 'installer.iso') if iso_host else ''}
+    shell = '\n'.join(functions) + '''
+persist() {
+  if [[ "$PERSIST_FAILURE" == 1 && "$2" == */serial-redacted.log ]]; then return 1; fi
+  if [[ -n "$PERSIST_FAILURE_TARGET" && "$2" == */"$PERSIST_FAILURE_TARGET" ]]; then return 1; fi
+  cp -- "$1" "$2"
+  chmod 0600 "$2"
+}
+trap finish EXIT
+exit $([[ "$STATE" == PASS ]] && printf 0 || printf 1)
+'''
+    result = subprocess.run(['bash', '-Eeuo', 'pipefail', '-c', shell], env=env, capture_output=True)
+    return result, work, evidence, out
+
+
+def test_keep_vm_workflow_parameter_defaults_off_and_reaches_runner():
+    template = yaml.safe_load((SOURCE.parent / 'run-snow-bootc-lifecycle.yaml').read_text())['spec']
+    run = next(item for item in template['templates'] if item['name'] == 'run')
+    parameters = {item['name']: item for item in run['inputs']['parameters']}
+    assert parameters['keep-vm-on-failure']['value'] == 'false'
+    env = {item['name']: item['value'] for item in run['container']['env']}
+    assert env['KEEP_VM_ON_FAILURE'] == '{{inputs.parameters.keep-vm-on-failure}}'
+
+
+@pytest.mark.parametrize(('state', 'keep_vm', 'kept'), [
+    ('FAILED', 'true', True), ('BLOCKED', 'true', True),
+    ('PASS', 'true', False), ('FAILED', 'false', False),
+    ('FAILED', 'TRUE', False), ('FAILED', 'yes', False),
+])
+def test_finish_keeps_vm_only_on_exact_opt_in_and_nonpass(tmp_path, state, keep_vm, kept):
+    result, work, evidence, out = run_extracted_finish(
+        tmp_path, state, None, initialized=True, keep_vm=keep_vm, iso_host=True)
+    calls = (tmp_path / 'incus-calls').read_text().splitlines()
+    assert ('delete --force test-vm' in calls) is not kept
+    assert ('config device remove test-vm installer' in calls) is kept
+    assert not (tmp_path / 'installer.iso').exists()
+    assert not work.exists()
+    expected = f'{state}: original' + (';vm_kept=test-vm' if kept else '') + '\n'
+    assert (out / 'result-summary.txt').read_text() == expected
+    assert (evidence / 'result-summary.txt').read_text() == expected
+    if kept:
+        assert (evidence / 'kept-vm.txt').read_text() == (
+            'vm=test-vm\ncleanup: incus delete --force test-vm (owner: the run submitter)\n')
+        assert (evidence / 'kept-vm.txt').stat().st_mode & 0o777 == 0o600
+        assert result.returncode != 0
+    else:
+        assert not (evidence / 'kept-vm.txt').exists()
+        assert result.returncode == (0 if state == 'PASS' else 1)
+
+
+def test_post_install_failure_keeps_vm_without_detaching_absent_installer(tmp_path):
+    result, _, evidence, out = run_extracted_finish(
+        tmp_path, 'FAILED', None, initialized=True, keep_vm='true', iso_host=True,
+        installer_attached=False)
+    assert result.returncode == 1
+    calls = (tmp_path / 'incus-calls').read_text().splitlines()
+    assert not any('config device remove' in call or 'delete --force' in call for call in calls)
+    assert (out / 'result-summary.txt').read_text() == 'FAILED: original;vm_kept=test-vm\n'
+    assert (evidence / 'kept-vm.txt').read_text().startswith('vm=test-vm\n')
+
+
+def test_result_write_failure_after_pass_persists_redacted_serial(tmp_path):
+    raw = b'boot key=' + b'a' * 64 + b'\n'
+    result, _, evidence, out = run_extracted_finish(
+        tmp_path, 'PASS', raw, initialized=True, capture=raw,
+        iso_host=True, output_write_failure=True)
+    assert result.returncode == 1
+    assert (out / 'result-summary.txt').is_dir()
+    assert (evidence / 'result-summary.txt').read_text() == 'FAILED: output_write\n'
+    assert (evidence / 'serial-redacted.log').read_bytes() == b'boot key=[REDACTED]\n'
+
+
+def test_evidence_write_failure_after_pass_persists_redacted_serial(tmp_path):
+    raw = b'boot key=' + b'a' * 64 + b'\n'
+    result, _, evidence, out = run_extracted_finish(
+        tmp_path, 'PASS', raw, initialized=True, capture=raw,
+        iso_host=True, persist_failure_target='checks.txt')
+    assert result.returncode == 1
+    assert (out / 'result-summary.txt').read_text() == 'FAILED: evidence_write\n'
+    assert (evidence / 'serial-redacted.log').read_bytes() == b'boot key=[REDACTED]\n'
+
+
+@pytest.mark.parametrize('failure', ['output', 'checks.txt'])
+def test_write_failure_after_pass_keeps_opted_in_vm(tmp_path, failure):
+    result, _, evidence, out = run_extracted_finish(
+        tmp_path, 'PASS', b'boot\n', initialized=True, iso_host=True, keep_vm='true',
+        output_write_failure=failure == 'output',
+        persist_failure_target=failure if failure != 'output' else None)
+    assert result.returncode != 0
+    calls = (tmp_path / 'incus-calls').read_text().splitlines()
+    assert 'config device remove test-vm installer' in calls
+    assert 'delete --force test-vm' not in calls
+    assert (evidence / 'kept-vm.txt').read_text().startswith('vm=test-vm\n')
+    expected = f'FAILED: {"output_write" if failure == "output" else "evidence_write"};vm_kept=test-vm\n'
+    if failure == 'output':
+        assert (out / 'result-summary.txt').is_dir()
+    else:
+        assert (out / 'result-summary.txt').read_text() == expected
+    assert (evidence / 'result-summary.txt').read_text() == expected
+
+
+@pytest.mark.parametrize('keep_vm', ['false', 'true'])
+def test_unwritable_out_still_tears_down_or_keeps_and_removes_work(tmp_path, keep_vm):
+    result, work, evidence, out = run_extracted_finish(
+        tmp_path, 'PASS', b'boot\n', initialized=True, iso_host=True,
+        keep_vm=keep_vm, out_unwritable=True)
+    assert result.returncode != 0
+    assert not work.exists()
+    assert not (tmp_path / 'installer.iso').exists()
+    calls = (tmp_path / 'incus-calls').read_text().splitlines()
+    kept = keep_vm == 'true'
+    assert ('delete --force test-vm' in calls) is not kept
+    assert ('config device remove test-vm installer' in calls) is kept
+    assert (out / 'result-summary.txt').is_dir()
+    assert (evidence / 'result-summary.txt').read_text() == (
+        'FAILED: output_write' + (';vm_kept=test-vm' if kept else '') + '\n')
+
+
+def test_failed_serial_copy_cleanup_does_not_skip_work_removal(tmp_path):
+    raw = b'boot key=' + b'a' * 64 + b'\n'
+    result, work, evidence, out = run_extracted_finish(
+        tmp_path, 'PASS', raw, initialized=True, iso_host=True, capture=raw,
+        serial_copy_cleanup_failure=True)
+    assert result.returncode == 0, result.stderr
+    assert not work.exists()
+    assert not (tmp_path / 'installer.iso').exists()
+    assert 'delete --force test-vm' in (tmp_path / 'incus-calls').read_text()
+    assert (out / 'result-summary.txt').read_text() == 'PASS: original\n'
+    assert (evidence / 'result-summary.txt').read_text() == 'PASS: original\n'
+
+
+def test_work_removal_failure_rewrites_pass_and_retains_serial(tmp_path):
+    raw = b'boot key=' + b'a' * 64 + b'\n'
+    result, work, evidence, out = run_extracted_finish(
+        tmp_path, 'PASS', raw, initialized=True, iso_host=True,
+        capture=raw, work_removal_failure=True)
+    assert result.returncode != 0
+    assert not work.exists()
+    assert 'delete --force test-vm' in (tmp_path / 'incus-calls').read_text()
+    assert (out / 'result-summary.txt').read_text() == 'FAILED: cleanup_failed\n'
+    assert (evidence / 'result-summary.txt').read_text() == 'FAILED: cleanup_failed\n'
+    assert (evidence / 'serial-redacted.log').read_bytes() == b'boot key=[REDACTED]\n'
+
+
+def test_partial_line_install_diagnostic_payload_never_survives_serial_evidence(tmp_path):
+    payload = base64.b64encode(b'PRIVATE-RECOVERY-KEY')
+    raw = b'login: SNOW_INSTALL_DIAG ' + payload + b'\n'
+    result, _, evidence, _ = run_extracted_finish(tmp_path, 'FAILED', raw)
+    assert result.returncode == 1
+    assert (evidence / 'serial-redacted.log').read_bytes() == (
+        b'login: SNOW_INSTALL_DIAG [see install-diagnostic.txt]\n')
+    assert payload not in (evidence / 'serial-redacted.log').read_bytes()
+
+
+def test_partial_line_install_diagnostic_is_not_accepted_by_host_decoder(tmp_path):
+    script = yaml.safe_load(SOURCE.read_text())['data']['run.sh']
+    await_body = script.split('await() {', 1)[1].split('\n}', 1)[0]
+    decoder = re.search(r'python3 - "\$WORK/serial" "\$WORK/install-diagnostic.txt" <<\'PY\'\n(.*?)\nPY',
+                        await_body, re.S)
+    assert decoder
+    source = tmp_path / 'serial'
+    source.write_bytes(b'login: SNOW_INSTALL_DIAG ' + base64.b64encode(b'PRIVATE-RECOVERY-KEY') + b'\n')
+    output = tmp_path / 'install-diagnostic.txt'
+    subprocess.run([sys.executable, '-', str(source), str(output)], input=decoder[1], text=True, check=True)
+    assert output.read_bytes() == b'unparsed'
+
+
+def test_keep_vm_detach_failure_deletes_vm_before_iso_removal(tmp_path):
+    result, _, evidence, out = run_extracted_finish(
+        tmp_path, 'FAILED', None, initialized=True, keep_vm='true', iso_host=True,
+        detach_failure=True)
+    assert result.returncode == 1
+    assert (tmp_path / 'incus-calls').read_text().splitlines()[-2:] == [
+        'config device remove test-vm installer', 'delete --force test-vm']
+    assert not (tmp_path / 'installer.iso').exists()
+    assert not (evidence / 'kept-vm.txt').exists()
+    assert (out / 'result-summary.txt').read_text() == 'FAILED: original;vm_kept_failed\n'
+    assert (evidence / 'result-summary.txt').read_text() == 'FAILED: original;vm_kept_failed\n'
+
+
+def test_detach_failure_suffix_survives_evidence_write_failure(tmp_path):
+    result, _, evidence, out = run_extracted_finish(
+        tmp_path, 'FAILED', None, initialized=True, keep_vm='true', iso_host=True,
+        detach_failure=True, persist_failure_target='checks.txt')
+    assert result.returncode == 1
+    assert (tmp_path / 'incus-calls').read_text().splitlines()[-1] == 'delete --force test-vm'
+    assert not (tmp_path / 'installer.iso').exists()
+    assert (out / 'result-summary.txt').read_text() == 'FAILED: evidence_write;vm_kept_failed\n'
+    assert (evidence / 'result-summary.txt').read_text() == 'FAILED: evidence_write;vm_kept_failed\n'
+
+
+def test_detach_and_delete_failure_reports_both_failures(tmp_path):
+    result, _, evidence, out = run_extracted_finish(
+        tmp_path, 'BLOCKED', None, initialized=True, keep_vm='true', iso_host=True,
+        detach_failure=True, delete_failure=True)
+    assert result.returncode != 0
+    assert (tmp_path / 'incus-calls').read_text().splitlines()[-2:] == [
+        'config device remove test-vm installer', 'delete --force test-vm']
+    assert (tmp_path / 'installer.iso').read_bytes() == b'iso'
+    assert not (evidence / 'kept-vm.txt').exists()
+    expected = 'FAILED: cleanup_after_blocked:original;teardown_failed;vm_kept_failed;vm_left=test-vm\n'
+    assert (out / 'result-summary.txt').read_text() == expected
+    assert (evidence / 'result-summary.txt').read_text() == expected
+
+
+@pytest.mark.parametrize('state', ['PASS', 'FAILED'])
+def test_delete_failure_keeps_iso_and_identifies_left_vm(tmp_path, state):
+    result, _, evidence, out = run_extracted_finish(
+        tmp_path, state, None, initialized=True, iso_host=True, delete_failure=True)
+    assert result.returncode != 0
+    assert (tmp_path / 'incus-calls').read_text().splitlines()[-1] == 'delete --force test-vm'
+    assert (tmp_path / 'installer.iso').read_bytes() == b'iso'
+    reason = 'teardown_failed' if state == 'PASS' else 'original;teardown_failed'
+    expected = f'FAILED: {reason};vm_left=test-vm\n'
+    assert (out / 'result-summary.txt').read_text() == expected
+    assert (evidence / 'result-summary.txt').read_text() == expected
+
+
+@pytest.mark.parametrize('detach_failure', [False, True])
+@pytest.mark.parametrize('failure', ['checks.txt', 'result-summary.txt', 'output'])
+def test_delete_failure_survives_summary_rewrites(tmp_path, detach_failure, failure):
+    result, _, evidence, out = run_extracted_finish(
+        tmp_path, 'BLOCKED', None, initialized=True, keep_vm='true' if detach_failure else 'false',
+        iso_host=True, detach_failure=detach_failure, delete_failure=True,
+        persist_failure_target=failure if failure != 'output' else None,
+        output_write_failure=failure == 'output')
+    assert result.returncode != 0
+    assert (tmp_path / 'installer.iso').read_bytes() == b'iso'
+    assert not (evidence / 'kept-vm.txt').exists()
+    suffix = ';teardown_failed' + (';vm_kept_failed' if detach_failure else '') + ';vm_left=test-vm\n'
+    expected = f'FAILED: {"output_write" if failure == "output" else "evidence_write"}{suffix}'
+    if failure != 'output':
+        assert (out / 'result-summary.txt').read_text() == expected
+    if failure != 'result-summary.txt':
+        assert (evidence / 'result-summary.txt').read_text() == expected
+
+
+@pytest.mark.parametrize('failure', ['checks.txt', 'output'])
+def test_iso_cleanup_failure_survives_summary_rewrites(tmp_path, failure):
+    result, _, evidence, out = run_extracted_finish(
+        tmp_path, 'FAILED', None, initialized=True, iso_host=True,
+        iso_cleanup_failure=True, persist_failure_target='checks.txt' if failure == 'checks.txt' else None,
+        output_write_failure=failure == 'output')
+    assert result.returncode != 0
+    assert (tmp_path / 'installer.iso').is_dir()
+    expected = f'FAILED: {"evidence_write" if failure == "checks.txt" else "output_write"};cleanup_failed\n'
+    if failure == 'checks.txt':
+        assert (out / 'result-summary.txt').read_text() == expected
+    assert (evidence / 'result-summary.txt').read_text() == expected
+
+
+def test_keep_vm_write_failure_still_removes_iso_and_reports_vm_name(tmp_path):
+    result, _, evidence, out = run_extracted_finish(
+        tmp_path, 'FAILED', None, initialized=True, keep_vm='true', iso_host=True,
+        kept_write_failure=True)
+    assert result.returncode == 1
+    assert not (tmp_path / 'installer.iso').exists()
+    assert not (evidence / 'kept-vm.txt').exists()
+    assert (tmp_path / 'incus-calls').read_text().splitlines()[-1] == 'config device remove test-vm installer'
+    assert (out / 'result-summary.txt').read_text() == 'FAILED: original;vm_kept=test-vm\n'
+    assert (evidence / 'result-summary.txt').read_text() == 'FAILED: original;vm_kept=test-vm\n'
+
+
+@pytest.mark.parametrize('target', ['checks.txt', 'result-summary.txt'])
+def test_kept_vm_name_survives_evidence_write_failure(tmp_path, target):
+    result, _, evidence, out = run_extracted_finish(
+        tmp_path, 'FAILED', None, initialized=True, keep_vm='true', iso_host=True,
+        persist_failure_target=target)
+    assert result.returncode == 1
+    assert 'delete --force test-vm' not in (tmp_path / 'incus-calls').read_text()
+    assert not (tmp_path / 'installer.iso').exists()
+    assert (out / 'result-summary.txt').read_text() == 'FAILED: evidence_write;vm_kept=test-vm\n'
+    if target == 'checks.txt':
+        assert (evidence / 'result-summary.txt').read_text() == 'FAILED: evidence_write;vm_kept=test-vm\n'
+    else:
+        assert not (evidence / 'result-summary.txt').exists()
+
+
+def test_kept_vm_name_survives_result_output_write_failure(tmp_path):
+    result, _, evidence, out = run_extracted_finish(
+        tmp_path, 'FAILED', None, initialized=True, keep_vm='true', iso_host=True,
+        output_write_failure=True)
+    assert result.returncode == 1
+    assert (out / 'result-summary.txt').is_dir()
+    assert (evidence / 'result-summary.txt').read_text() == 'FAILED: output_write;vm_kept=test-vm\n'
+    assert 'delete --force test-vm' not in (tmp_path / 'incus-calls').read_text()
+
+
+def test_finish_persists_redacted_latest_serial_before_work_removal(tmp_path):
+    secret = b'a' * 64
+    recovery = b'c' * 8 + (b'-' + b'd' * 8) * 7
+    raw = b'boot ' + secret + b' ' + recovery + b'\x1b[0m SNOW_QA_ERR x\r\r\n'
+    result, work, evidence, out = run_extracted_finish(
+        tmp_path, 'FAILED', raw, initialized=True, capture=raw + b'last line\r\n')
+    assert result.returncode == 1, result.stderr
+    assert not work.exists()
+    persisted = evidence / 'serial-redacted.log'
+    assert persisted.read_bytes() == b'boot [REDACTED] [REDACTED] SNOW_QA_ERR x\nlast line\n'
+    assert persisted.stat().st_mode & 0o777 == 0o600
+    assert (out / 'result-summary.txt').read_text() == 'FAILED: original\n'
+    assert (evidence / 'result-summary.txt').read_text() == 'FAILED: original\n'
+    assert not result.stdout and not result.stderr
+
+
+def test_finish_strips_controls_before_redacting_embedded_secret(tmp_path):
+    secret = b'a' * 64
+    raw = b'key=' + secret[:30] + b'\x1b[0m' + secret[30:] + b'\n'
+    result, _, evidence, _ = run_extracted_finish(tmp_path, 'FAILED', raw)
+    assert result.returncode == 1
+    assert (evidence / 'serial-redacted.log').read_bytes() == b'key=[REDACTED]\n'
+
+
+@pytest.mark.parametrize('control', [b'\x00', b'\x07'])
+def test_finish_redacts_hex_interrupted_by_control(tmp_path, control):
+    secret = b'1' * 64
+    result, _, evidence, _ = run_extracted_finish(
+        tmp_path, 'FAILED', b'key=' + secret[:30] + control + secret[30:] + b'\n')
+    assert result.returncode == 1
+    assert (evidence / 'serial-redacted.log').read_bytes() == b'key=[REDACTED]\n'
+
+
+def test_finish_elides_every_install_diagnostic_payload(tmp_path):
+    secret = b'PRIVATE-RECOVERY-KEY'
+    payload = base64.b64encode(secret)
+    raw = (b'boot\nSNOW_INSTALL_DIAG ' + payload + b'\r\n'
+           + b'SNOW_INSTALL_DIAG ' + payload + b'\nlast line\n')
+    result, _, evidence, _ = run_extracted_finish(tmp_path, 'FAILED', raw)
+    assert result.returncode == 1
+    serial = (evidence / 'serial-redacted.log').read_bytes()
+    assert serial == (b'boot\nSNOW_INSTALL_DIAG [see install-diagnostic.txt]\n'
+                      b'SNOW_INSTALL_DIAG [see install-diagnostic.txt]\nlast line\n')
+    assert payload not in serial and secret not in serial
+
+
+def test_finish_retains_previous_snapshot_when_final_capture_fails(tmp_path):
+    result, work, evidence, out = run_extracted_finish(
+        tmp_path, 'BLOCKED', b'previous line\n', initialized=True,
+        capture=b'partial secret', capture_failure=True)
+    assert result.returncode == 1
+    assert not work.exists()
+    assert (evidence / 'serial-redacted.log').read_bytes() == b'previous line\n'
+    assert (out / 'result-summary.txt').read_text() == 'BLOCKED: original\n'
+
+
+def test_finish_redaction_oversize_is_best_effort(tmp_path):
+    result, work, evidence, out = run_extracted_finish(
+        tmp_path, 'FAILED', b'x' * 1048577)
+    assert result.returncode == 1
+    assert not work.exists()
+    assert not (evidence / 'serial-redacted.log').exists()
+    assert (out / 'result-summary.txt').read_text() == 'FAILED: original\n'
+
+
+@pytest.mark.parametrize(('state', 'serial', 'initialized', 'persist_failure'), [
+    ('PASS', b'secret', False, False),
+    ('BLOCKED', None, False, False),
+    ('FAILED', b'boot message\n', False, True),
+])
+def test_finish_skips_or_tolerates_serial_evidence(tmp_path, state, serial, initialized, persist_failure):
+    result, work, evidence, out = run_extracted_finish(
+        tmp_path, state, serial, initialized=initialized, persist_failure=persist_failure)
+    assert result.returncode == (0 if state == 'PASS' else 1)
+    assert not work.exists()
+    assert not (evidence / 'serial-redacted.log').exists()
+    expected = f'{state}: original\n'
+    assert (out / 'result-summary.txt').read_text() == expected
+    assert (evidence / 'result-summary.txt').read_text() == expected
+
+
 @pytest.mark.parametrize("start", [None, "garbage", "nan", "inf", "1e3", "1001.00", "9" * 80])
 def test_guest_rejects_bad_unit_start_before_actions(qa, tmp_path, monkeypatch, start):
     m = manifest()
@@ -1074,11 +1514,28 @@ def test_installer_vm_checks_firn_before_install(tmp_path, scenario, marker, ins
         assert b"security.mok_password_file" not in (tmp_path / "serial").read_bytes() + result.stdout + result.stderr
 
 
-@pytest.mark.parametrize("without_python", [False, True], ids=["python", "shell-fallback"])
-@pytest.mark.parametrize(("stream", "expected", "fallback"), [
+INSTALL_FAILURE_CASES = [
     ('{"event":"start","protocol":1,"firn":"76518f0","steps":[{"name":"partition","weight":1}]}\n'
      '{"event":"error","step":"partition","code":"step_failed","message":"SECRET-MESSAGE"}\n',
-     "firn_install:partition:step_failed", "firn_install:unknown:step_failed"),
+     "firn_install:partition:step_failed", "firn_install:partition:step_failed"),
+    ('{"event":"start","protocol":1,"firn":"x","steps":[{"name":"partition","weight":1},{"name":"install","weight":1}]}\n'
+     '{"event":"step_start","name":"partition"}\n'
+     '{"event":"step_start","name":"install"}\n'
+     '{"event":"error","step":"install","code":"step_failed","message":"m"}\n',
+     "firn_install:install:step_failed", "firn_install:install:step_failed"),
+    ('{"event":"start","protocol":1,"firn":"x","steps":[{"name":"partition","weight":1},{"name":"install","weight":1}]}\n'
+     '{"event":"step_start","name":"partition"}\n'
+     '{"event":"step_start","name":"install"}\n'
+     '{"event":"error","step":"other","code":"step_failed","message":"m"}\n',
+     "firn_install:install:step_failed", "firn_install:install:step_failed"),
+    ('{"event":"start","steps":[{"name":"partition"}]}\n'
+     '{"event":"step_start","name":"other"}\n'
+     '{"event":"error","step":"other","code":"step_failed","message":"m"}\n',
+     "firn_install:unlisted:step_failed", "firn_install:unknown:step_failed"),
+    ('{"event":"start","steps":[{"name":"partition"}]}\n'
+     '{"event":"step_start","step":"partition"}\n'
+     '{"event":"error","step":"other","code":"step_failed","message":"m"}\n',
+     "firn_install:partition:step_failed", "firn_install:partition:step_failed"),
     ('', "firn_install:unknown:empty_stream", "firn_install:unknown:empty_stream"),
     ('{"event":"done"}\n', "firn_install:unknown:unparsed", "firn_install:unknown:unparsed"),
     ('{"event":"error","step":"partition","code":"step_failed","message":"SECRET-MESSAGE"}\n',
@@ -1086,7 +1543,7 @@ def test_installer_vm_checks_firn_before_install(tmp_path, scenario, marker, ins
     ('{"event":"start","protocol":1,"firn":"76518f0","steps":[]}\n'
      '{"event":"recovery_key","key":"SECRET-RECOVERY"}\n'
      '{"event":"error","step":"","code":"step_failed","message":"SECRET-MESSAGE"}\n',
-     "firn_install:run:step_failed", "firn_install:unknown:step_failed"),
+     "firn_install:run:step_failed", "firn_install:run:step_failed"),
     ('{"event":"start","steps":[]}\x00\n'
      '{"event":"error","step":"","code":"step_failed","message":"SECRET-MESSAGE"}\n',
      "firn_install:unknown:unparsed", "firn_install:unknown:step_failed"),
@@ -1094,7 +1551,7 @@ def test_installer_vm_checks_firn_before_install(tmp_path, scenario, marker, ins
      '{"event":"step_start","step":"partition"}\n'
      '{"event":"recovery_key","key":"SECRET-RECOVERY"}\n'
      '{"event":"error","step":"partition","code":"step_failed","message":"SECRET-MESSAGE"}\n',
-     "firn_install:partition:step_failed", "firn_install:unknown:step_failed"),
+     "firn_install:partition:step_failed", "firn_install:partition:step_failed"),
     ('{"event":"start","steps":[{"name":"partition"}]}\n'
      '{"event":"error","step":"other","code":"step_failed","message":"SECRET-MESSAGE"}\n',
      "firn_install:unlisted:step_failed", "firn_install:unknown:step_failed"),
@@ -1109,8 +1566,25 @@ def test_installer_vm_checks_firn_before_install(tmp_path, scenario, marker, ins
      '{"event":\t"error","step":"partition","code":"step_failed","message":"SECRET-MESSAGE"}\n',
      "firn_install:partition:step_failed", "firn_install:unknown:unparsed"),
     ('{"event":"start","steps":[{"meta":{"name":"bogus"}}]}\n'
+     '{"event":"step_start","name":"bogus"}\n'
      '{"event":"error","step":"bogus","code":"step_failed","message":"SECRET-MESSAGE"}\n',
      "firn_install:unlisted:step_failed", "firn_install:unknown:step_failed"),
+    ('{"event":"start","steps":[{"name":"partition","meta":{"children":[{"name":"bogus"}]}}]}\n'
+     '{"event":"step_start","name":"bogus"}\n'
+     '{"event":"error","step":"bogus","code":"step_failed","message":"SECRET-MESSAGE"}\n',
+     "firn_install:unlisted:step_failed", "firn_install:unknown:step_failed"),
+    ('{"event":"start","meta":{"steps":[{"name":"bogus"}]},"steps":[{"name":"partition"}]}\n'
+     '{"event":"error","step":"bogus","code":"step_failed","message":"m"}\n',
+     "firn_install:unlisted:step_failed", "firn_install:unknown:step_failed"),
+    ('{"event":"start","steps":[{"name":"bogus"}],"steps":[{"name":"partition"}]}\n'
+     '{"event":"error","step":"bogus","code":"step_failed","message":"m"}\n',
+     "firn_install:unlisted:step_failed", "firn_install:unknown:step_failed"),
+    ('{"event":"start","steps":[{"name":"bogus","name":"partition"}]}\n'
+     '{"event":"error","step":"bogus","code":"step_failed","message":"m"}\n',
+     "firn_install:unlisted:step_failed", "firn_install:unknown:step_failed"),
+    ('{"event":"start","event":"done","steps":[{"name":"bogus"}]}\n'
+     '{"event":"error","step":"bogus","code":"step_failed","message":"m"}\n',
+     "firn_install:unknown:unparsed", "firn_install:unknown:step_failed"),
     ('{"event":"start","steps":[{"name":"partition"}]}\n'
      '{"event":"error","step":"partition","code":"step_failed","message":"SECRET-MESSAGE"}',
      "firn_install:unknown:stream_truncated", "firn_install:unknown:stream_truncated"),
@@ -1125,7 +1599,7 @@ def test_installer_vm_checks_firn_before_install(tmp_path, scenario, marker, ins
      "firn_install:unknown:unparsed", "firn_install:unknown:unparsed"),
     ('{"event":"start","steps":[{"name":"partition"}]}\n'
      '{"event":"error","step":"partition","code":"step_failed","message":"escaped \\"quote\\""}\n',
-     "firn_install:partition:step_failed", "firn_install:unknown:step_failed"),
+     "firn_install:partition:step_failed", "firn_install:partition:step_failed"),
     ('{"event":"start","steps":[{"name":"partition"}]}\n'
      '{"event":"error","step":"partition","code":"step_failed","message":"bad \\q"}\n',
      "firn_install:unknown:unparsed", "firn_install:unknown:unparsed"),
@@ -1142,7 +1616,7 @@ def test_installer_vm_checks_firn_before_install(tmp_path, scenario, marker, ins
                  "firn_install:unknown:unparsed", "firn_install:unknown:unparsed", id="early-nul-long-terminal"),
     ('{"event":"start","steps":[{"name":"partition"}]}\n'
      '{"event":"error","step":"partition","code":"step_failed","message":"escaped \\n and \\u00e9"}\n',
-     "firn_install:partition:step_failed", "firn_install:unknown:step_failed"),
+     "firn_install:partition:step_failed", "firn_install:partition:step_failed"),
     pytest.param('{"event":"start","steps":[{"name":"partition"}]}\n'
                  '{"event":"error","step":"partition","code":"step_failed","message":"' + 'x' * 65536 + '"}\n',
                  "firn_install:partition:step_failed", "firn_install:unknown:unparsed", id="oversize-terminal-line"),
@@ -1150,8 +1624,9 @@ def test_installer_vm_checks_firn_before_install(tmp_path, scenario, marker, ins
      '{"event":"step_start","step":"partition"}\n',
      "firn_install:unknown:stream_truncated", "firn_install:unknown:stream_truncated"),
     ('not json\n', "firn_install:unknown:unparsed", "firn_install:unknown:stream_truncated"),
-])
-def test_installer_failure_summary_is_bounded_and_secret_free(tmp_path, stream, expected, fallback, without_python):
+]
+def run_installer_failure(tmp_path, stream, without_python, stderr='', base64_available=True,
+                          emit_credentials=False):
     script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
     guest = re.search(r"(?ms)^cat > \"\$WORK/install.sh\" <<'GUEST'\n(.*?)^GUEST$", script)
     replacement = re.search(r"(?ms)^python3 - \"\$WORK/install.sh\".*?^PY$", script[guest.end():]) if guest else None
@@ -1164,7 +1639,8 @@ def test_installer_failure_summary_is_bounded_and_secret_free(tmp_path, stream, 
     (tmp_path / "run").mkdir()
     env = {**os.environ, "WORK": str(work), "n": f"{REPO}@sha256:{N}",
            "target": f"{REPO}:qa-controlled", "firn_sha256": "f" * 64,
-           "PATH": str(bin_dir) + ":" + os.environ["PATH"], "TEST_ROOT": str(tmp_path)}
+           "PATH": str(bin_dir) + ":" + os.environ["PATH"], "TEST_ROOT": str(tmp_path),
+           "EMIT_CREDENTIALS": "1" if emit_credentials else "0"}
     subprocess.run(["bash", "-e", "-c", replacement.group()], env=env, check=True)
     guest_text = (work / "install.sh").read_text()
     guest_text = guest_text.replace("/run/", str(tmp_path / "run") + "/")
@@ -1177,28 +1653,256 @@ def test_installer_failure_summary_is_bounded_and_secret_free(tmp_path, stream, 
                     '  if [[ $2 == */snow-recipe.toml ]] || grep -q "version = 1" "${@: -1}"; then exit 0; fi\n'
                     '  printf "bad-version\\n" >&2; exit 1\nfi\n'
                     '[[ $1 == install && " $* " == *" --json-progress "* ]] || exit 3\n'
-                    'cp "$TEST_ROOT/stream" /dev/stdout\nexit 1\n')
+                    'cp "$TEST_ROOT/stream" /dev/stdout\n'
+                    'if [[ $EMIT_CREDENTIALS == 1 ]]; then cat "$TEST_ROOT/run/snow-passphrase" "$TEST_ROOT/run/snow-mok-password" >&2; fi\n'
+                    'cat "$TEST_ROOT/stderr" >&2\nexit 1\n')
     firn.chmod(0o755)
     (tmp_path / "stream").write_text(stream)
+    (tmp_path / "stderr").write_bytes(stderr if isinstance(stderr, bytes) else stderr.encode())
     sums = bin_dir / "sha256sum"
     sums.write_text('#!/bin/bash\nprintf "%s  %s\\n" "$firn_sha256" "$1"\n')
     sums.chmod(0o755)
     openssl = bin_dir / "openssl"
-    openssl.write_text('#!/bin/sh\nprintf "0123456789abcdef\\n"\n')
+    openssl.write_text('#!/bin/sh\nif [ "$3" = 32 ]; then printf "%064d\\n" 1; else printf "%032d\\n" 2; fi\n')
     openssl.chmod(0o755)
     guest_text = guest_text.replace("/usr/bin/firn", str(firn))
     if without_python:
         # A command lookup must genuinely fail while bash, grep, sed etc. remain usable.
         env["PATH"] = str(bin_dir)
-        for name in ("bash", "grep", "sed", "cp", "chmod", "cat", "tail", "wc"):
+        for name in ("bash", "grep", "sed", "cp", "chmod", "cat", "head", "tail", "wc", "tr", "base64"):
+            if name == "base64" and not base64_available:
+                continue
             binary = shutil.which(name)
             if binary:
                 (bin_dir / name).symlink_to(binary)
     result = subprocess.run(["/bin/bash", "-e", "-c", guest_text], env=env, capture_output=True, timeout=10)
     assert result.returncode == 1, result.stderr
-    assert (tmp_path / "serial").read_text() == f"SNOW_INSTALL_FAILED {fallback if without_python else expected}\n"
+    return (tmp_path / "serial").read_bytes(), result
+
+
+def diagnostic(serial):
+    lines = [line for line in serial.splitlines() if line.startswith(b"SNOW_INSTALL_DIAG ")]
+    assert len(lines) == 1
+    assert serial.splitlines()[-2] == lines[0]
+    payload = lines[0].split(b" ", 1)[1]
+    return b'unavailable' if payload == b'unavailable' else base64.b64decode(payload, validate=True)
+
+
+@pytest.mark.parametrize("without_python", [False, True], ids=["python", "shell-fallback"])
+def test_diag_redacts_recovery_key_in_message(tmp_path, without_python):
+    key = 'cbdefghi-jklnrtuv-' * 3 + 'cbdefghi-jklnrtuv'
+    stream = ('{"event":"start","steps":[{"name":"partition"}]}\n'
+              + json.dumps({"event": "recovery_key", "key": key}, separators=(',', ':')) + '\n'
+              + json.dumps({"event": "error", "step": "partition", "code": "step_failed",
+                            "message": "mkfs failed " + key}, separators=(',', ':')) + '\n')
+    serial, result = run_installer_failure(tmp_path, stream, without_python)
+    decoded = diagnostic(serial)
+    assert b'mkfs failed' in decoded and b'[REDACTED]' in decoded
+    assert key.encode() not in serial + decoded + result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("without_python", [False, True], ids=["python", "shell-fallback"])
+def test_diag_noncompact_recovery_event_does_not_leak(tmp_path, without_python):
+    key = 'SECRET-RECOVERY-UNUSUAL'
+    stream = ('{"event":"start","steps":[{"name":"partition"}]}\n'
+              + json.dumps({"event": "recovery_key", "key": key}) + '\n'
+              + json.dumps({"event": "error", "step": "partition", "code": "step_failed",
+                            "message": "mkfs failed " + key}, separators=(',', ':')) + '\n')
+    serial, result = run_installer_failure(tmp_path, stream, without_python, key + '\ncryptsetup: boom\n')
+    assert serial.splitlines()[-1] == b'SNOW_INSTALL_FAILED firn_install:partition:step_failed'
+    if without_python:
+        assert serial.splitlines()[-2] == b'SNOW_INSTALL_DIAG unavailable'
+    else:
+        decoded = diagnostic(serial)
+        assert b'mkfs failed' in decoded and b'cryptsetup: boom' in decoded
+        assert b'[REDACTED]' in decoded
+        assert key.encode() not in decoded
+    assert key.encode() not in serial + result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("without_python", [False, True], ids=["python", "shell-fallback"])
+def test_diag_redacts_every_duplicate_recovery_key(tmp_path, without_python):
+    first, second = 'FIRST-PRIVATE-KEY', 'SECOND-PRIVATE-KEY'
+    stream = ('{"event":"start","steps":[{"name":"partition"}]}\n'
+              f'{{"event":"recovery_key","key":"{first}","key":"{second}"}}\n'
+              f'{{"event":"error","step":"partition","code":"step_failed","message":"mkfs failed {first} {second}"}}\n')
+    serial, result = run_installer_failure(tmp_path, stream, without_python,
+                                            f'{first} {second}\ncryptsetup: boom\n')
+    decoded = diagnostic(serial)
+    assert b'mkfs failed' in decoded and b'cryptsetup: boom' in decoded
+    assert decoded.count(b'[REDACTED]') >= 2
+    for secret in (first, second):
+        assert secret.encode() not in serial + decoded + result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("without_python", [False, True], ids=["python", "shell-fallback"])
+def test_diag_escaped_event_name_duplicate_keys_unavailable(tmp_path, without_python):
+    first, second = 'FIRST-PRIVATE-KEY', 'SECOND-PRIVATE-KEY'
+    stream = ('{"event":"start","steps":[{"name":"partition"}]}\n'
+              f'{{"event":"\\u0072ecovery_key","key":"{first}","key":"{second}"}}\n'
+              f'{{"event":"error","step":"partition","code":"step_failed","message":"mkfs failed {first} {second}"}}\n')
+    serial, result = run_installer_failure(tmp_path, stream, without_python, f'{first} {second}\n')
+    assert diagnostic(serial) == b'unavailable'
+    for secret in (first, second):
+        assert secret.encode() not in serial + result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("without_python", [False, True], ids=["python", "shell-fallback"])
+def test_diag_redacts_key_on_non_recovery_event(tmp_path, without_python):
+    secret = 'UNRELATED-PRIVATE-KEY'
+    stream = ('{"event":"start","steps":[{"name":"partition"}]}\n'
+              f'{{"event":"progress","key":"{secret}"}}\n'
+              f'{{"event":"error","step":"partition","code":"step_failed","message":"mkfs failed {secret}"}}\n')
+    serial, result = run_installer_failure(tmp_path, stream, without_python, f'{secret}\ncryptsetup: boom\n')
+    decoded = diagnostic(serial)
+    assert b'mkfs failed' in decoded and b'cryptsetup: boom' in decoded and b'[REDACTED]' in decoded
+    assert secret.encode() not in serial + decoded + result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("without_python", [False, True], ids=["python", "shell-fallback"])
+@pytest.mark.parametrize("partial", ["key_event", "terminal"])
+def test_diag_unavailable_on_unterminated_progress(tmp_path, without_python, partial):
+    secret = 'UNTERMINATED-PRIVATE-KEY'
+    start = '{"event":"start","steps":[{"name":"partition"}]}\n'
+    error = '{"event":"error","step":"partition","code":"step_failed","message":"mkfs failed"}'
+    if partial == "key_event":
+        stream = start + error + '\n' + f'{{"event":"recovery_key","key":"{secret}"}}'
+    else:
+        stream = start + f'{{"event":"recovery_key","key":"{secret}"}}\n' + error
+    serial, result = run_installer_failure(tmp_path, stream, without_python,
+                                            f'cryptsetup: boom {secret}\n')
+    assert diagnostic(serial) == b'unavailable'
+    assert secret.encode() not in serial + result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("without_python", [False, True], ids=["python", "shell-fallback"])
+def test_diag_unavailable_on_escaped_recovery_key(tmp_path, without_python):
+    stream = ('{"event":"start","steps":[]}\n'
+              '{"event":"recovery_key","key":"PRIVATE\\u002dKEY"}\n'
+              '{"event":"error","step":"","code":"step_failed","message":"disk failed"}\n')
+    serial, _ = run_installer_failure(tmp_path, stream, without_python, 'cryptsetup: boom\n')
+    assert serial.splitlines()[-2] == b'SNOW_INSTALL_DIAG unavailable'
+
+
+@pytest.mark.parametrize("without_python", [False, True], ids=["python", "shell-fallback"])
+def test_diag_drops_unterminated_log_secret_prefix(tmp_path, without_python):
+    stream = '{"event":"start","steps":[]}\n{"event":"error","step":"","code":"step_failed","message":"disk failure"}\n'
+    prefix = '0' * 19 + '1'  # Not long enough for the hex-pattern redaction.
+    serial, result = run_installer_failure(tmp_path, stream, without_python,
+                                            'cryptsetup: boom\n' + prefix)
+    decoded = diagnostic(serial)
+    assert b'cryptsetup: boom' in decoded
+    assert prefix.encode() not in serial + decoded + result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("without_python", [False, True], ids=["python", "shell-fallback"])
+def test_diag_redacts_passphrase_in_stderr(tmp_path, without_python):
+    stream = '{"event":"start","steps":[]}\n{"event":"error","step":"","code":"step_failed","message":"disk failure"}\n'
+    # Stub openssl emits a 64-digit passphrase and a 32-digit MOK password.
+    secret = '0' * 63 + '1'
+    mok = '0' * 31 + '2'
+    serial, result = run_installer_failure(tmp_path, stream, without_python,
+                                            'cryptsetup: boom\n', emit_credentials=True)
+    decoded = diagnostic(serial)
+    assert b'cryptsetup: boom' in decoded
+    for value in (secret, mok):
+        assert value.encode() not in serial + decoded + result.stdout + result.stderr
+
+
+@pytest.mark.parametrize('without_python', [False, True], ids=['python', 'shell-fallback'])
+def test_guest_diag_redacts_hex_interrupted_by_control(tmp_path, without_python):
+    stream = '{"event":"start","steps":[]}\n{"event":"error","step":"","code":"step_failed","message":"disk failure"}\n'
+    secret = b'1' * 64
+    serial, result = run_installer_failure(tmp_path, stream, without_python,
+                                           b'key=' + secret[:30] + b'\x07' + secret[30:] + b'\n')
+    assert b'key=[REDACTED]' in diagnostic(serial)
+    assert secret not in serial + result.stdout + result.stderr
+
+
+@pytest.mark.parametrize('without_python', [False, True], ids=['python', 'shell-fallback'])
+@pytest.mark.parametrize('control', [b'\x07', b'\x00', b'\r'])
+def test_guest_diag_redacts_literal_recovery_key_interrupted_by_control(tmp_path, without_python, control):
+    secret = b'PRIVATE-RECOVERY-KEY'
+    stream = ('{"event":"start","steps":[]}\n'
+              '{"event":"recovery_key","key":"PRIVATE-RECOVERY-KEY"}\n'
+              '{"event":"error","step":"","code":"step_failed","message":"disk failure"}\n')
+    serial, result = run_installer_failure(tmp_path, stream, without_python,
+                                           b'key=' + secret[:10] + control + secret[10:] + b'\n')
+    decoded = diagnostic(serial)
+    assert b'key=[REDACTED]\n' in decoded
+    assert secret not in serial + decoded + result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("without_python", [False, True], ids=["python", "shell-fallback"])
+def test_diag_bounded(tmp_path, without_python):
+    stream = '{"event":"start","steps":[]}\n{"event":"error","step":"","code":"step_failed","message":"failure"}\n'
+    serial, _ = run_installer_failure(tmp_path, stream, without_python, 'A' * 100000 + '\nEND-OF-LOG\n')
+    decoded = diagnostic(serial)
+    assert len(decoded) <= 4096 and decoded.endswith(b'END-OF-LOG\n')
+
+
+def test_diag_unavailable_without_base64(tmp_path):
+    stream = '{"event":"start","steps":[]}\n{"event":"error","step":"","code":"step_failed","message":"failure"}\n'
+    serial, _ = run_installer_failure(tmp_path, stream, True, base64_available=False)
+    assert serial.splitlines()[-2:] == [b'SNOW_INSTALL_DIAG unavailable', b'SNOW_INSTALL_FAILED firn_install:run:step_failed']
+
+
+@pytest.mark.parametrize(('payload', 'expected'), [
+    (b'SNOW_INSTALL_DIAG ' + base64.b64encode(b'mkfs failed ' + b'a' * 64) + b'\r\n', b'mkfs failed [REDACTED]'),
+    (b'SNOW_INSTALL_DIAG ' + base64.b64encode(b'key=' + b'1' * 30 + b'\x00' + b'1' * 34 + b'\n') + b'\n', b'key=[REDACTED]\n'),
+    (b'SNOW_INSTALL_DIAG unavailable\n', b'unavailable'),
+    (b'SNOW_INSTALL_DIAG YQ==\nSNOW_INSTALL_DIAG Yg==\n', b'unparsed'),
+    (b'SNOW_INSTALL_DIAG abc\n', b'unparsed'),
+    (b'SNOW_INSTALL_DIAG ' + base64.b64encode(b'z' * 4097) + b'\n', b'unparsed'),
+])
+def test_host_install_diagnostic_decoder(tmp_path, payload, expected):
+    script = yaml.safe_load(SOURCE.read_text())['data']['run.sh']
+    await_body = script.split('await() {', 1)[1].split('\n}', 1)[0]
+    match = re.search(r'python3 - "\$WORK/serial" "\$WORK/install-diagnostic.txt" <<\'PY\'\n(.*?)\nPY', await_body, re.S)
+    assert match
+    serial = tmp_path / 'serial'
+    serial.write_bytes(payload + b'SNOW_INSTALL_FAILED firn_install:partition:step_failed\n')
+    out = tmp_path / 'install-diagnostic.txt'
+    subprocess.run([sys.executable, '-', str(serial), str(out)], input=match[1], text=True, check=True)
+    assert out.read_bytes() == expected
+    assert out.stat().st_mode & 0o777 == 0o600
+    assert 'persist "$WORK/install-diagnostic.txt" "$EVIDENCE/install-diagnostic.txt" || true' in await_body
+    assert 'fail "install_failed:$code"' in await_body
+
+
+def test_host_serial_and_install_diagnostic_share_redaction_contract(tmp_path):
+    # Both independent host paths must apply the same control/ANSI cleanup and
+    # secret patterns, including a credential split by a control byte.
+    secret = b'1' * 64
+    recovery = b'c' * 8 + (b'-' + b'd' * 8) * 7
+    raw = (b'key=' + secret[:30] + b'\x00' + secret[30:] + b' ' + recovery
+           + b'\x1b[0m\r\r\n')
+    (tmp_path / 'finish').mkdir()
+    result, _, evidence, _ = run_extracted_finish(tmp_path / 'finish', 'FAILED', raw)
+    assert result.returncode == 1
+    serial_result = (evidence / 'serial-redacted.log').read_bytes()
+
+    script = yaml.safe_load(SOURCE.read_text())['data']['run.sh']
+    await_body = script.split('await() {', 1)[1].split('\n}', 1)[0]
+    decoder = re.search(r'python3 - "\$WORK/serial" "\$WORK/install-diagnostic.txt" <<\'PY\'\n(.*?)\nPY',
+                        await_body, re.S)
+    assert decoder
+    source = tmp_path / 'diag-serial'
+    source.write_bytes(b'SNOW_INSTALL_DIAG ' + base64.b64encode(raw) + b'\n')
+    output = tmp_path / 'install-diagnostic.txt'
+    subprocess.run([sys.executable, '-', str(source), str(output)], input=decoder[1], text=True, check=True)
+    assert serial_result == output.read_bytes() == b'key=[REDACTED] [REDACTED]\n'
+
+
+@pytest.mark.parametrize("without_python", [False, True], ids=["python", "shell-fallback"])
+@pytest.mark.parametrize(("stream", "expected", "fallback"), INSTALL_FAILURE_CASES)
+def test_installer_failure_summary_is_bounded_and_secret_free(tmp_path, stream, expected, fallback, without_python):
+    serial, result = run_installer_failure(tmp_path, stream, without_python)
+    assert serial.splitlines()[-1] == f"SNOW_INSTALL_FAILED {fallback if without_python else expected}".encode()
     assert b"SECRET-RECOVERY" not in (tmp_path / "serial").read_bytes()
     assert b"SECRET-MESSAGE" not in (tmp_path / "serial").read_bytes()
+    decoded = diagnostic(serial)
+    assert b"SECRET-RECOVERY" not in decoded
     assert (tmp_path / "run/snow-install.ndjson").read_text() == stream
     assert (tmp_path / "run/snow-install.ndjson").stat().st_mode & 0o777 == 0o600
     if without_python:
@@ -1518,7 +2222,8 @@ def test_manual_template_contract():
     spec = template["spec"]
     assert "schedule" not in str(spec) and "cron" not in str(spec).lower()
     entry = next(t for t in spec["templates"] if t["name"] == spec["entrypoint"])
-    assert entry["inputs"]["parameters"] == [{"name": "manifest-json"}]
+    assert entry["inputs"]["parameters"] == [
+        {"name": "manifest-json"}, {"name": "keep-vm-on-failure", "value": "false"}]
     assert entry["synchronization"]["semaphores"][0]["configMapKeyRef"]["key"] == "snosi-vm-qa"
     outputs = entry["outputs"]["parameters"]
     assert {o["valueFrom"]["path"] for o in outputs} == {
@@ -1537,7 +2242,8 @@ def test_manual_lane_docs_match_runner_manifest_and_template(qa):
     template_path = SOURCE.parent / "run-snow-bootc-lifecycle.yaml"
     template = yaml.safe_load(template_path.read_text())
     entry = next(t for t in template["spec"]["templates"] if t["name"] == template["spec"]["entrypoint"])
-    assert entry["inputs"]["parameters"] == [{"name": "manifest-json"}]
+    assert entry["inputs"]["parameters"] == [
+        {"name": "manifest-json"}, {"name": "keep-vm-on-failure", "value": "false"}]
     readme = (root / "README.md").read_text()
     quality = (root / "docs/quality.md").read_text()
     section = readme.split("### Manual Snow bootc lifecycle", 1)[1].split("\n### ", 1)[0]
@@ -1733,7 +2439,7 @@ def test_runner_failure_never_initializes_vm_and_does_not_expose_inputs(tmp_path
     assert (tmp_path / "results/result-summary.txt").read_text().strip() == expected
 
 
-@pytest.mark.parametrize("scenario", ["pass", "stage", "no_reboot", "tag_drift", "evidence_write", "output_write", "stage_teardown", "teardown", "serial_oversize", "serial_unreadable", "blocked_teardown", "phase_missing", "phase_malformed", "guest_error", "guest_error_crlf", "updater_error_crlf", "rollback_error_crlf", "duplicate_error_crlf", "conflicting_error_crlf", "install_missing", "install_failed", "install_firn_v1", "install_firn_v2", "install_firn_hash", "install_fake_code", "install_disk_detect", "install_disk_byid", "install_progress", "install_bad_progress", "install_secret_code", "install_fallback", "install_empty_stream", "install_validate_secret", "install_validate_unknown", "install_validate_unclassified", "install_validate_fake", "cumulative_pass", "cumulative_stale", "cumulative_reset", "cumulative_prefix"])
+@pytest.mark.parametrize("scenario", ["pass", "stage", "stage_keep", "iso_add_partial_keep", "iso_add_partial_detach_failed", "no_reboot", "tag_drift", "evidence_write", "output_write", "stage_teardown", "teardown", "serial_oversize", "serial_unreadable", "blocked_teardown", "phase_missing", "phase_malformed", "guest_error", "guest_error_crlf", "updater_error_crlf", "rollback_error_crlf", "duplicate_error_crlf", "conflicting_error_crlf", "install_missing", "install_failed", "install_firn_v1", "install_firn_v2", "install_firn_hash", "install_fake_code", "install_disk_detect", "install_disk_byid", "install_progress", "install_bad_progress", "install_secret_code", "install_fallback", "install_empty_stream", "install_validate_secret", "install_validate_unknown", "install_validate_unclassified", "install_validate_fake", "cumulative_pass", "cumulative_stale", "cumulative_reset", "cumulative_prefix"])
 def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario):
     script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
     for old, new in (("ROOT=/var/lib/snosi-lab/snow-bootc-evidence", f"ROOT={tmp_path}/evidence"),
@@ -1782,7 +2488,7 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
             if not match or (phase, nonce) != match.group(1, 2): sys.exit(1)
             number = int(match.group(3))
             expected = 'none' if number == 1 else f'{number - 1:08x}-1234-4234-8234-123456789abc'
-            if prior != expected or os.environ['SCENARIO'] in ('stage', 'stage_teardown') and phase == 'stage': sys.exit(1)
+            if prior != expected or os.environ['SCENARIO'] in ('stage', 'stage_keep', 'stage_teardown') and phase == 'stage': sys.exit(1)
             if os.environ['SCENARIO'] == 'no_reboot' and phase == 'boot-n-plus-1': print(prior); sys.exit(0)
             print(f'{number:08x}-1234-4234-8234-123456789abc')
         else: sys.exit(1)
@@ -1797,6 +2503,15 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
         with (root / 'events').open('a') as out: out.write('incus ' + ' '.join(args[:3] if args[:2] == ['config', 'set'] else args[:4]) + '\\n')
         if args[0] == 'config' and args[1] == 'show':
             print(json.dumps({'expanded_devices': {'root': {'pool': 'qa-pool', 'type': 'disk', 'path': '/'}}}))
+        elif args[:3] == ['config', 'device', 'add'] and args[4] == 'installer':
+            (root / 'installer-attached').write_text('yes')
+            if os.environ['SCENARIO'] in ('iso_add_partial_keep', 'iso_add_partial_detach_failed'):
+                sys.exit(1)  # Incus changed state but the command reported failure.
+        elif args[:3] == ['config', 'device', 'remove'] and args[4] == 'installer':
+            attached = root / 'installer-attached'
+            if not attached.exists(): sys.exit(1)
+            if os.environ['SCENARIO'] == 'iso_add_partial_detach_failed': sys.exit(1)
+            attached.unlink()
         elif args[0] == 'config' and args[1] == 'set':
             unit = base64.b64decode(re.search(r'service=([A-Za-z0-9+/=]+)', args[-1]).group(1)).decode()
             (root / 'unit').write_text(unit)
@@ -1887,16 +2602,20 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
     env = {**os.environ, 'PATH': str(tools) + ':' + os.environ['PATH'],
            'MOCK_ROOT': str(tmp_path), 'SCENARIO': scenario,
            'WORKFLOW_NAME': 'mock-run', 'MANIFEST_JSON': json.dumps(m)}
+    if scenario in ('stage_keep', 'iso_add_partial_keep', 'iso_add_partial_detach_failed'):
+        env['KEEP_VM_ON_FAILURE'] = 'true'
     result = subprocess.run(['bash', str(tmp_path / 'run.sh')], env=env, capture_output=True, timeout=40)
     events = (tmp_path / 'events').read_text().splitlines()
     assert events.index('apt update') < events.index('apt install') < events.index('preflight')
     assert events.index('preflight') < next(i for i, e in enumerate(events) if e.startswith('incus init'))
-    assert any(e.startswith('incus delete --force') for e in events)
+    assert any(e.startswith('incus delete --force') for e in events) is not (
+        scenario in ('stage_keep', 'iso_add_partial_keep'))
     summary_path = tmp_path / 'results/result-summary.txt'
     summary = summary_path.read_text() if summary_path.exists() else (tmp_path / 'evidence/mock-run/result-summary.txt').read_text()
-    assert not any('serial' in p.name or 'console' in p.name
+    assert not any('console' in p.name or p.name == 'serial-full'
                    for p in (tmp_path / 'evidence/mock-run').iterdir())
     if scenario in ('pass', 'cumulative_pass'):
+        assert not (tmp_path / 'evidence/mock-run/serial-redacted.log').exists()
         assert result.returncode == 0, (summary, result.stderr)
         assert summary == 'PASS: verified_five_fresh_boots\n'
         assert len([e for e in events if e.startswith('phase ')]) == 5
@@ -1912,19 +2631,39 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
         assert len(checks) == 1 + 9 + 5  # manifest, tags, attested boots
         assert all(re.fullmatch(r'(?:manifest_sha256=[0-9a-f]{64}|tag=[a-z0-9-]+ timestamp=[0-9T:+.\-]+|phase=[a-z0-9-]+ boot_id=[0-9a-f-]+)', line) for line in checks)
     else:
-        assert result.returncode != 0
-        assert not summary.startswith('PASS')
-        assert len([e for e in events if e.startswith('incus start')]) >= (1 if scenario.startswith('install_') else 3)
-        assert summary.strip() == {'stage': 'FAILED: phase_mismatch',
+        if scenario not in ('evidence_write',):
+            serial_evidence = tmp_path / 'evidence/mock-run/serial-redacted.log'
+            if serial_evidence.exists():
+                assert serial_evidence.stat().st_mode & 0o777 == 0o600
+                assert serial_evidence.stat().st_size <= 1048576
+            assert result.returncode != 0
+            assert not summary.startswith('PASS')
+            assert len([e for e in events if e.startswith('incus start')]) >= (
+                0 if scenario.startswith('iso_add_partial_') else 1 if scenario.startswith('install_') else 3)
+            if scenario.startswith('iso_add_partial_'):
+                assert len([e for e in events if e.startswith('incus config device remove')]) == 1
+                assert (tmp_path / 'installer-attached').exists() is (scenario == 'iso_add_partial_detach_failed')
+                assert (tmp_path / 'evidence/mock-run/kept-vm.txt').exists() is (scenario == 'iso_add_partial_keep')
+                assert (tmp_path / 'snow-qa-mock-run.iso').exists() is False
+            if scenario == 'stage_keep':
+                assert len([e for e in events if e.startswith('incus config device remove')]) == 1
+                assert not (tmp_path / 'installer-attached').exists()
+                assert (tmp_path / 'evidence/mock-run/kept-vm.txt').read_text().startswith('vm=snow-qa-mock-run\n')
+            if scenario in ('stage_teardown', 'teardown', 'blocked_teardown'):
+                assert (tmp_path / 'snow-qa-mock-run.iso').exists()
+            assert summary.strip() == {'stage': 'FAILED: phase_mismatch',
+                                    'stage_keep': 'FAILED: phase_mismatch;vm_kept=snow-qa-mock-run',
+                                    'iso_add_partial_keep': 'FAILED: vm_iso;vm_kept=snow-qa-mock-run',
+                                    'iso_add_partial_detach_failed': 'FAILED: vm_iso;vm_kept_failed',
                                     'no_reboot': 'FAILED: reused_boot_id',
                                     'tag_drift': 'FAILED: tag_mismatch:unparsed',
                                    'evidence_write': 'FAILED: evidence_write',
                                    'output_write': 'FAILED: output_write',
-                                   'stage_teardown': 'FAILED: phase_mismatch;teardown_failed',
-                                   'teardown': 'FAILED: teardown_failed',
+                                    'stage_teardown': 'FAILED: phase_mismatch;teardown_failed;vm_left=snow-qa-mock-run',
+                                    'teardown': 'FAILED: teardown_failed;vm_left=snow-qa-mock-run',
                                     'serial_oversize': 'BLOCKED: serial_capture',
                                     'serial_unreadable': 'BLOCKED: serial_capture',
-                                    'blocked_teardown': 'FAILED: cleanup_after_blocked:serial_capture;teardown_failed',
+                                    'blocked_teardown': 'FAILED: cleanup_after_blocked:serial_capture;teardown_failed;vm_left=snow-qa-mock-run',
                                     'phase_missing': 'BLOCKED: phase_timeout',
                                      'phase_malformed': 'FAILED: phase_mismatch',
                                       'guest_error': 'BLOCKED: guest_probe_error_observed',
