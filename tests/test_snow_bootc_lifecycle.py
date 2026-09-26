@@ -1047,6 +1047,9 @@ def test_installer_vm_checks_firn_before_install(tmp_path, scenario, marker, ins
     result = subprocess.run(["bash", "-e", "-c", guest_text], env=env, capture_output=True, timeout=10)
     assert result.returncode == (0 if installed else 1), result.stderr
     assert (tmp_path / "serial").read_text().splitlines()[-1] == marker
+    if scenario == "pass":
+        recipe = (tmp_path / "run/snow-recipe.toml").read_text()
+        assert '[system]\nhostname = "snow-qa"' in recipe
     if scenario != "hash":
         recipe = (tmp_path / "run/snow-firn-v1.toml").read_text()
         assert all(field in recipe for field in ('version = 1', 'disk = "/dev/example-disk"',
