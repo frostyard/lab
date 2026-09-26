@@ -1,7 +1,8 @@
 # Bootstrap — from a bare k3s node to a reconciling lab
 
-This is the exact sequence used to build the `selfie` cluster, in order. Every
-step is idempotent; re-running the whole guide against a live cluster is safe.
+This is the sequence for bootstrapping the lab k3s cluster, in order. The lab
+k3s host is `minideb` (10.0.1.175 since 2026-09-26). Every step is idempotent;
+re-running the whole guide against a live cluster is safe.
 
 The split to keep in mind: **CRDs and the `argo` namespace are prerequisites,
 not GitOps-managed resources.** Argo CD Applications sync with `prune: true`, so
@@ -16,7 +17,7 @@ boundary are recorded in
 
 | Requirement | Notes |
 |---|---|
-| x86_64 host | `selfie`: 32 cores, 125 GiB RAM, 3.4 TiB free on `/var` |
+| x86_64 host | Lab k3s host: `minideb` (10.0.1.175 since 2026-09-26). Provision 32 cores, 125 GiB RAM, and 3.4 TiB free on `/var` for four concurrent container QA lanes; these are sizing requirements, not `minideb` inventory. |
 | k3s | v1.36.2+k3s1. Stock install; Traefik and local-path are fine as-is. |
 | `kubectl` on your workstation | Talking to the node over the network is enough — no step needs a shell on the host. Use a release within one minor of the v1.36.2+k3s1 server (v1.35–v1.37). |
 | `just` on your workstation | Required for the documented `just ...` wrappers; use a maintained release. The underlying bootstrap commands can instead be run directly. |

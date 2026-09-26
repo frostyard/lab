@@ -129,7 +129,7 @@ spec:
         set -euo pipefail
         mkdir -p /tmp/results /var/lib/snosi-lab/iso
         apt-get update -qq
-        apt-get install -y -qq --no-install-recommends ca-certificates curl skopeo >/dev/null
+        apt-get install -y -qq --no-install-recommends ca-certificates curl python3 skopeo >/dev/null
 
         # ── image tier guard ─────────────────────────────────────────────────
         # `bootc install to-disk` is snosi's LEGACY MECHANICS tier. snosi's own
@@ -160,17 +160,41 @@ spec:
         cleanup() {
           rc=$?
           echo "--- teardown ---" >&2
+          local pool=""
+          local resolution_failed=false
+          # Resolve again when possible; an early failure may have left no VM.
+          if incus info "${VM}" >/dev/null 2>&1; then
+            pool="$(incus query "/1.0/instances/${VM}" | python3 -c 'import json,sys; pool=json.load(sys.stdin)["expanded_devices"]["root"]["pool"]; print(pool) if isinstance(pool,str) and pool else sys.exit("Incus root pool must be a non-empty string")')" \
+              || { echo "Could not resolve Incus root pool for ${VM} during teardown" >&2; pool=""; resolution_failed=true; }
+          else
+            pool="$(incus profile device get default root pool)" \
+              || { echo "Could not resolve default Incus root pool during teardown" >&2; pool=""; resolution_failed=true; }
+          fi
+          if [[ ! "${pool}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "Invalid Incus root pool: ${pool}" >&2
+            pool=""
+            resolution_failed=true
+          fi
           if [[ "${rc}" -ne 0 && "${KEEP_ON_FAILURE}" == "true" ]]; then
             echo "KEEP_ON_FAILURE: leaving guest ${VM} for inspection." >&2
             echo "  incus console ${VM} --show-log" >&2
             echo "  incus exec ${VM} -- bash" >&2
-            echo "Delete it when done: incus delete --force ${VM} && incus storage volume delete lab ${SCRATCH_VOL}" >&2
+            if [[ -n "${pool}" ]]; then
+              echo "Delete it when done: incus delete --force ${VM} && incus storage volume delete ${pool} ${SCRATCH_VOL}" >&2
+            else
+              echo "Delete it when done: incus delete --force ${VM}; resolve the scratch volume pool before deleting ${SCRATCH_VOL}" >&2
+            fi
             exit "${rc}"
           fi
+          if [[ "${resolution_failed}" == true && "${rc}" -eq 0 ]]; then rc=1; fi
           incus delete --force "${VM}" >/dev/null 2>&1 || true
           # Custom volumes outlive the instance they were attached to, so this
           # must be explicit or every run leaks its scratch disk.
-          incus storage volume delete lab "${SCRATCH_VOL}" >/dev/null 2>&1 || true
+          if [[ -n "${pool}" ]]; then
+            incus storage volume delete "${pool}" "${SCRATCH_VOL}" >/dev/null 2>&1 || true
+          else
+            echo "Scratch volume ${SCRATCH_VOL} not deleted: no validated pool" >&2
+          fi
           exit "${rc}"
         }
         trap cleanup EXIT
@@ -382,14 +406,18 @@ spec:
           -c "security.secureboot=${SECUREBOOT}" \
           -c "limits.cpu=${VM_CPUS}" -c "limits.memory=${VM_MEMORY}" \
           -d "root,size=${TARGET_DISK_SIZE}"
+        POOL="$(incus query "/1.0/instances/${VM}" | python3 -c 'import json,sys; pool=json.load(sys.stdin)["expanded_devices"]["root"]["pool"]; print(pool) if isinstance(pool,str) and pool else sys.exit("Incus root pool must be a non-empty string")')" \
+          || { echo "Could not resolve Incus root pool for ${VM}" >&2; exit 1; }
+        [[ "${POOL}" =~ ^[A-Za-z0-9._-]+$ ]] \
+          || { echo "Invalid Incus root pool: ${POOL}" >&2; exit 1; }
         incus config device add "${VM}" vtpm tpm
         incus config device add "${VM}" installer disk \
           source="${ISO_PATH}" boot.priority=10 readonly=true
 
         # Scratch block volume for podman storage inside the guest. Deliberately
         # smaller than the target so the guest can tell them apart by size.
-        incus storage volume create lab "${SCRATCH_VOL}" --type=block size="${SCRATCH_DISK_SIZE}" >/dev/null
-        incus config device add "${VM}" scratch disk pool=lab source="${SCRATCH_VOL}"
+        incus storage volume create "${POOL}" "${SCRATCH_VOL}" --type=block size="${SCRATCH_DISK_SIZE}" >/dev/null
+        incus config device add "${VM}" scratch disk pool="${POOL}" source="${SCRATCH_VOL}"
         incus config set "${VM}" raw.qemu="-smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.snosi-qa-bootc.service=${U_B64} -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.multi-user.target=${D_B64}"
 
         incus start "${VM}"

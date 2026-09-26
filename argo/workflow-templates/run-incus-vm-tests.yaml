@@ -23,7 +23,7 @@ metadata:
 spec:
   templates:
   - name: run-incus-vm-tests
-    # The incus socket and /usr/incus only exist on selfie.
+    # The lab k3s host must provide the incus socket and /usr/incus.
     nodeSelector:
       node-role.kubernetes.io/control-plane: "true"
     activeDeadlineSeconds: 3600
