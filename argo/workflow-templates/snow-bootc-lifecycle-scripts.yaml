@@ -6,14 +6,15 @@ metadata:
 data:
   run.sh: |
     #!/bin/bash
-    # Advisory only. No raw serial, install trace, recovery material or NVRAM
-    # survives this process. The host evidence directory must be private.
+    # Advisory only. Persist bounded redacted diagnostics and optional VM cleanup
+    # instructions; never raw serial, recovery material or NVRAM. Host evidence must be private.
     set -Eeuo pipefail
     umask 077
     ROOT=/var/lib/snosi-lab/snow-bootc-evidence
     OUT=/tmp/results
     VM=""
     INITIALIZED=0
+    INSTALLER_ATTACHED=0
     STATE=FAILED
     REASON=setup
     mkdir -p "$OUT"
@@ -39,6 +40,8 @@ data:
     }
     finish() {
       local rc=$?
+      local vm_kept_suffix=""
+      local teardown_failed=0 failure_suffix=""
       trap - EXIT
       cleanup_error() {
         rc=1
@@ -50,30 +53,102 @@ data:
           STATE=FAILED; REASON="${REASON};$1"
         fi
       }
+      local summary_source="$OUT/result-summary.txt" serial_copy="" before_teardown
+      # Establish the verdict while the VM is still available to keep on failure.
       if [[ "$INITIALIZED" == 1 ]]; then
-        timeout 90 incus delete --force "$VM" >/dev/null 2>&1 || cleanup_error teardown_failed
+        # Capture final console lines before deleting the instance; preserve the
+        # previous snapshot if this best-effort read fails.
+        if [[ -n "${WORK:-}" ]]; then capture_serial || true; fi
       fi
-      if [[ -n "${ISO_HOST:-}" ]]; then rm -f -- "$ISO_HOST" || cleanup_error cleanup_failed; fi
       if [[ $rc -eq 0 && "$STATE" != PASS ]]; then rc=1; fi
       if [[ $rc -ne 0 && "$STATE" == PASS ]]; then STATE=FAILED; REASON=cleanup; fi
-      local summary_source="$OUT/result-summary.txt"
       if ! printf '%s: %s\n' "$STATE" "$REASON" > "$summary_source"; then
         rc=1; STATE=FAILED; REASON=output_write
-        summary_source=$(mktemp "${WORK:-/tmp}/snow-final.XXXXXXXX") || exit 1
-        printf 'FAILED: output_write\n' > "$summary_source" || exit 1
+        summary_source=$(mktemp "${WORK:-/tmp}/snow-final.XXXXXXXX" 2>/dev/null) || summary_source=""
+        if [[ -n "$summary_source" ]]; then printf 'FAILED: output_write\n' > "$summary_source" || true; fi
       fi
       if [[ -n "${EVIDENCE:-}" ]]; then
         persist "$OUT/checks.txt" "$EVIDENCE/checks.txt" || { rc=1; STATE=FAILED; REASON=evidence_write; }
-        if [[ "$STATE" == FAILED && "$REASON" == evidence_write ]]; then
-          printf 'FAILED: evidence_write\n' > "$summary_source" || true
+        if [[ -n "$summary_source" ]]; then
+          printf '%s: %s\n' "$STATE" "$REASON" > "$summary_source" || true
+          persist "$summary_source" "$EVIDENCE/result-summary.txt" || { rc=1; STATE=FAILED; REASON=evidence_write; }
         fi
-        persist "$summary_source" "$EVIDENCE/result-summary.txt" || { rc=1; STATE=FAILED; REASON=evidence_write; }
       fi
-      if [[ "$STATE" == FAILED && "$REASON" == evidence_write ]]; then
-        printf 'FAILED: evidence_write\n' > "$OUT/result-summary.txt" || true
+      if [[ -n "$summary_source" ]]; then printf '%s: %s\n' "$STATE" "$REASON" > "$summary_source" || true; fi
+      if [[ -n "$summary_source" && "$summary_source" != "$OUT/result-summary.txt" ]]; then
+        printf '%s: %s\n' "$STATE" "$REASON" > "$OUT/result-summary.txt" 2>/dev/null || true
       fi
-      if [[ -n "${WORK:-}" ]]; then rm -rf -- "$WORK" || { rc=1; STATE=FAILED; REASON=cleanup; }; fi
-      if [[ "$summary_source" != "$OUT/result-summary.txt" && -z "${WORK:-}" ]]; then rm -f -- "$summary_source"; fi
+      before_teardown="$STATE:$REASON"
+      if [[ "$INITIALIZED" == 1 ]]; then
+        if [[ "${KEEP_VM_ON_FAILURE:-false}" == true && "$STATE" != PASS ]]; then
+          # A retained VM must not reference the ISO that is removed below.
+          if [[ "$INSTALLER_ATTACHED" == 0 ]] || timeout 60 incus config device remove "$VM" installer >/dev/null 2>&1; then
+            if { printf 'vm=%s\ncleanup: incus delete --force %s (owner: the run submitter)\n' "$VM" "$VM" > "$WORK/kept-vm.txt"; } 2>/dev/null; then
+              persist "$WORK/kept-vm.txt" "$EVIDENCE/kept-vm.txt" || true
+            fi
+            vm_kept_suffix=";vm_kept=${VM}"
+          else
+            # Do not retain a VM whose installer device points at a removed ISO.
+            timeout 90 incus delete --force "$VM" >/dev/null 2>&1 || { teardown_failed=1; cleanup_error teardown_failed; }
+            vm_kept_suffix=";vm_kept_failed"
+          fi
+          REASON="${REASON}${vm_kept_suffix}"
+        else
+          timeout 90 incus delete --force "$VM" >/dev/null 2>&1 || { teardown_failed=1; cleanup_error teardown_failed; }
+        fi
+      fi
+      if [[ "$teardown_failed" == 1 ]]; then
+        # A VM left behind may still reference this ISO; keep both for manual cleanup.
+        REASON="${REASON};vm_left=${VM}"
+        failure_suffix=";teardown_failed${vm_kept_suffix};vm_left=${VM}"
+      else
+        failure_suffix="$vm_kept_suffix"
+        if [[ -n "${ISO_HOST:-}" ]]; then
+          rm -f -- "$ISO_HOST" || { cleanup_error cleanup_failed; failure_suffix=";cleanup_failed${failure_suffix}"; }
+        fi
+      fi
+      # Later failures cannot un-delete a VM. Converge the summaries on the
+      # verdict we actually have, including teardown and cleanup outcomes.
+      if [[ "$before_teardown" != "$STATE:$REASON" ]]; then
+        if [[ -n "$summary_source" ]]; then printf '%s: %s\n' "$STATE" "$REASON" > "$summary_source" || true; fi
+        if [[ -n "${EVIDENCE:-}" && -n "$summary_source" ]]; then
+          persist "$summary_source" "$EVIDENCE/result-summary.txt" || {
+            rc=1; STATE=FAILED; REASON="evidence_write${failure_suffix}"
+            printf 'FAILED: %s\n' "$REASON" > "$summary_source" || true
+            persist "$summary_source" "$EVIDENCE/result-summary.txt" || true
+          }
+        fi
+        if [[ -n "$summary_source" && "$summary_source" != "$OUT/result-summary.txt" ]]; then
+          printf '%s: %s\n' "$STATE" "$REASON" > "$OUT/result-summary.txt" 2>/dev/null || true
+        fi
+      fi
+      if [[ "$STATE" != PASS && -n "${WORK:-}" && -f "$WORK/serial-full" && -n "${EVIDENCE:-}" ]]; then
+        if redact_serial; then
+          persist "$WORK/serial-redacted.log" "$EVIDENCE/serial-redacted.log" || true
+        fi
+      fi
+      # For a late PASS -> FAILED cleanup error, stage only redacted bytes outside WORK.
+      if [[ "$STATE" == PASS && -n "${WORK:-}" && -f "$WORK/serial-full" && -n "${EVIDENCE:-}" ]]; then
+        if redact_serial; then
+          serial_copy=$(mktemp "$OUT/.snow-serial.XXXXXXXX") || true
+          if [[ -n "$serial_copy" ]]; then cp -- "$WORK/serial-redacted.log" "$serial_copy" || { rm -f -- "$serial_copy" || true; serial_copy=""; }; fi
+        fi
+      fi
+      if [[ -n "${WORK:-}" ]]; then
+        if ! rm -rf -- "$WORK"; then
+          cleanup_error cleanup_failed
+          if [[ -n "$summary_source" ]]; then printf '%s: %s\n' "$STATE" "$REASON" > "$summary_source" || true; fi
+          if [[ -n "${EVIDENCE:-}" && -n "$summary_source" ]]; then persist "$summary_source" "$EVIDENCE/result-summary.txt" || true; fi
+          if [[ -n "$summary_source" && "$summary_source" != "$OUT/result-summary.txt" ]]; then
+            printf '%s: %s\n' "$STATE" "$REASON" > "$OUT/result-summary.txt" 2>/dev/null || true
+          fi
+          if [[ -n "$serial_copy" && -n "${EVIDENCE:-}" ]]; then
+            persist "$serial_copy" "$EVIDENCE/serial-redacted.log" || true
+          fi
+        fi
+      fi
+      if [[ -n "$serial_copy" ]]; then rm -f -- "$serial_copy" || true; fi
+      if [[ -n "$summary_source" && "$summary_source" != "$OUT/result-summary.txt" ]]; then rm -f -- "$summary_source" || true; fi
       exit "$rc"
     }
     trap finish EXIT
@@ -162,25 +237,56 @@ data:
     PY
       persist "$OUT/checks.txt" "$EVIDENCE/checks.txt" || fail evidence_write
     }
-    serial() {
+    capture_serial() {
       # Byte-exact child file-size limit matches qa.py's <=1 MiB parser gate.
       # No unbounded console output is kept, persisted, or sent to pod logs.
-      if ! python3 - "$VM" "$WORK/serial-full" 2>/dev/null <<'PY'
-    import resource, subprocess, sys
+      python3 - "$VM" "$WORK/serial-full" 2>/dev/null <<'PY'
+    import os, resource, subprocess, sys
     from pathlib import Path
+    target = Path(sys.argv[2])
+    candidate = target.with_name('serial-candidate')
     try:
         def limit():
             resource.setrlimit(resource.RLIMIT_FSIZE, (1048576, 1048576))
-        with open(sys.argv[2], 'wb') as snapshot:
+        with candidate.open('wb') as snapshot:
             result = subprocess.run(['incus', 'console', sys.argv[1], '--show-log'],
                                     stdout=snapshot, stderr=subprocess.DEVNULL,
                                     timeout=30, check=False, preexec_fn=limit)
-        if result.returncode or Path(sys.argv[2]).stat().st_size > 1048576:
+        if result.returncode or candidate.stat().st_size > 1048576:
             sys.exit(1)
+        os.replace(candidate, target)
     except (OSError, subprocess.SubprocessError):
         sys.exit(1)
+    finally:
+        candidate.unlink(missing_ok=True)
     PY
-      then blocked serial_capture; fi
+    }
+    redact_serial() {
+      python3 - "$WORK/serial-full" "$WORK/serial-redacted.log" 2>/dev/null <<'PY'
+    import os, re, sys
+    from pathlib import Path
+    raw = Path(sys.argv[1]).read_bytes()
+    if len(raw) > 1048576:
+        sys.exit(1)
+    # Firn output never goes to the console; its only derived guest channel is
+    # SNOW_INSTALL_DIAG. Elide that payload entirely, not merely its decoded
+    # text: even a non-pattern recovery key must not survive as base64 here.
+    raw = re.sub(rb'SNOW_INSTALL_DIAG [^\n]*', b'SNOW_INSTALL_DIAG [see install-diagnostic.txt]', raw)
+    # Match the host install-diagnostic decoder's secret patterns. Strip CSI,
+    # OSC and single-character ANSI escapes before removing residual controls.
+    raw = re.sub(rb'\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-_])', b'', raw)
+    raw = re.sub(rb'\r+\n|\r', b'\n', raw)
+    raw = re.sub(rb'[\x00-\x08\x0b-\x1f\x7f-\x9f]', b'', raw)
+    raw = re.sub(rb'SNOW_INSTALL_DIAG [^\n]*', b'SNOW_INSTALL_DIAG [see install-diagnostic.txt]', raw)
+    raw = re.sub(rb'[0-9a-fA-F]{32,}|(?:[cbdefghijklnrtuv]{8}-){7}[cbdefghijklnrtuv]{8}', b'[REDACTED]', raw)
+    if len(raw) > 1048576:
+        sys.exit(1)
+    with open(sys.argv[2], 'wb', opener=lambda path, flags: os.open(path, flags, 0o600)) as output:
+        output.write(raw)
+    PY
+    }
+    serial() {
+      capture_serial || blocked serial_capture
       # The instance may retain prior boots' console lines. Compare the entire
       # bounded snapshot byte-for-byte with the pre-start baseline, and hand
       # only the newly appended region to the marker search and phase verifier.
@@ -245,6 +351,33 @@ data:
         print('unparsed')
     PY
             ) || fail install_failed
+            python3 - "$WORK/serial" "$WORK/install-diagnostic.txt" <<'PY'
+    import base64, os, re, sys
+    from pathlib import Path
+    lines = Path(sys.argv[1]).read_bytes().split(b'\n')
+    candidates = [line for line in lines if b'SNOW_INSTALL_DIAG' in line]
+    data = b'unparsed'
+    if len(candidates) == 1:
+        match = re.fullmatch(rb'SNOW_INSTALL_DIAG ([A-Za-z0-9+/=]{1,6000}|unavailable)\r*', candidates[0])
+        if match:
+            if match[1] == b'unavailable':
+                data = b'unavailable'
+            else:
+                try:
+                    decoded = base64.b64decode(match[1], validate=True)
+                    if len(decoded) <= 4096:
+                        decoded = re.sub(rb'\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-_])', b'', decoded)
+                        decoded = re.sub(rb'\r+\n|\r', b'\n', decoded)
+                        decoded = re.sub(rb'[\x00-\x08\x0b-\x1f\x7f-\x9f]', b'', decoded)
+                        decoded = re.sub(rb'[0-9a-fA-F]{32,}|(?:[cbdefghijklnrtuv]{8}-){7}[cbdefghijklnrtuv]{8}', b'[REDACTED]', decoded)
+                        data = decoded[-4096:]
+                except ValueError:
+                    pass
+    with open(sys.argv[2], 'wb', opener=lambda path, flags: os.open(path, flags, 0o600)) as output:
+        output.write(data)
+    PY
+            # Diagnostic persistence is best effort: retain the original install_failed code.
+            persist "$WORK/install-diagnostic.txt" "$EVIDENCE/install-diagnostic.txt" || true
             [[ -z "$code" ]] || fail "install_failed:$code"
           fi
           fail install_failed
@@ -274,6 +407,8 @@ data:
       -c limits.cpu=4 -c limits.memory=8GiB -d root,size=40GiB >/dev/null 2>&1 || fail vm_init
     INITIALIZED=1
     timeout 60 incus config device add "$VM" vtpm tpm >/dev/null 2>&1 || fail vm_tpm
+    # A timed-out add may have attached the ISO despite reporting failure.
+    INSTALLER_ATTACHED=1
     timeout 60 incus config device add "$VM" installer disk source="$ISO_HOST" boot.priority=10 readonly=true >/dev/null 2>&1 || fail vm_iso
     # Installer logic is a fixed program with encoded validated data. The
     # recipe and passwords are ephemeral guest-only files; no trace to serial.
@@ -391,6 +526,12 @@ data:
             raise ValueError()
         names = {step.get('name') for step in starts[0]['steps'] if type(step) is dict
                  and type(step.get('name')) is str}
+        last_start = [event for event in events if event['event'] == 'step_start']
+        last_name = None
+        if last_start:
+            last_name = last_start[-1].get('name')
+            if type(last_name) is not str:
+                last_name = last_start[-1].get('step')
         terminal = events[-1]
         if terminal['event'] not in ('done', 'error'):
             print('unknown:stream_truncated')
@@ -404,6 +545,10 @@ data:
             # synthetic, not a name required in start.steps[].
             step = ('run' if step == '' else step if re.fullmatch(r'[a-z0-9_-]{1,40}', step, re.ASCII)
                     and step in names else 'unlisted')
+            if (step == 'unlisted' and type(last_name) is str
+                    and re.fullmatch(r'[a-z0-9_-]{1,40}', last_name, re.ASCII)
+                    and last_name in names):
+                step = last_name
             code = code if code in allowed else 'unlisted'
             print(step + ':' + code)
     except (OSError, ValueError, TypeError):
@@ -423,7 +568,19 @@ data:
         # POSIX [:cntrl:] under LC_ALL=C rejects raw terminal control bytes;
         # only JSON's defined escapes may occur inside the message string.
         event_line='^\{"event":[[:blank:]]*"(error|done)"'
-        error_line='^\{"event":"error","step":"[a-z0-9_-]{0,40}","code":"([a-z_]{1,40})","message":"(\\(["\\/bfnrt]|u[0-9a-fA-F]{4})|[^"\\[:cntrl:]])*"\}$'
+        error_line='^\{"event":"error","step":"([a-z0-9_-]{0,40})","code":"([a-z_]{1,40})","message":"(\\(["\\/bfnrt]|u[0-9a-fA-F]{4})|[^"\\[:cntrl:]])*"\}$'
+        steps_pattern='"steps":(\[[^]]*\])'
+        # Only flat step objects are safe to scan as text: otherwise a nested
+        # child with a "name" could masquerade as a top-level Firn step.
+        step_item='\{"name":"[a-z0-9_-]{1,40}"(,"[a-zA-Z0-9_-]+":(-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?|"[^"\\[:cntrl:]]*"))*\}'
+        steps_array_pattern="^\\[(${step_item}(,${step_item})*)?\\]$"
+        # Anchor the entire start object. No scalar may hide a nested steps
+        # array; reject duplicate structural keys below before collecting names.
+        start_scalar='(-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?|true|false|null|"[^][{}"\\]*")'
+        start_member=",\"[a-zA-Z0-9_-]+\":${start_scalar}"
+        flat_steps="\\[(${step_item}(,${step_item})*)?\\]"
+        start_line_pattern="^\\{\"event\":\"start\"(${start_member})*,\"steps\":${flat_steps}(${start_member})*\\}$"
+        step_start_pattern='^\{"event":"step_start","(name|step)":"([a-z0-9_-]{1,40})"'
         terminal_file=/run/snow-install.terminal
         if ! tail -n 1 "$progress" > "$terminal_file"; then
           summary=unknown:unparsed
@@ -441,15 +598,185 @@ data:
           else
             control_status=$?
             if (( control_status == 1 )) && [[ "$terminal" =~ $error_line ]]; then
-              code=${BASH_REMATCH[1]}
+              error_step=${BASH_REMATCH[1]}
+              code=${BASH_REMATCH[2]}
               case "$code" in
-                image_verification_failed|step_failed|cleanup_failed|flatpak_unreachable|group_missing|no_core_set|no_tpm|store_cleanup_failed|store_umount_failed) summary="unknown:$code";;
+                image_verification_failed|step_failed|cleanup_failed|flatpak_unreachable|group_missing|no_core_set|no_tpm|store_cleanup_failed|store_umount_failed)
+                  step=unknown
+                  start_file=/run/snow-install.start
+                  if head -n 1 "$progress" > "$start_file"; then
+                    chmod 0600 "$start_file"
+                    if start_length=$(wc -c < "$start_file") && (( start_length <= 65536 )); then
+                      if grep -aEq '[[:cntrl:]]' "$start_file"; then
+                        : # Never parse a start line with raw controls (including NUL).
+                      else
+                        start_status=$?
+                        start_line=$(< "$start_file")
+                        if (( start_status == 1 )) && [[ $start_line =~ $start_line_pattern ]] &&
+                           [[ $(grep -oF '"event":' <<< "$start_line" | wc -l) -eq 1 ]] &&
+                           [[ $(grep -oF '"steps":' <<< "$start_line" | wc -l) -eq 1 ]] &&
+                           [[ $start_line =~ $steps_pattern ]]; then
+                          steps_text=${BASH_REMATCH[1]}
+                          names=
+                          name_count=$(grep -oF '"name":' <<< "$steps_text" | wc -l) || true
+                          item_count=$(grep -oF '{"name":' <<< "$steps_text" | wc -l) || true
+                          if [[ $steps_text =~ $steps_array_pattern ]] &&
+                             (( name_count == item_count )); then
+                            names=$(grep -oE '(\[|\},)\{"name":"[a-z0-9_-]{1,40}"' <<< "$steps_text" | sed -E 's/.*"name":"([^"]*)"/\1/') || true
+                          fi
+                          last_start=$(grep -E '^\{"event":"step_start","(name|step)":"[a-z0-9_-]{1,40}"' "$progress" | tail -n 1) || true
+                          last_name=
+                          if [[ $last_start =~ $step_start_pattern ]]; then
+                            last_name=${BASH_REMATCH[2]}
+                          fi
+                          if [[ -z $error_step ]]; then
+                            step=run
+                          elif [[ $'\n'$names$'\n' == *$'\n'$error_step$'\n'* ]]; then
+                            step=$error_step
+                          elif [[ -n $last_name && $'\n'$names$'\n' == *$'\n'$last_name$'\n'* ]]; then
+                            step=$last_name
+                          fi
+                        fi
+                      fi
+                    fi
+                  fi
+                  summary="$step:$code";;
               esac
             fi
           fi
         fi
       fi
-      printf 'SNOW_INSTALL_FAILED firn_install:%s\n' "$summary" > /dev/ttyS0
+      # Emit only a redacted, bounded diagnostic; never the raw Firn outputs.
+      install_diag() (
+        command -v base64 >/dev/null 2>&1 || exit 1
+        diag=/run/snow-install.diag
+        raw=/run/snow-install.diag-raw
+        logtail=/run/snow-install.diag-log
+        keys=/run/snow-install.diag-keys
+        : > "$diag" && : > "$raw" && : > "$logtail" && : > "$keys" || exit 1
+        chmod 0600 "$diag" "$raw" "$logtail" "$keys" || exit 1
+        printf 'step=%s code=%s\n' "${summary%:*}" "${summary##*:}" > "$raw" || exit 1
+        # The terminal message is data, not shell code. Python accepts general
+        # JSON; the no-Python path accepts only Firn's compact terminal layout.
+        if command -v python3 >/dev/null 2>&1; then
+          python3 - /run/snow-install.ndjson "$keys" >> "$raw" <<'PY' || exit 1
+    import json, re, sys
+    from pathlib import Path
+    try:
+        progress = Path(sys.argv[1]).read_bytes()
+        if progress and not progress.endswith(b'\n'): raise ValueError()
+        lines = progress.splitlines()
+        events = [json.loads(line) for line in lines]
+        literals = []
+        for line, event in zip(lines, events):
+            # Escaped event names (including an escaped recovery_key) cannot
+            # safely be classified by the no-Python path either.
+            if b'\x5cu' in line: raise ValueError()
+            matches = re.findall(rb'"key"\s*:\s*"([^"\x5c]*)"', line)
+            if matches or b'recovery_key' in line:
+                if b'\x5c' in line: raise ValueError()
+            if b'recovery_key' in line and not matches: raise ValueError()
+            literals.extend(matches)
+            if isinstance(event, dict) and event.get('event') == 'recovery_key':
+                key = event.get('key')
+                if not isinstance(key, str): raise ValueError()
+                literals.append(key.encode('ascii'))
+        if not all(re.fullmatch(rb'[A-Za-z0-9+/=_-]+', key) for key in literals):
+            raise ValueError()
+        # Do not let a malformed line conceal a recovery key from this pass.
+        with Path(sys.argv[2]).open('w') as output:
+            for key in literals:
+                output.write(key.decode('ascii') + '\n')
+        message = events[-1].get('message', '')
+        if not isinstance(message, str): raise ValueError()
+        sys.stdout.write(message + '\n')
+    except (OSError, ValueError, IndexError, UnicodeError, AttributeError):
+        sys.exit(1)
+    PY
+        else
+          progress=/run/snow-install.ndjson
+          # Read the partial final line for inspection, but never emit a
+          # diagnostic from a stream that ends without a newline.
+          if [[ -s "$progress" && $(tail -c 1 "$progress"; printf '.') != $'\n.' ]]; then
+            exit 1
+          fi
+          # Only extract a validated compact terminal JSON string.
+          if [[ ${terminal:-} =~ $error_line ]] &&
+             [[ ${terminal:-} =~ ^\{\"event\":\"error\",\"step\":\"[^\"]*\",\"code\":\"[^\"]*\",\"message\":\"(.*)\"\}$ ]]; then
+            printf '%s\n' "${BASH_REMATCH[1]}" >> "$raw" || exit 1
+          fi
+        fi
+        # Discard a possibly partial first line when taking the log tail.
+        size=$(wc -c < /run/snow-install.log) || exit 1
+        if (( size > 3072 )); then
+          tail -c 3072 /run/snow-install.log | sed '1d' > "$logtail" || exit 1
+        else
+          cat /run/snow-install.log > "$logtail" || exit 1
+        fi
+        # A size-limited stderr may end midway through a credential. Drop
+        # that unterminated line before any literal or pattern replacement.
+        if [[ -s "$logtail" && $(tail -c 1 "$logtail"; printf '.') != $'\n.' ]]; then
+          sed '$d' "$logtail" > "$diag" || exit 1
+          cp "$diag" "$logtail" || exit 1
+        fi
+        cat "$logtail" >> "$raw" || exit 1
+        # Remove control bytes (including CR) before literal replacement: a
+        # key split by a control must not become intact after redaction.
+        tr -d '\000-\010\013-\037\177' < "$raw" > "$diag" || exit 1
+        cp "$diag" "$raw" || exit 1
+        # Replace literal credentials before any final truncation. Invalid
+        # literals make the diagnostic unavailable rather than risk disclosure.
+        for secret in /run/snow-passphrase /run/snow-mok-password; do
+          lit=$(cat "$secret") || exit 1
+          [[ -n "$lit" && "$lit" =~ ^[A-Za-z0-9+/=_-]+$ ]] || exit 1
+          sed "s|$lit|[REDACTED]|g" "$raw" > "$diag" || exit 1
+          cp "$diag" "$raw" || exit 1
+        done
+        if command -v python3 >/dev/null 2>&1; then
+          key_source=$keys
+        else
+          key_source=/run/snow-install.ndjson
+        fi
+        while IFS= read -r line || [[ -n "$line" ]]; do
+          if [[ $key_source == "$keys" ]]; then
+            lit=$line
+          else
+            [[ $line != *'\u'* ]] || exit 1
+            if [[ $line == *recovery_key* ]]; then
+              [[ $line == '{"event":"recovery_key"'* ]] || exit 1
+            fi
+            if ! grep -Eq '"key"[[:space:]]*:' <<< "$line"; then
+              [[ $line != *recovery_key* ]] || exit 1
+              continue
+            fi
+            [[ $line != *'\'* ]] || exit 1
+            matches=$(grep -oE '"key":"[^"]*"' <<< "$line") || exit 1
+            field_count=$(grep -oE '"key"[[:space:]]*:' <<< "$line" | wc -l) || exit 1
+            match_count=$(grep -oE '"key":"[^"]*"' <<< "$line" | wc -l) || exit 1
+            (( field_count == match_count )) || exit 1
+            while IFS= read -r match; do
+              lit=${match#'"key":"'}
+              lit=${lit%'"'}
+              [[ -n "$lit" && "$lit" =~ ^[A-Za-z0-9+/=_-]+$ ]] || exit 1
+              sed "s|$lit|[REDACTED]|g" "$raw" > "$diag" || exit 1
+              cp "$diag" "$raw" || exit 1
+            done <<< "$matches"
+            continue
+          fi
+          [[ -n "$lit" && "$lit" =~ ^[A-Za-z0-9+/=_-]+$ ]] || exit 1
+          sed "s|$lit|[REDACTED]|g" "$raw" > "$diag" || exit 1
+          cp "$diag" "$raw" || exit 1
+        done < "$key_source"
+        sed -E 's/[0-9a-fA-F]{32,}/[REDACTED]/g; s/([cbdefghijklnrtuv]{8}-){7}[cbdefghijklnrtuv]{8}/[REDACTED]/g' "$raw" |
+          tail -c 4096 > "$diag" || exit 1
+        base64 -w0 < "$diag" || exit 1
+      )
+      if encoded=$(install_diag 2>/dev/null); then
+        printf 'SNOW_INSTALL_DIAG %s\n' "$encoded" > /dev/ttyS0
+      else
+        printf 'SNOW_INSTALL_DIAG unavailable\n' > /dev/ttyS0
+      fi
+      printf 'SNOW_INSTALL_FAILED firn_install:%s\n' "$summary" >> /dev/ttyS0
       exit 1
     fi
     GUEST
@@ -510,6 +837,7 @@ data:
     timeout 30 virt-fw-vars -i "$nvram" -p > "$WORK/varstore-check" 2>/dev/null || fail mok_enroll
     grep -q MokList "$WORK/varstore-check" || fail mok_enroll
     timeout 60 incus config device remove "$VM" installer >/dev/null 2>&1 || fail iso_detach
+    INSTALLER_ATTACHED=0
     prior=none
     seen_boot_ids=':'
     for phase in installed-n stage boot-n-plus-1 rollback boot-n; do

@@ -355,6 +355,29 @@ fi
 ```
 
 This is a manual submission interface, **not** a command run in this repo.
+The optional workflow parameter `keep-vm-on-failure` defaults to `"false"`;
+set `-p keep-vm-on-failure=true` only for a deliberate failure investigation.
+An initialized VM is then kept on `FAILED` or `BLOCKED` (never on `PASS`)
+only if its installer device can be detached before the ISO is removed.
+If detach fails, teardown deletes the VM instead and reports `;vm_kept_failed`;
+if deletion also fails, the result includes `teardown_failed;vm_kept_failed;vm_left=<vm>`.
+On any VM deletion failure, the runner leaves the ISO in the ISO cache to
+avoid a dangling installer device and reports `;vm_left=<vm>` for manual
+cleanup, even when the keep option is off. The ISO cache path can be
+overwritten by a later run; inspect and clean up the leftover VM promptly.
+The keep decision follows the first result and evidence writes, so a write
+failure there can keep an opted-in VM. A later teardown or working-directory
+cleanup failure can change the verdict after deletion; a deleted VM cannot
+be recovered, but the final summary records the failure.
+For a VM actually kept, the result reason ends in `;vm_kept=<vm>`, including
+the VM name even if writing `kept-vm.txt` or evidence persistence fails.
+The run submitter owns cleanup with
+`incus delete --force <vm>` after inspection; the name and command are recorded
+in private `kept-vm.txt` when writable. A kept VM still holds the LUKS passphrase in guest
+`/run` and must be deleted after inspection. It no longer holds the
+`snosi-vm-qa` semaphore after the workflow ends, but continues to consume the
+VM pool. Do not enable this option without arranging cleanup.
+
 Preflight authenticates the ISO and embedded public keys, records Firn provenance
 and its hash, verifies signed OCI images with the pinned cosign key and checks
 version/tag mapping. The disposable installer VM then checks the Firn hash and
@@ -368,6 +391,11 @@ vTPM Firn v1 encrypted-btrfs install, then five distinct fresh boots:
 `installed-n`, `stage`, `boot-n-plus-1`, `rollback`, `boot-n`. See
 [private evidence and verdict limits](docs/quality.md#manual-snow-bootc-lifecycle-evidence)
 before treating any result as evidence.
+On failure, private evidence may also include `install-diagnostic.txt` (a
+bounded, redacted installer diagnostic or `unavailable`/`unparsed`) and
+`serial-redacted.log` (best-effort, bounded redacted console snapshot; never
+raw serial). `kept-vm.txt` exists only for an initialized VM deliberately kept
+on a non-PASS result. No recovery material belongs in these evidence files.
 
 ### Driving a guest with no agent and no SSH
 

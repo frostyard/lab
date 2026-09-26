@@ -63,7 +63,8 @@ and installer workflows provide separate, non-continuous evidence.
 ## Manual Snow bootc lifecycle evidence
 
 The [manual Snow bootc WorkflowTemplate](../argo/workflow-templates/run-snow-bootc-lifecycle.yaml)
-accepts explicit public `manifest-json` only; the exact fields, trust pins,
+accepts explicit public `manifest-json` and optional `keep-vm-on-failure`
+(default `false`); the exact fields, trust pins,
 operator-controlled N+1 target tag and submission interface are in the
 [README](../README.md#manual-snow-bootc-lifecycle). It is not scheduled, not a
 release gate, and has no live pass documented. Offline mocked tests cannot
@@ -76,7 +77,28 @@ metadata secrecy boundary.
 Each workflow gets a private 0700 host directory under
 `/var/lib/snosi-lab/snow-bootc-evidence/<workflow-name>/` containing sanitized
 0600 `manifest-sha256.txt`, `preflight.json`, `checks.json`, `checks.txt`, and
-`result-summary.txt` as far as execution reached. Preflight checks the signed
+`result-summary.txt` as far as execution reached. Failed installs may add
+`install-diagnostic.txt`: bounded redacted diagnostic text, or `unavailable`
+or `unparsed` when it cannot be safely decoded. Non-PASS teardown attempts a
+final console capture and may add a bounded, pattern-redacted
+`serial-redacted.log` with diagnostic payloads elided; this is best-effort,
+not a complete or raw serial record. With explicit `keep-vm-on-failure=true`,
+an initialized non-PASS run may add `kept-vm.txt` with the VM name and submitter
+cleanup command, but only after its installer device is detached. If detach
+fails, teardown deletes the VM and records `;vm_kept_failed` (plus
+`teardown_failed;vm_left=<vm>` if deletion fails). On any VM deletion failure,
+the runner retains the ISO in the ISO cache and reports `;vm_left=<vm>`;
+the cached ISO may be overwritten by a subsequent run, so inspect and clean
+up the leftover VM promptly. A retained VM's result reason ends in
+`;vm_kept=<vm>` so its name remains discoverable if `kept-vm.txt` cannot be
+written or evidence persistence fails. The submitter must
+delete that VM after inspection: guest `/run` still holds the LUKS passphrase,
+and the VM consumes the pool despite releasing the workflow semaphore.
+The install diagnostic redacts known secret literals and patterns and fails
+closed if it cannot safely classify them. The serial snapshot is only
+pattern-redacted, best-effort, and relies on Firn output never reaching the
+console; neither file is a blanket guarantee against arbitrary secret text.
+Preflight checks the signed
 ISO index against the pinned fingerprint and records the ISO hash, key hashes,
 verified N/N+1 OCI digests, version mappings, and the extracted Firn binary's
 hash and provenance. The narrow Firn v1/v2 recipe validator runs inside the
@@ -97,8 +119,10 @@ bounded console snapshot becomes the byte-exact baseline before its next start;
 only newly appended bytes are checked for that boot's nonce and record. A
 truncated, reset or changed prefix makes lineage ambiguous (`BLOCKED`), not
 a fresh proof. The full snapshots and per-boot slices are transient only. Raw
-serial console, installer traces, passwords, recovery material and NVRAM are never retained
-as evidence or output parameters; transient raw serial is deleted.
+serial console, raw installer traces, passwords, recovery material and NVRAM
+are never retained as evidence or output parameters; transient raw serial is
+deleted. Redacted diagnostics and serial may be incomplete and must not be
+treated as a secret-safe substitute for inspecting the retained VM.
 
 `PASS` requires every preflight, tag, install, fresh-boot, signature-policy,
 state/action and cleanup check. `BLOCKED` is nonzero for unavailable publication,
@@ -116,9 +140,10 @@ if cleanup fails after a `BLOCKED` result, the verdict changes to `FAILED:
 cleanup_after_blocked:<original-reason>;<cleanup-reason>` so neither failure is
 lost.
 The reported Firn step is a listed start-event step, `run` for Firn run-level
-failures (empty step), `unlisted`, or `unknown` when only the compact-JSON shell
-fallback can parse the terminal event. Without Python the fallback does not
-validate the start event or report step names; an empty stream reports
+failures (empty step), `unlisted`, or `unknown` when the stream cannot be safely
+classified. Without Python the shell fallback recognizes a strictly flat,
+compact start event and its listed steps; malformed, nested or noncompact
+start events cannot establish a step and report `unknown`. An empty stream reports
 `unknown:empty_stream` and an incomplete stream reports `unknown:stream_truncated`.
 Neither is a passing lane. The host-side MOK varstore stand-in is **not** human
 enrollment. An untested SMBIOS injection/serial channel is not a passing lane;
