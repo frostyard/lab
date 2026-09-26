@@ -978,6 +978,10 @@ def test_run_install_unit_uses_manifest_install_budget_without_systemd_specifier
     ("hash", "SNOW_INSTALL_FAILED firn_hash", False),
     ("disk_detect", "SNOW_INSTALL_FAILED disk_detect", False),
     ("disk_byid", "SNOW_INSTALL_FAILED disk_byid", False),
+    ("validate_secret", "SNOW_INSTALL_FAILED firn_validate:secret-file", False),
+    ("validate_unknown", "SNOW_INSTALL_FAILED firn_validate:unclassified", False),
+    ("validate_final_token", "SNOW_INSTALL_FAILED firn_validate:unclassified", False),
+    ("validate_skip_unknown", "SNOW_INSTALL_FAILED firn_validate:secret-file", False),
 ])
 def test_installer_vm_checks_firn_before_install(tmp_path, scenario, marker, installed):
     script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
@@ -1011,8 +1015,17 @@ def test_installer_vm_checks_firn_before_install(tmp_path, scenario, marker, ins
     (tmp_path / "run").mkdir()
     (tmp_path / "bin").mkdir()
     firn = tmp_path / "bin/firn"
-    firn.write_text("#!/bin/bash\nprintf '%s %s\\n' \"$1\" \"${@: -1}\" >> \"$TEST_ROOT/calls\"\n"
+    firn.write_text("#!/bin/bash\nprintf '%s\\n' \"$*\" >> \"$TEST_ROOT/calls\"\n"
                     "if [[ $1 == validate ]]; then\n"
+                    "  if [[ $2 == */snow-recipe.toml ]]; then\n"
+                    "    case $SCENARIO in\n"
+                    "      validate_secret) printf 'security.mok_password_file: /run/x (secret-file)\\nrecipe is invalid (1 issue(s))\\n' >&2; exit 1;;\n"
+                    "      validate_unknown) printf 'private reason (future-issue)\\n' >&2; exit 1;;\n"
+                    "      validate_final_token) printf 'private reason (secret-file) extra\\nprivate reason (secret-file) (future-issue)\\n' >&2; exit 1;;\n"
+                    "      validate_skip_unknown) printf 'private (future-issue)\\nprivate (secret-file)\\nprivate (disk)\\n' >&2; exit 1;;\n"
+                    "    esac\n"
+                    "    exit 0\n"
+                    "  fi\n"
                     "  if grep -q 'version = 1' \"${@: -1}\"; then [[ $SCENARIO != v1 ]]; exit; fi\n"
                     "  [[ $SCENARIO == v2 ]] && exit 0\n"
                     "  [[ $SCENARIO == v2_other_error ]] && { printf 'other-error\\n' >&2; exit 1; }\n"
@@ -1026,6 +1039,11 @@ def test_installer_vm_checks_firn_before_install(tmp_path, scenario, marker, ins
     (tmp_path / "bin/openssl").write_text("#!/bin/sh\nprintf '0123456789abcdef\\n'\n")
     (tmp_path / "bin/openssl").chmod(0o755)
     guest_text = guest_text.replace("/usr/bin/firn", str(firn))
+    if scenario == "validate_secret":
+        # The install VM does not require python3 for pre-install diagnostics.
+        env["PATH"] = str(tmp_path / "bin")
+        for name in ("bash", "grep", "sed", "cat", "chmod"):
+            (tmp_path / "bin" / name).symlink_to(shutil.which(name))
     result = subprocess.run(["bash", "-e", "-c", guest_text], env=env, capture_output=True, timeout=10)
     assert result.returncode == (0 if installed else 1), result.stderr
     assert (tmp_path / "serial").read_text().splitlines()[-1] == marker
@@ -1039,7 +1057,18 @@ def test_installer_vm_checks_firn_before_install(tmp_path, scenario, marker, ins
     calls = (tmp_path / "calls").read_text().splitlines() if (tmp_path / "calls").exists() else []
     assert ("install" in [line.split()[0] for line in calls]) == installed
     if scenario not in ("hash", "v1"):
-        assert calls[:2] == [f"validate {tmp_path}/run/snow-firn-v1.toml", f"validate {tmp_path}/run/snow-firn-v2.toml"]
+        assert calls[:2] == [f"validate --secure-boot off --tpm off {tmp_path}/run/snow-firn-v1.toml",
+                            f"validate --secure-boot off --tpm off {tmp_path}/run/snow-firn-v2.toml"]
+    if scenario in ("pass", "validate_secret", "validate_unknown", "validate_final_token", "validate_skip_unknown"):
+        assert calls[2] == f"validate {tmp_path}/run/snow-recipe.toml --secure-boot on --tpm on"
+        assert "--uefi" not in calls[2]
+        assert (tmp_path / "run/snow-validate.log").stat().st_mode & 0o777 == 0o600
+        if scenario == "pass":
+            assert calls[3].startswith("install ")
+        else:
+            assert len(calls) == 3
+        assert b"private reason" not in (tmp_path / "serial").read_bytes() + result.stdout + result.stderr
+        assert b"security.mok_password_file" not in (tmp_path / "serial").read_bytes() + result.stdout + result.stderr
 
 
 @pytest.mark.parametrize("without_python", [False, True], ids=["python", "shell-fallback"])
@@ -1142,7 +1171,7 @@ def test_installer_failure_summary_is_bounded_and_secret_free(tmp_path, stream, 
     assert 'byid="/dev/example-disk"' in guest_text
     firn = bin_dir / "firn"
     firn.write_text('#!/bin/bash\nif [[ $1 == validate ]]; then\n'
-                    '  if grep -q "version = 1" "${@: -1}"; then exit 0; fi\n'
+                    '  if [[ $2 == */snow-recipe.toml ]] || grep -q "version = 1" "${@: -1}"; then exit 0; fi\n'
                     '  printf "bad-version\\n" >&2; exit 1\nfi\n'
                     '[[ $1 == install && " $* " == *" --json-progress "* ]] || exit 3\n'
                     'cp "$TEST_ROOT/stream" /dev/stdout\nexit 1\n')
@@ -1701,7 +1730,7 @@ def test_runner_failure_never_initializes_vm_and_does_not_expose_inputs(tmp_path
     assert (tmp_path / "results/result-summary.txt").read_text().strip() == expected
 
 
-@pytest.mark.parametrize("scenario", ["pass", "stage", "no_reboot", "tag_drift", "evidence_write", "output_write", "stage_teardown", "teardown", "serial_oversize", "serial_unreadable", "blocked_teardown", "phase_missing", "phase_malformed", "guest_error", "guest_error_crlf", "updater_error_crlf", "rollback_error_crlf", "duplicate_error_crlf", "conflicting_error_crlf", "install_missing", "install_failed", "install_firn_v1", "install_firn_v2", "install_firn_hash", "install_fake_code", "install_disk_detect", "install_disk_byid", "install_progress", "install_bad_progress", "install_secret_code", "install_fallback", "install_empty_stream", "cumulative_pass", "cumulative_stale", "cumulative_reset", "cumulative_prefix"])
+@pytest.mark.parametrize("scenario", ["pass", "stage", "no_reboot", "tag_drift", "evidence_write", "output_write", "stage_teardown", "teardown", "serial_oversize", "serial_unreadable", "blocked_teardown", "phase_missing", "phase_malformed", "guest_error", "guest_error_crlf", "updater_error_crlf", "rollback_error_crlf", "duplicate_error_crlf", "conflicting_error_crlf", "install_missing", "install_failed", "install_firn_v1", "install_firn_v2", "install_firn_hash", "install_fake_code", "install_disk_detect", "install_disk_byid", "install_progress", "install_bad_progress", "install_secret_code", "install_fallback", "install_empty_stream", "install_validate_secret", "install_validate_unknown", "install_validate_unclassified", "install_validate_fake", "cumulative_pass", "cumulative_stale", "cumulative_reset", "cumulative_prefix"])
 def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario):
     script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
     for old, new in (("ROOT=/var/lib/snosi-lab/snow-bootc-evidence", f"ROOT={tmp_path}/evidence"),
@@ -1789,6 +1818,10 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
                 elif os.environ['SCENARIO'] == 'install_secret_code': content += 'SNOW_INSTALL_FAILED firn_install:recovery_key:secret\\r\\n'
                 elif os.environ['SCENARIO'] == 'install_fallback': content += 'SNOW_INSTALL_FAILED firn_install:unknown:step_failed\\r\\n'
                 elif os.environ['SCENARIO'] == 'install_empty_stream': content += 'SNOW_INSTALL_FAILED firn_install:unknown:empty_stream\\r\\n'
+                elif os.environ['SCENARIO'] == 'install_validate_secret': content += 'SNOW_INSTALL_FAILED firn_validate:secret-file\\r\\n'
+                elif os.environ['SCENARIO'] == 'install_validate_unknown': content += 'SNOW_INSTALL_FAILED firn_validate:unclassified\\n'
+                elif os.environ['SCENARIO'] == 'install_validate_unclassified': content += 'SNOW_INSTALL_FAILED firn_validate:unclassified\\r\\n'
+                elif os.environ['SCENARIO'] == 'install_validate_fake': content += 'SNOW_INSTALL_FAILED firn_validate:future-issue\\r\\n'
                 elif os.environ['SCENARIO'] in ('install_disk_detect', 'install_disk_byid'):
                     content += 'SNOW_INSTALL_FAILED ' + os.environ['SCENARIO'][8:] + '\\r\\n'
                 elif os.environ['SCENARIO'] != 'install_missing': content += 'SNOW_INSTALL_OK\\n'
@@ -1908,6 +1941,10 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
                                       'install_secret_code': 'FAILED: install_failed:unparsed',
                                       'install_fallback': 'FAILED: install_failed:firn_install:unknown:step_failed',
                                       'install_empty_stream': 'FAILED: install_failed:firn_install:unknown:empty_stream',
+                                      'install_validate_secret': 'FAILED: install_failed:firn_validate:secret-file',
+                                      'install_validate_unknown': 'FAILED: install_failed:firn_validate:unclassified',
+                                      'install_validate_unclassified': 'FAILED: install_failed:firn_validate:unclassified',
+                                      'install_validate_fake': 'FAILED: install_failed:unparsed',
                                       'install_disk_detect': 'FAILED: install_failed:disk_detect',
                                       'install_disk_byid': 'FAILED: install_failed:disk_byid',
                                     'cumulative_stale': 'BLOCKED: phase_timeout',

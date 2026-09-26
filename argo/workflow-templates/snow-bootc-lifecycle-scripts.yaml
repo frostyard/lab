@@ -226,15 +226,18 @@ data:
     import re, sys
     from pathlib import Path
     lines = Path(sys.argv[1]).read_bytes().split(b'\n')
-    matches = [re.fullmatch(rb'SNOW_INSTALL_FAILED (firn_v1|firn_v2|firn_hash|disk_detect|disk_byid|firn_install:[a-z0-9_-]{1,40}:[a-z_]{1,40})\r?', line)
+    matches = [re.fullmatch(rb'SNOW_INSTALL_FAILED (firn_v1|firn_v2|firn_hash|disk_detect|disk_byid|firn_validate:[a-z-]{1,20}|firn_install:[a-z0-9_-]{1,40}:[a-z_]{1,40})\r?', line)
                 for line in lines if b'SNOW_INSTALL_FAILED' in line]
     allowed = {'image_verification_failed', 'step_failed', 'cleanup_failed',
                'flatpak_unreachable', 'group_missing', 'no_core_set', 'no_tpm',
                'store_cleanup_failed', 'store_umount_failed', 'stream_truncated',
                'empty_stream', 'unlisted', 'unparsed'}
+    validate_allowed = set('bad-version required enum family-scope mutex secret-file file disk hostname locale timezone keyboard username fullname group release product origin ssh-key password-hash passphrase mok tpm subvolumes unclassified'.split())
     if len(matches) == 1 and matches[0] is not None:
         token = matches[0][1].decode('ascii')
-        if not token.startswith('firn_install:') or token.rsplit(':', 1)[-1] in allowed:
+        if token.startswith('firn_validate:'):
+            print(token if token.split(':', 1)[1] in validate_allowed else 'unparsed')
+        elif not token.startswith('firn_install:') or token.rsplit(':', 1)[-1] in allowed:
             print(token)
         else:
             print('unparsed')
@@ -338,6 +341,23 @@ data:
     mok = "enroll"
     mok_password_file = "/run/snow-mok-password"
     RECIPE
+    # Validate the real recipe before Firn can reject it without an NDJSON emitter.
+    # Diagnostics remain private in /run; only an allowlisted final issue code
+    # can cross the serial boundary. No Python is required in the installer VM.
+    export LC_ALL=C
+    if ! (ulimit -f 1024; firn validate /run/snow-recipe.toml --secure-boot on --tpm on >/dev/null 2>/run/snow-validate.log); then
+      code=unclassified
+      while IFS= read -r line; do
+        if [[ $line =~ ^.*\(([a-z-]{1,20})\)$ ]]; then
+          case "${BASH_REMATCH[1]}" in
+            bad-version|required|enum|family-scope|mutex|secret-file|file|disk|hostname|locale|timezone|keyboard|username|fullname|group|release|product|origin|ssh-key|password-hash|passphrase|mok|tpm|subvolumes)
+              code=${BASH_REMATCH[1]}; break;;
+          esac
+        fi
+      done < /run/snow-validate.log
+      printf 'SNOW_INSTALL_FAILED firn_validate:%s\n' "$code" > /dev/ttyS0
+      exit 1
+    fi
     # Firn's progress stream contains the literal recovery key. Keep it only
     # in the private guest /run; bound both outputs before invoking Firn.
     if (ulimit -f 1024; firn install /run/snow-recipe.toml --confirm "$byid" --uefi on --secure-boot on --tpm on --json-progress >/run/snow-install.ndjson 2>/run/snow-install.log); then
