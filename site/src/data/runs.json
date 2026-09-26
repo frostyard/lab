@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-25T23:30:17Z",
+  "generated": "2026-09-26T00:00:17Z",
   "lanes": [
     {
       "laneKey": "orphan-pod-gc",
@@ -30,9 +30,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1790379000",
+        "name": "publish-results-1790380800",
         "phase": "Running",
-        "started": "2026-09-25T23:30:00Z",
+        "started": "2026-09-26T00:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -53,24 +53,47 @@
       "label": "run-snow-bootc-lifecycle",
       "kind": "other",
       "latest": {
-        "name": "run-snow-bootc-lifecycle-nbx95",
+        "name": "run-snow-bootc-lifecycle-rfbth",
         "phase": "Failed",
-        "started": "2026-09-25T20:12:40Z",
-        "finished": "2026-09-25T20:16:11Z",
-        "durationSeconds": 211,
+        "started": "2026-09-25T23:37:07Z",
+        "finished": "2026-09-25T23:40:45Z",
+        "durationSeconds": 218,
         "template": "run-snow-bootc-lifecycle",
         "laneKey": "run-snow-bootc-lifecycle",
         "qaOutcome": "unknown",
         "kind": "other",
         "label": "run-snow-bootc-lifecycle",
         "trigger": "scheduled",
-        "result": "FAILED: install_failed:firn_install:unknown:unparsed",
+        "result": "FAILED: install_failed:firn_install:unknown:empty_stream",
         "checks": [
           "manifest_sha256=bc4128fcd6cbfc0669da668aa0a928401e0fa7b6f266eb0fd91cbb85187c448a",
-          "tag=before-install timestamp=2026-09-25T20:13:26.042145+00:00"
+          "tag=before-install timestamp=2026-09-25T23:37:59.745901+00:00"
         ]
       },
-      "runs": 8,
+      "runs": 9,
+      "everGreen": false
+    },
+    {
+      "laneKey": "image-poll-snow-latest",
+      "template": "image-poller",
+      "label": "Registry digest poll",
+      "kind": "poll",
+      "latest": {
+        "name": "image-poll-snow-latest-1790380800",
+        "phase": "Running",
+        "started": "2026-09-26T00:00:00Z",
+        "finished": null,
+        "durationSeconds": null,
+        "template": "image-poller",
+        "laneKey": "image-poll-snow-latest",
+        "qaOutcome": "unknown",
+        "kind": "poll",
+        "label": "Registry digest poll",
+        "trigger": "scheduled",
+        "result": null,
+        "checks": []
+      },
+      "runs": 2,
       "everGreen": false
     },
     {
@@ -95,29 +118,6 @@
       },
       "runs": 3,
       "everGreen": true
-    },
-    {
-      "laneKey": "image-poll-snow-latest",
-      "template": "image-poller",
-      "label": "Registry digest poll",
-      "kind": "poll",
-      "latest": {
-        "name": "image-poll-snow-latest-1790370000",
-        "phase": "Failed",
-        "started": "2026-09-25T21:00:00Z",
-        "finished": "2026-09-25T21:01:26Z",
-        "durationSeconds": 86,
-        "template": "image-poller",
-        "laneKey": "image-poll-snow-latest",
-        "qaOutcome": "failed",
-        "kind": "poll",
-        "label": "Registry digest poll",
-        "trigger": "scheduled",
-        "result": "19 passed, 1 failed",
-        "checks": []
-      },
-      "runs": 1,
-      "everGreen": false
     },
     {
       "laneKey": "image-poll-snowfield-latest",
@@ -145,11 +145,59 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1790379000",
+      "name": "image-poll-snow-latest-1790380800",
       "phase": "Running",
-      "started": "2026-09-25T23:30:00Z",
+      "started": "2026-09-26T00:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "image-poller",
+      "laneKey": "image-poll-snow-latest",
+      "qaOutcome": "unknown",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1790380800",
+      "phase": "Running",
+      "started": "2026-09-26T00:00:00Z",
+      "finished": null,
+      "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "run-snow-bootc-lifecycle-rfbth",
+      "phase": "Failed",
+      "started": "2026-09-25T23:37:07Z",
+      "finished": "2026-09-25T23:40:45Z",
+      "durationSeconds": 218,
+      "template": "run-snow-bootc-lifecycle",
+      "laneKey": "run-snow-bootc-lifecycle",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "run-snow-bootc-lifecycle",
+      "trigger": "scheduled",
+      "result": "FAILED: install_failed:firn_install:unknown:empty_stream",
+      "checks": [
+        "manifest_sha256=bc4128fcd6cbfc0669da668aa0a928401e0fa7b6f266eb0fd91cbb85187c448a",
+        "tag=before-install timestamp=2026-09-25T23:37:59.745901+00:00"
+      ]
+    },
+    {
+      "name": "publish-results-1790379000",
+      "phase": "Succeeded",
+      "started": "2026-09-25T23:30:00Z",
+      "finished": "2026-09-25T23:30:30Z",
+      "durationSeconds": 30,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -179,21 +227,6 @@
       "phase": "Succeeded",
       "started": "2026-09-25T22:30:00Z",
       "finished": "2026-09-25T22:30:30Z",
-      "durationSeconds": 30,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1790373600",
-      "phase": "Succeeded",
-      "started": "2026-09-25T22:00:00Z",
-      "finished": "2026-09-25T22:00:30Z",
       "durationSeconds": 30,
       "template": "publish",
       "laneKey": "publish",
