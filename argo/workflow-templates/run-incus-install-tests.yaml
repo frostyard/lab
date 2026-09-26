@@ -119,7 +119,7 @@ spec:
         set -euo pipefail
         mkdir -p /tmp/results /var/lib/snosi-lab/iso
         apt-get update -qq
-        apt-get install -y -qq --no-install-recommends ca-certificates curl >/dev/null
+        apt-get install -y -qq --no-install-recommends ca-certificates curl python3 >/dev/null
         if [[ "${SECUREBOOT}" == "true" ]]; then
           # virt-fw-vars pre-seeds the guest's own OVMF variable store with the
           # snosi MOK. gcc/python3-dev because Python 3.13 dropped `crypt`, so
@@ -241,6 +241,10 @@ spec:
           -c "security.secureboot=${SECUREBOOT}" \
           -c "limits.cpu=${VM_CPUS}" -c "limits.memory=${VM_MEMORY}" \
           -d "root,size=${TARGET_DISK_SIZE}"
+        POOL="$(incus query "/1.0/instances/${VM}" | python3 -c 'import json,sys; pool=json.load(sys.stdin)["expanded_devices"]["root"]["pool"]; print(pool) if isinstance(pool,str) and pool else sys.exit("Incus root pool must be a non-empty string")')" \
+          || { echo "Could not resolve Incus root pool for ${VM}" >&2; exit 1; }
+        [[ "${POOL}" =~ ^[A-Za-z0-9._-]+$ ]] \
+          || { echo "Invalid Incus root pool: ${POOL}" >&2; exit 1; }
         incus config device add "${VM}" vtpm tpm
         incus config device add "${VM}" installer disk \
           source="${ISO_PATH}" boot.priority=10 readonly=true
@@ -269,7 +273,7 @@ spec:
           incus start "${VM}"
           NVRAM=""
           for _ in $(seq 1 30); do
-            candidate="/var/lib/incus/storage-pools/lab/virtual-machines/${VM}/qemu.nvram"
+            candidate="/var/lib/incus/storage-pools/${POOL}/virtual-machines/${VM}/qemu.nvram"
             [[ -e "${candidate}" ]] && { NVRAM="${candidate}"; break; }
             sleep 2
           done

@@ -1,7 +1,7 @@
 # frostyard lab
 
 > A GitOps-driven QA pipeline for [snosi](https://github.com/frostyard/snosi)
-> bootc images, running on the single-node `selfie` k3s cluster.
+> bootc images, running on the lab k3s host (`minideb`, 10.0.1.175 since 2026-09-26).
 > Everything is declared in git, reconciled by Argo CD, and orchestrated by
 > Argo Workflows.
 
@@ -32,7 +32,7 @@ Kubernetes-native end to end.
 
 | Layer | Project | Role |
 |---|---|---|
-| Kubernetes | [k3s](https://k3s.io) | Single-node cluster (`selfie`) |
+| Kubernetes | [k3s](https://k3s.io) | Single-node cluster on the lab k3s host (`minideb`, 10.0.1.175 since 2026-09-26) |
 | CI/CD | [Argo Workflows](https://argoproj.github.io/argo-workflows/) | DAG pipeline orchestration |
 | GitOps | [Argo CD](https://argo-cd.readthedocs.io) | Declarative cluster state from git |
 | Tests | [behave](https://behave.readthedocs.io) | BDD suites, from [`frostyard/testsuite`](https://github.com/frostyard/testsuite) |

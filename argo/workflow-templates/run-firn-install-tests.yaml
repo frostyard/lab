@@ -141,7 +141,7 @@ spec:
         CELL="${FAMILY}/${IMAGE}/${ENC}/sb=${SECUREBOOT}"
         echo "=== firn install matrix cell: ${CELL} ===" >&2
         apt-get update -qq
-        apt-get install -y -qq --no-install-recommends ca-certificates curl >/dev/null
+        apt-get install -y -qq --no-install-recommends ca-certificates curl python3 >/dev/null
         if [[ "${SECUREBOOT}" == "true" ]]; then
           # virt-fw-vars enrolls the snosi MOK into the guest varstore under
           # Secure Boot: ab pre-seeds it before install (mok = "skip"); bootc
@@ -317,6 +317,10 @@ spec:
           -c "security.secureboot=${SECUREBOOT}" \
           -c "limits.cpu=${VM_CPUS}" -c "limits.memory=${VM_MEMORY}" \
           -d "root,size=${TARGET_DISK_SIZE}"
+        POOL="$(incus query "/1.0/instances/${VM}" | python3 -c 'import json,sys; pool=json.load(sys.stdin)["expanded_devices"]["root"]["pool"]; print(pool) if isinstance(pool,str) and pool else sys.exit("Incus root pool must be a non-empty string")')" \
+          || { echo "Could not resolve Incus root pool for ${VM}" >&2; exit 1; }
+        [[ "${POOL}" =~ ^[A-Za-z0-9._-]+$ ]] \
+          || { echo "Invalid Incus root pool: ${POOL}" >&2; exit 1; }
         incus config device add "${VM}" vtpm tpm
         incus config device add "${VM}" installer disk \
           source="${ISO_PATH}" boot.priority=10 readonly=true
@@ -331,7 +335,7 @@ spec:
           incus start "${VM}"
           NVRAM=""
           for _ in $(seq 1 30); do
-            candidate="/var/lib/incus/storage-pools/lab/virtual-machines/${VM}/qemu.nvram"
+            candidate="/var/lib/incus/storage-pools/${POOL}/virtual-machines/${VM}/qemu.nvram"
             [[ -e "${candidate}" ]] && { NVRAM="${candidate}"; break; }
             sleep 2
           done
@@ -382,7 +386,7 @@ spec:
           [[ -d /src/snosi ]] || git clone -q --depth 1 https://github.com/frostyard/snosi.git /src/snosi
           MOK_CERT=/src/snosi/shared/native-ab/keys/mok-2026.crt
           [[ -f "${MOK_CERT}" ]] || { echo "MOK certificate missing from the snosi checkout" >&2; exit 1; }
-          NVRAM="/var/lib/incus/storage-pools/lab/virtual-machines/${VM}/qemu.nvram"
+          NVRAM="/var/lib/incus/storage-pools/${POOL}/virtual-machines/${VM}/qemu.nvram"
           [[ -e "${NVRAM}" ]] || { echo "guest varstore ${NVRAM} not found" >&2; exit 1; }
           MOK_GUID="$(python3 -c 'import uuid; print(uuid.uuid4())')"
           virt-fw-vars --inplace "${NVRAM}" --add-mok "${MOK_GUID}" "${MOK_CERT}" -d MokNew -d MokAuth \
