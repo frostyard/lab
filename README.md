@@ -171,6 +171,11 @@ getty), and the installed bootc image ref and digest. This is VM evidence,
 graphical login, encrypted unlock or upgrades. See
 [quality evidence limits](docs/quality.md#bootc-only-iso-install-evidence).
 
+Each `run-firn-install-tests` result line ends in `firn=<version>`, read from
+`firn --version` inside the installer VM. `firn=unknown` means the installer
+booted but printed no version; `firn=not_reached` means the run failed before
+the installer booted. The version is recorded, not judged.
+
 The firn ISO is published by snosi's `build-native-images.yml` (build-iso →
 promote-iso), installing `firn` from the `frostyard-firn` apt package (snosi
 PR #699 switched the published installer from `native-installer` to

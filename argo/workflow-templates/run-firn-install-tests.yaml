@@ -129,8 +129,9 @@ spec:
         }
         trap cleanup EXIT
 
+        FIRN_VERSION=not_reached   # replaced once the installer boots
         fail() {
-          printf '%s' "FAILED: $1:$2 (${CELL})" > /tmp/results/result-summary.txt
+          printf '%s' "FAILED: $1:$2 (${CELL}) firn=${FIRN_VERSION}" > /tmp/results/result-summary.txt
           exit 1
         }
 
@@ -206,6 +207,8 @@ spec:
         INSTALL_SH=$(cat <<SCRIPT
         #!/bin/bash
         exec > >(tee /dev/console /dev/ttyS0 2>/dev/null) 2>&1
+        # Record which Firn the installer ISO carries, so a run ties to a release.
+        echo "FIRN_QA__FIRN_VERSION=\$(firn --version 2>/dev/null | head -n 1 | tr -s ' ' '_' || true)"
         echo "${M_BEGIN}"
         set -x
         # Target = the one writable disk. The installer ISO is attached
@@ -314,6 +317,12 @@ spec:
           console_log | tail -n 400 >&2
           fail iso_boot timeout
         fi
+
+        # --- BEGIN firn-version ---
+        # Recorded, not judged. unknown = the installer printed no version.
+        FIRN_VERSION="$(console_log | tr -d '\r' | grep -aoE 'FIRN_QA__FIRN_VERSION=[^[:space:]]+' | tail -n 1 | cut -d= -f2- || true)"
+        FIRN_VERSION="${FIRN_VERSION:-unknown}"
+        # --- END firn-version ---
 
         echo "Installer running; waiting up to ${INSTALL_TIMEOUT}s..." >&2
         if ! wait_for "${M_OK}" "${INSTALL_TIMEOUT}" "install" "${M_FAIL}"; then
@@ -462,7 +471,7 @@ spec:
           bootc_digest="$(grep -m1 '^bootc_digest=' "${checks_file}" | cut -d= -f2- || true)"
           if [[ -z "${bootc_digest}" || "${bootc_digest}" == unknown ]]; then fail boot bootc_digest_unknown; fi
           if [[ "${bootc_digest}" != "${IMAGE_DIGEST}" ]]; then fail boot digest_mismatch; fi
-          printf '%s' "PASS: ${CELL} image=${bootc_image} digest=${bootc_digest}" > /tmp/results/result-summary.txt
+          printf '%s' "PASS: ${CELL} image=${bootc_image} digest=${bootc_digest} firn=${FIRN_VERSION}" > /tmp/results/result-summary.txt
           cat /tmp/results/result-summary.txt >&2
         }
         judge /tmp/results/checks.txt
