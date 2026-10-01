@@ -1,0 +1,47 @@
+# Manual bootc-only ISO install on minideb (10.0.1.175), never selfie.
+# Replace REPLACE_ISO_URL with the immutable installer ISO URL and
+# REPLACE_ISO_SHA256 with its checksum from SHA256SUMS authenticated by
+# SHA256SUMS.gpg (signer fpr F37282A35CB6BDFEBFC8FE775A2EAC5C8216FD68).
+# Replace each REPLACE_*_DIGEST with the product's sha256:<64 lowercase hex>
+# digest from `skopeo inspect`. Review the filled pins, then submit once:
+#   kubectl create -f argo/bootc-only-iso-install-test.yaml
+# Do not use kubectl apply for a generated-name Workflow.
+# Snowfield: untested and not part of this run.
+# VM evidence only, not hardware qualification.
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: bootc-only-iso-install-
+  namespace: argo
+  labels:
+    app.kubernetes.io/part-of: lab
+    snosi.io/trigger: manual
+spec:
+  serviceAccountName: argo
+  entrypoint: main
+  arguments:
+    parameters:
+      - { name: iso-url, value: REPLACE_ISO_URL }
+      - { name: iso-sha256, value: REPLACE_ISO_SHA256 }
+  activeDeadlineSeconds: 21600
+  templates:
+    - name: main
+      dag:
+        tasks:
+          - name: cell
+            withItems:
+              - { family: "bootc", product: "snow",   encryption: "none", secureboot: "true", image-digest: "REPLACE_SNOW_DIGEST" }
+              - { family: "bootc", product: "floe",   encryption: "none", secureboot: "true", image-digest: "REPLACE_FLOE_DIGEST" }
+              - { family: "bootc", product: "sundog", encryption: "none", secureboot: "true", image-digest: "REPLACE_SUNDOG_DIGEST" }
+            templateRef:
+              name: run-firn-install-tests
+              template: run-firn-install-tests
+            arguments:
+              parameters:
+                - { name: iso-url,      value: "{{workflow.parameters.iso-url}}" }
+                - { name: iso-sha256,   value: "{{workflow.parameters.iso-sha256}}" }
+                - { name: image-digest, value: "{{item.image-digest}}" }
+                - { name: family,       value: "{{item.family}}" }
+                - { name: image,        value: "{{item.product}}" }
+                - { name: encryption,   value: "{{item.encryption}}" }
+                - { name: secureboot,   value: "{{item.secureboot}}" }

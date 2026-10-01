@@ -58,6 +58,7 @@ def test_installer_pool_resolution_rejects_empty_or_unsafe_values(name, pool):
     # Run the actual manifest shell fragment, replacing only the external daemon.
     command = (
         'set -euo pipefail\nVM=test-vm\n'
+        'fail() { exit 1; }\n'
         'incus() { [[ "$1" == query && "$2" == "/1.0/instances/${VM}" ]] || return 1; '
         'printf "%s\\n" "$INSTANCE_JSON"; }\n'
         f'{resolution}\nprintf "resolved=%s\\n" "$POOL"\n'
@@ -87,6 +88,7 @@ def test_installer_pool_resolution_fails_when_root_device_is_missing(name):
     end = next(i for i in range(start, len(lines)) if lines[i].startswith('incus config device add '))
     command = (
         'set -euo pipefail\nVM=test-vm\n'
+        'fail() { exit 1; }\n'
         'incus() { printf "%s\\n" \'{"expanded_devices": {}}\'; }\n'
         + "\n".join(lines[start:end])
         + '\nprintf "unexpected continuation\\n"\n'
