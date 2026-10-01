@@ -145,33 +145,39 @@ artifact.
 | `run-incus-disk-tests` | `snosi-disk-boot-test.yaml` | Fetches, signature-verifies and boots the published `*-ab.disk.raw.xz`. Green with Secure Boot off. |
 | `run-incus-install-tests` | `snosi-install-test.yaml` | **The native A/B installer** — partitioning, EROFS + dm-verity root, LUKS `/var`, TPM enrollment. |
 | `run-incus-bootc-install-tests` | `snosi-bootc-install-test.yaml` | **The bootc mechanics tier** — direct `bootc install to-disk` of a `secureboot-capable=false` mechanics image, then a real bootc host. |
-| `run-firn-install-tests` | `firn-install-test.yaml` | **The firn install matrix** — `firn`, the single installer (core ADR-0027/0028), driven from its ISO across a fan-out of (family × image × encryption × secure-boot) cells, each from nothing to installed-and-booted. |
+| `run-firn-install-tests` | `firn-install-test.yaml`, `bootc-only-iso-install-test.yaml` | **The bootc firn install lanes** — a pinned installer ISO installs to a blank virtual disk; the guest then boots under the selected Secure Boot and encryption settings. |
 
-#### The firn install matrix
+#### The bootc firn install lanes
 
-`firn` replaces both fisherman (bootc) and snosi-install (native A/B) as the one
-snosi installer. This lane is its analogue of the native-install lane, but a
-**matrix**: one `run-firn-install-tests` invocation is a single cell (`family`,
-`image`, `encryption`, `secureboot`), and `firn-install-test.yaml` fans out a
-representative 12-cell set with `withItems`. It generates a recipe TOML per cell
-in the guest, drives `firn install <recipe> --confirm <disk> --json-progress`,
-then boots the result — for encrypted cells, **booting is the unlock proof**.
-Cells serialize on the `snosi-vm-qa` semaphore (one VM at a time), so the full
-matrix runs back-to-back; trim the `withItems` list for a smoke run.
+`firn` is the single snosi installer (core ADR-0027/0028). The runner accepts
+only bootc recipes; the A/B family was removed from this firn lane. One
+`run-firn-install-tests` invocation is a cell (`family=bootc`, `image`,
+`encryption`, `secureboot`). `firn-install-test.yaml` fans out six bootc cells
+with `withItems`: floe, snow and snowfield across selected auto-unlockable
+encryption and Secure Boot settings. It generates a recipe TOML per cell,
+drives `firn install <recipe> --confirm <disk> --json-progress` against a fresh
+blank virtual disk, then boots the result. For encrypted cells, **booting is
+the unlock proof**. Cells serialize on the `snosi-vm-qa` semaphore (one VM at
+a time), so the matrix runs back-to-back.
 
-The matrix covers every bootc encryption mode (`none`, `luks-passphrase`,
-`tpm2-luks`, `tpm2-luks-passphrase`) and every ab mode (`none`, `luks`,
-`tpm2-luks`), Secure Boot on and off in both families (ab pre-seeds the snosi
-MOK into the guest varstore, exactly as the native lane does), floe + snow
-throughout, snowfield once. The `bootc × tpm2-luks*` cells are the point: they
-exercise the encrypted-boot unlock firn ADR-0012 installed but left unproven.
+`bootc-only-iso-install-test.yaml` is a narrower manual run: snow, floe and
+sundog, all unencrypted with Secure Boot on. Snowfield is untested in this
+submit file by decision; its presence in the broader matrix does not make it
+evidence for this run. On minideb (10.0.1.175), never selfie, a passing cell
+proves a fresh ISO-to-blank-virtual-disk install, the Secure Boot MOK chain,
+first boot to an active getty on tty1, and the installed bootc image ref and
+digest. This is VM evidence, **not hardware qualification**; it does not prove
+graphical login, encrypted unlock or upgrades. See
+[quality evidence limits](docs/quality.md#bootc-only-iso-install-evidence).
 
 The firn ISO is published by snosi's `build-native-images.yml` (build-iso →
 promote-iso), installing `firn` from the `frostyard-firn` apt package (snosi
 PR #699 switched the published installer from `native-installer` to
-`firn-installer`). `iso-url` points at the `snosi-installer-latest` alias; the
-A/B `pubring-path` is `/usr/lib/snosi/os-update-pubring.gpg` (shipped by the
-firn-installer mkosi).
+`firn-installer`). Both submit files require an immutable ISO URL and lowercase
+SHA-256 from the signed `SHA256SUMS.gpg` index, plus product-specific bootc
+digests from `skopeo inspect`; replace every `REPLACE_*` placeholder before
+submitting with `kubectl create -f`, not `apply`. A moving `-latest-` ISO is
+not a pin and cannot establish which installer bytes were exercised.
 
 The three installer lanes are the ones that matter most. Booting an image tests
 an artifact; only running an installer tests the thing that *creates* the

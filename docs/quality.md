@@ -60,6 +60,26 @@ and installer workflows provide separate, non-continuous evidence.
    details without inferring a cause. Route reproduced product findings to the
    relevant snosi/firn owner rather than changing those repos here.
 
+## Bootc-only ISO install evidence
+
+The [manual submit file](../argo/bootc-only-iso-install-test.yaml) runs on
+minideb (10.0.1.175), never selfie. It covers snow, floe and sundog bootc
+with `encryption=none` and `secureboot=true`; Snowfield is untested by
+decision. The broader [firn matrix](../argo/firn-install-test.yaml) retains
+other bootc cells but no A/B family: A/B is removed from this runner's scope.
+Each run needs the immutable ISO URL and its lowercase SHA-256 checked against
+the signed ISO index, and a product-specific image digest; placeholders are
+not evidence and must be replaced before submission. The cells share the
+`snosi-vm-qa` semaphore, so installs do not contend for the VM host.
+
+A passing cell demonstrates a fresh install to a blank virtual disk, the
+Secure Boot MOK chain through installed boot, first boot to an active tty1
+getty after multi-user startup, and the installed bootc ref and digest.
+`FAILED: <step>:<code> (<cell>)` identifies the failing stage; a `PASS` names
+the cell, image ref and digest. Neither a passing VM nor offline contract
+tests qualify hardware, graphical login, encrypted unlock or upgrades. No
+run or pass is claimed by the submit file alone.
+
 ## Manual Snow bootc lifecycle evidence
 
 The [manual Snow bootc WorkflowTemplate](../argo/workflow-templates/run-snow-bootc-lifecycle.yaml)

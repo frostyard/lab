@@ -1,5 +1,5 @@
 # Submit file: the firn install matrix — drive `firn install` unattended in a
-# VM across a representative set of (family x image x encryption x secure-boot)
+# VM across a representative set of (image x encryption x secure-boot)
 # cells, then boot each result and assert it came up.
 #
 #   kubectl create -f argo/firn-install-test.yaml
@@ -13,24 +13,20 @@
 # (one VM at a time), so the full matrix runs back-to-back — budget hours, not
 # minutes. Trim the list for a quick smoke run.
 #
-# Matrix (10 active cells): the AUTO-UNLOCKABLE encryption modes -- none,
-# tpm2-luks, tpm2-luks-passphrase (all TPM auto-unlock) -- for both families,
-# floe + snow + snowfield, Secure Boot on/off. Interactive-unlock modes (ab
-# `luks`, bootc `luks-passphrase`) are held out: they prompt for a key/passphrase
+# Matrix (6 active bootc cells): the auto-unlockable encryption modes -- none,
+# tpm2-luks, tpm2-luks-passphrase -- across floe, snow and snowfield,
+# Secure Boot on/off. Interactive `luks-passphrase` is held out: it prompts
 # at boot, which an unattended lab cannot answer, so they can never pass here
 # (see the INTERACTIVE-UNLOCK notes by the cells). The bootc x tpm2-luks cells
 # are the highest-value ones: "installed AND booted" exercises the encrypted-boot
-# unlock firn ADR-0012 left unproven. The /var filesystem defaults to ext4;
-# the run-firn-install-tests `varfs` axis switches ab cells to btrfs to
-# exercise snosi PR #705 (firn ADR-0013) -- validated via a one-off run.
+# unlock firn ADR-0012 left unproven. The ab family was removed from this lane.
 #
 # bootc + Secure Boot IS in the active matrix as of 2026-08-12: firn implements
 # secure-install schema-1 (ADR-0014) -- it stages the shim -> MOK-signed
 # systemd-boot -> MokManager ESP chain and runs mokutil. The lane completes
 # enrollment host-side after install (virt-fw-vars --add-mok + clear MokNew),
 # the MokManager keypress stand-in. This is NOT a pre-seed masquerade: the boot
-# only succeeds if the staged chain is firn's, so a green is real. The ab MOK
-# pre-seed (mok = "skip") is likewise legitimate -- ab installs stage no chain.
+# only succeeds if the staged chain is firn's, so a green is real.
 apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
@@ -42,7 +38,11 @@ metadata:
 spec:
   serviceAccountName: argo
   entrypoint: main
-  # 12 cells serialized on the VM semaphore; allow a full day.
+  arguments:
+    parameters:
+      - name: iso-url
+      - name: iso-sha256
+  # Six cells serialized on the VM semaphore; allow a full day.
   activeDeadlineSeconds: 86400
   templates:
     - name: main
@@ -52,10 +52,12 @@ spec:
             withItems:
               # `product` is the image axis (floe|snow|snowfield); named to
               # avoid the manifest test's `image:`-key = container heuristic.
+              # Replace each product's placeholder with its pinned bootc digest
+              # before submission; invalid placeholders fail parameter validation.
               # --- bootc: auto-unlockable encryption modes, Secure Boot OFF ---
-              - { family: "bootc", product: "floe",      encryption: "none",                 secureboot: "false" }
-              - { family: "bootc", product: "floe",      encryption: "tpm2-luks",            secureboot: "false" }
-              - { family: "bootc", product: "snow",      encryption: "tpm2-luks",            secureboot: "false" }
+              - { family: "bootc", product: "floe",      encryption: "none",                 secureboot: "false", image-digest: "REPLACE_FLOE_DIGEST" }
+              - { family: "bootc", product: "floe",      encryption: "tpm2-luks",            secureboot: "false", image-digest: "REPLACE_FLOE_DIGEST" }
+              - { family: "bootc", product: "snow",      encryption: "tpm2-luks",            secureboot: "false", image-digest: "REPLACE_SNOW_DIGEST" }
               # INTERACTIVE-UNLOCK (not runnable unattended): luks-passphrase
               # prompts for the LUKS passphrase at every boot by design (firn
               # roadmap: "luks-passphrase still prompts interactively at boot").
@@ -69,26 +71,17 @@ spec:
               # MokNew) -- the MokManager keypress stand-in, NOT a pre-seed. The
               # boot only succeeds if the staged chain is firn's, so a green is
               # real (firn ADR-0014; proven for this path 2026-08-12).
-              - { family: "bootc", product: "snow",      encryption: "none",                 secureboot: "true"  }
-              - { family: "bootc", product: "snow",      encryption: "tpm2-luks-passphrase", secureboot: "true"  }
-              - { family: "bootc", product: "snowfield", encryption: "tpm2-luks-passphrase", secureboot: "true"  }
-              # --- ab: auto-unlockable encryption modes, SB on and off (MOK when on) ---
-              - { family: "ab",    product: "floe",      encryption: "none",                 secureboot: "false" }
-              - { family: "ab",    product: "floe",      encryption: "tpm2-luks",            secureboot: "true"  }
-              - { family: "ab",    product: "snow",      encryption: "tpm2-luks",            secureboot: "true"  }
-              - { family: "ab",    product: "snow",      encryption: "none",                 secureboot: "true"  }
-              # INTERACTIVE-UNLOCK (not runnable unattended): ab `luks` gives
-              # /var a randomly generated recovery key and no TPM, so the
-              # installed system prompts for that key at boot (confirmed
-              # 2026-08-12: cell hung at "Please enter passphrase for disk
-              # var"). The key is unknown to the lab, so unlike the known
-              # -passphrase value it cannot even be injected. Held out:
-              #   { family: "ab", product: "snow", encryption: "luks", secureboot: "false" }
+              - { family: "bootc", product: "snow",      encryption: "none",                 secureboot: "true", image-digest: "REPLACE_SNOW_DIGEST" }
+              - { family: "bootc", product: "snow",      encryption: "tpm2-luks-passphrase", secureboot: "true", image-digest: "REPLACE_SNOW_DIGEST" }
+              - { family: "bootc", product: "snowfield", encryption: "tpm2-luks-passphrase", secureboot: "true", image-digest: "REPLACE_SNOWFIELD_DIGEST" }
             templateRef:
               name: run-firn-install-tests
               template: run-firn-install-tests
             arguments:
               parameters:
+                - { name: iso-url,    value: "{{workflow.parameters.iso-url}}" }
+                - { name: iso-sha256, value: "{{workflow.parameters.iso-sha256}}" }
+                - { name: image-digest, value: "{{item.image-digest}}" }
                 - { name: family,     value: "{{item.family}}" }
                 - { name: image,      value: "{{item.product}}" }
                 - { name: encryption, value: "{{item.encryption}}" }

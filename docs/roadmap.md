@@ -31,7 +31,7 @@ under [ADR-0011](adr/0011-product-poll-qa-evidence-is-rostered-and-fresh.md).
 | ISO boot, Secure Boot enforced | 🟢 |
 | bootc installer (mechanics) | 🟢 — latest committed run `fkplf` |
 | **bootc secure installer** | ⚫ retired 2026-08-12 — superseded by the firn install matrix (core ADR-0027/0028); was red on assembly-compatibility validation, first 18/18 green 2026-08-07 |
-| firn installer matrix | 🟢 — latest run `firn-install-matrix-sz9rv`, all 10 cells green 2026-08-12 |
+| firn installer matrix | 🟢 historical — `firn-install-matrix-sz9rv`, all 10 cells green 2026-08-12, included native A/B cells since removed; the revised bootc-only matrix has not yet run |
 | Registry digest poll, orphan GC | 🟢 |
 
 **At that date the listed live lanes were green; the retired secure lane ended
