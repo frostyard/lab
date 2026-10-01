@@ -370,10 +370,29 @@ spec:
         else
           emit bootc absent
         fi
-        timeout 300 systemctl is-system-running --wait >/dev/null 2>&1 || true
-        LOGIN="\$(systemctl is-active getty@tty1.service 2>/dev/null || true)"
+        # --- BEGIN login-poll ---
+        LOGIN_WAIT_SECONDS=300
+        deadline=\$((SECONDS+LOGIN_WAIT_SECONDS))
+        LOGIN_UNIT=none
+        while :; do
+          DISPLAY_STATE="\$(timeout 10 systemctl is-active display-manager.service 2>/dev/null || true)"
+          LOGIN="\$(timeout 10 systemctl is-active getty@tty1.service 2>/dev/null || true)"
+          SERIAL="\$(timeout 10 systemctl is-active serial-getty@ttyS0.service 2>/dev/null || true)"
+          if [[ "\${DISPLAY_STATE}" == active ]]; then
+            LOGIN_UNIT=display-manager.service
+          elif [[ "\${LOGIN}" == active ]]; then
+            LOGIN_UNIT=getty@tty1.service
+          elif [[ "\${SERIAL}" == active ]]; then
+            LOGIN_UNIT=serial-getty@ttyS0.service
+          fi
+          if [[ "\${LOGIN_UNIT}" != none ]]; then LOGIN=active; break; fi
+          if (( SECONDS >= deadline )); then break; fi
+          sleep 2 || true
+        done
         emit login "\${LOGIN:-unknown}"
-        BOOTC_STATUS="\$(bootc status --json 2>/dev/null || true)"
+        emit login_unit "\${LOGIN_UNIT}"
+        # --- END login-poll ---
+        BOOTC_STATUS="\$(timeout 120 bootc status --json 2>/dev/null || true)"
         BOOTC_FIELDS="\$(printf '%s' "\${BOOTC_STATUS}" | python3 -c '
         import json, sys
         try:
@@ -401,6 +420,7 @@ spec:
         After=multi-user.target
         [Service]
         Type=oneshot
+        TimeoutStartSec=600
         RemainAfterExit=yes
         StandardOutput=journal+console
         StandardError=journal+console
