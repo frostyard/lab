@@ -75,7 +75,8 @@ not evidence and must be replaced before submission. The cells share the
 A passing cell demonstrates a fresh install to a blank virtual disk, the
 Secure Boot MOK chain through installed boot, first boot with a login prompt
 ready (display manager, tty1 getty or serial getty) after multi-user startup,
-and the installed bootc ref and digest.
+a btrfs root (directly, or a composefs overlay backed by a btrfs
+`/sysroot`), and the installed bootc ref and digest.
 `FAILED: <step>:<code> (<cell>) firn=<version>` identifies the failing stage;
 `PASS: <cell> image=<ref> digest=<digest> firn=<version>` names the cell,
 image ref and digest. The trailing version comes from `firn --version` in the

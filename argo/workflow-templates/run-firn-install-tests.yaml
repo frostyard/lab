@@ -372,6 +372,8 @@ spec:
         emit() { echo "${M_CHECK} \$1=\$2"; }
         emit booted ok
         emit rootfs "\$(findmnt -no FSTYPE / 2>/dev/null || echo unknown)"
+        # On a composefs bootc root, / is an overlay; the disk filesystem is /sysroot.
+        emit sysroot "\$(findmnt -no FSTYPE /sysroot 2>/dev/null || echo unknown)"
         emit osrelease "\$(. /etc/os-release 2>/dev/null; echo "\${IMAGE_ID:-unknown}")"
         if lsblk -o FSTYPE 2>/dev/null | grep -qi crypto_LUKS; then emit luks present; else emit luks absent; fi
         if command -v bootc >/dev/null 2>&1; then
@@ -462,7 +464,11 @@ spec:
           if [[ "${ENC}" != none ]]; then
             if ! grep -qx 'luks=present' "${checks_file}"; then fail boot luks_missing; fi
           fi
-          if ! grep -qx 'rootfs=btrfs' "${checks_file}"; then fail boot rootfs_mismatch; fi
+          # btrfs directly, or a composefs overlay whose backing /sysroot is btrfs.
+          if ! grep -qx 'rootfs=btrfs' "${checks_file}" \
+             && ! { grep -qx 'rootfs=overlay' "${checks_file}" && grep -qx 'sysroot=btrfs' "${checks_file}"; }; then
+            fail boot rootfs_mismatch
+          fi
           if ! grep -q '^bootc=[^[:space:]]\+$' "${checks_file}"; then fail boot bootc_absent; fi
           if grep -qx 'bootc=absent' "${checks_file}"; then fail boot bootc_absent; fi
           if ! grep -qx 'login=active' "${checks_file}"; then fail boot login_unavailable; fi

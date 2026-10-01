@@ -230,6 +230,10 @@ GOOD_CHECKS = (
     [
         ({}, f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST}"),
         ({"login_unit": "none"}, f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST}"),
+        ({"rootfs": "overlay", "sysroot": "btrfs"},
+         f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST}"),
+        ({"rootfs": "overlay", "sysroot": "ext4"}, "FAILED: boot:rootfs_mismatch (bootc/floe/none/sb=false)"),
+        ({"rootfs": "overlay"}, "FAILED: boot:rootfs_mismatch (bootc/floe/none/sb=false)"),
         ({"bootc_image": "unknown"}, "FAILED: boot:bootc_image_unknown (bootc/floe/none/sb=false)"),
         ({"bootc_digest": "sha256:" + "b" * 64}, "FAILED: boot:digest_mismatch (bootc/floe/none/sb=false)"),
         ({"login": "inactive"}, "FAILED: boot:login_unavailable (bootc/floe/none/sb=false)"),
@@ -279,7 +283,7 @@ def test_judge_checks_under_errexit(lane, tmp_path, change, expected):
     ("{}", "unknown", "unknown"),
 ])
 @pytest.mark.parametrize("bootc_present", [True, False])
-def test_guest_checks_report_bootc_status_and_missing_binary(lane, status, expected_image, expected_digest, bootc_present):
+def test_guest_checks_report_bootc_status_sysroot_and_missing_binary(lane, status, expected_image, expected_digest, bootc_present):
     source = lane["script"]["source"]
     creation = source[source.index("CHECK_SH=$(cat <<SCRIPT"):source.index("\nC_B64=", source.index("CHECK_SH=$(cat <<SCRIPT"))]
     script = """set -euo pipefail
@@ -287,7 +291,7 @@ M_CHECK=FIRN_QA__CHECK; M_DONE=FIRN_QA__CHECKS_DONE
 IMAGE=floe
 systemctl() { printf active; }
 timeout() { shift; "$@"; }
-findmnt() { printf btrfs; }
+findmnt() { if [[ "${@: -1}" == /sysroot ]]; then printf btrfs; else printf overlay; fi; }
 lsblk() { return 0; }
 bootc() { if [[ "$1" == --version ]]; then printf 'bootc 1.0'; else printf '%s' "$STATUS"; fi; }
 """ + ("" if bootc_present else 'command() { if [[ "$2" == bootc ]]; then return 1; fi; builtin command "$@"; }\n') + creation + "\n" + 'printf "%s" "$CHECK_SH"'
@@ -302,6 +306,8 @@ bootc() { if [[ "$1" == --version ]]; then printf 'bootc 1.0'; else printf '%s' 
     assert f"FIRN_QA__CHECK bootc_image={expected_image}" in guest.stdout
     assert f"FIRN_QA__CHECK bootc_digest={expected_digest}" in guest.stdout
     assert f"FIRN_QA__CHECK bootc={'bootc_1.0' if bootc_present else 'absent'}" in guest.stdout
+    assert "FIRN_QA__CHECK rootfs=overlay" in guest.stdout
+    assert "FIRN_QA__CHECK sysroot=btrfs" in guest.stdout
 
 
 def test_guest_check_login_poll_has_safe_unit_budget(lane):
