@@ -73,8 +73,9 @@ not evidence and must be replaced before submission. The cells share the
 `snosi-vm-qa` semaphore, so installs do not contend for the VM host.
 
 A passing cell demonstrates a fresh install to a blank virtual disk, the
-Secure Boot MOK chain through installed boot, first boot to an active tty1
-getty after multi-user startup, and the installed bootc ref and digest.
+Secure Boot MOK chain through installed boot, first boot with a login prompt
+ready (display manager, tty1 getty or serial getty) after multi-user startup,
+and the installed bootc ref and digest.
 `FAILED: <step>:<code> (<cell>)` identifies the failing stage; a `PASS` names
 the cell, image ref and digest. Neither a passing VM nor offline contract
 tests qualify hardware, graphical login, encrypted unlock or upgrades. No

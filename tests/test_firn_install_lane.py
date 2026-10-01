@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import hashlib
 import json
+import re
 
 import pytest
 import yaml
@@ -159,6 +160,7 @@ GOOD_CHECKS = (
     ("change", "expected"),
     [
         ({}, f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST}"),
+        ({"login_unit": "none"}, f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST}"),
         ({"bootc_image": "unknown"}, "FAILED: boot:bootc_image_unknown (bootc/floe/none/sb=false)"),
         ({"bootc_digest": "sha256:" + "b" * 64}, "FAILED: boot:digest_mismatch (bootc/floe/none/sb=false)"),
         ({"login": "inactive"}, "FAILED: boot:login_unavailable (bootc/floe/none/sb=false)"),
@@ -214,7 +216,8 @@ def test_guest_checks_report_bootc_status_and_missing_binary(lane, status, expec
     script = """set -euo pipefail
 M_CHECK=FIRN_QA__CHECK; M_DONE=FIRN_QA__CHECKS_DONE
 IMAGE=floe
-systemctl() { if [[ "$1" == is-system-running ]]; then return 0; fi; printf active; }
+systemctl() { printf active; }
+timeout() { shift; "$@"; }
 findmnt() { printf btrfs; }
 lsblk() { return 0; }
 bootc() { if [[ "$1" == --version ]]; then printf 'bootc 1.0'; else printf '%s' "$STATUS"; fi; }
@@ -226,9 +229,87 @@ bootc() { if [[ "$1" == --version ]]; then printf 'bootc 1.0'; else printf '%s' 
     guest = subprocess.run(["bash", "-c", script.split(creation)[0] + generated],
                            env={**os.environ, "STATUS": status}, capture_output=True, text=True, check=True)
     assert f"FIRN_QA__CHECK login=active" in guest.stdout
+    assert "FIRN_QA__CHECK login_unit=display-manager.service" in guest.stdout
     assert f"FIRN_QA__CHECK bootc_image={expected_image}" in guest.stdout
     assert f"FIRN_QA__CHECK bootc_digest={expected_digest}" in guest.stdout
     assert f"FIRN_QA__CHECK bootc={'bootc_1.0' if bootc_present else 'absent'}" in guest.stdout
+
+
+def test_guest_check_login_poll_has_safe_unit_budget(lane):
+    source = lane["script"]["source"]
+    check = source.split("CHECK_SH=$(cat <<SCRIPT\n", 1)[1].split("\nSCRIPT", 1)[0]
+    unit = source.split('CUNIT="[Unit]\n', 1)[1].split('"\n        CD=', 1)[0]
+    assert "is-system-running" not in check
+    for unit_name in ("display-manager.service", "getty@tty1.service", "serial-getty@ttyS0.service"):
+        assert f"timeout 10 systemctl is-active {unit_name}" in check
+    assert len(re.findall(r"systemctl is-active ", check)) == 3
+    assert r"timeout 120 bootc status --json" in check
+    assert len(re.findall(r"bootc status --json", check)) == 1
+    assert "LOGIN_WAIT_SECONDS=300" in check
+    assert r"deadline=\$((SECONDS+LOGIN_WAIT_SECONDS))" in check
+    assert r"SECONDS >= deadline" in check
+    budget = re.search(r"^TimeoutStartSec=(\d+)$", unit, re.MULTILINE)
+    assert budget is not None
+    # One last iteration may begin just before the deadline (three 10s calls),
+    # followed by up to 120s for bootc status and additional startup margin.
+    assert 300 + 3 * 10 + 120 + 10 < int(budget.group(1))
+
+
+@pytest.mark.parametrize("display,getty,serial,bound,expected,login_unit,iterations", [
+    ("inactive,inactive,active", "inactive", "inactive", 300, "active", "display-manager.service", 3),
+    ("active", "inactive", "active", 300, "active", "display-manager.service", 1),
+    ("inactive", "active", "active", 300, "active", "getty@tty1.service", 1),
+    ("inactive", "inactive", "active", 300, "active", "serial-getty@ttyS0.service", 1),
+    ("inactive", "inactive,inactive,inactive", "inactive", 4, "inactive", "none", 3),
+    ("inactive", "empty", "inactive", 0, "unknown", "none", 1),
+])
+def test_guest_login_poll_reports_final_state_without_hanging(
+    lane, tmp_path, display, getty, serial, bound, expected, login_unit, iterations,
+):
+    source = lane["script"]["source"]
+    creation = source[source.index("CHECK_SH=$(cat <<SCRIPT"):source.index("\nC_B64=", source.index("CHECK_SH=$(cat <<SCRIPT"))]
+    generated = subprocess.run(
+        ["bash", "-c", 'M_CHECK=FIRN_QA__CHECK; M_DONE=FIRN_QA__CHECKS_DONE\n' + creation + '\nprintf "%s" "$CHECK_SH"'],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    poll = generated.split("# --- BEGIN login-poll ---\n", 1)[1].split("# --- END login-poll ---", 1)[0]
+    poll = poll.replace("LOGIN_WAIT_SECONDS=300", f"LOGIN_WAIT_SECONDS={bound}")
+    script = (
+        'set -euo pipefail\nM_CHECK=FIRN_QA__CHECK\n'
+        'emit() { echo "$M_CHECK $1=$2"; }\n'
+        'timeout() { shift; "$@"; }\n'
+        'systemctl() {\n'
+        '  [[ "$1" == is-active ]] || return 2\n'
+        '  mapfile -t calls < "$CALLS"\n'
+        '  index=$((${#calls[@]} / 3))\n'
+        '  printf "%s\\n" "$2" >> "$CALLS"\n'
+        '  case "$2" in\n'
+        '    display-manager.service) responses=$DISPLAY_STATES ;;\n'
+        '    getty@tty1.service) responses=$GETTY_STATES ;;\n'
+        '    serial-getty@ttyS0.service) responses=$SERIAL_STATES ;;\n'
+        '    *) return 2 ;;\n'
+        '  esac\n'
+        '  IFS=, read -ra states <<< "$responses"\n'
+        '  if (( index >= ${#states[@]} )); then index=$((${#states[@]} - 1)); fi\n'
+        '  [[ "${states[$index]}" != empty ]] || return 1\n'
+        '  printf "%s\\n" "${states[$index]}"\n'
+        '  [[ "${states[$index]}" == active ]]\n'
+        '}\n'
+        'sleep() { [[ "$1" == 2 ]] || return 2; SECONDS=$((SECONDS + 2)); }\n'
+        + poll
+    )
+    call_log = tmp_path / "calls"
+    call_log.write_text("")
+    result = subprocess.run(["bash", "-c", script], env={**os.environ, "DISPLAY_STATES": display,
+                       "GETTY_STATES": getty, "SERIAL_STATES": serial, "CALLS": str(call_log)},
+                            capture_output=True, text=True, check=False, timeout=5)
+    assert result.returncode == 0, result.stderr
+    assert f"FIRN_QA__CHECK login={expected}" in result.stdout
+    assert f"FIRN_QA__CHECK login_unit={login_unit}" in result.stdout
+    assert call_log.read_text().splitlines() == [
+        unit for _ in range(iterations)
+        for unit in ("display-manager.service", "getty@tty1.service", "serial-getty@ttyS0.service")
+    ]
 
 
 @pytest.mark.parametrize("console,code", [
