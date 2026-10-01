@@ -77,9 +77,12 @@ Secure Boot MOK chain through installed boot, first boot with a login prompt
 ready (display manager, tty1 getty or serial getty) after multi-user startup,
 a btrfs root (directly, or a composefs overlay backed by a btrfs
 `/sysroot`), and the installed bootc ref and digest.
-`FAILED: <step>:<code> (<cell>)` identifies the failing stage; a `PASS` names
-the cell, image ref, digest and the Firn version the installer ISO reported
-(`unknown` when it reported none, which does not fail the cell). Neither a passing VM nor offline contract
+`FAILED: <step>:<code> (<cell>) firn=<version>` identifies the failing stage;
+`PASS: <cell> image=<ref> digest=<digest> firn=<version>` names the cell,
+image ref and digest. The trailing version comes from `firn --version` in the
+installer VM; `unknown` means it booted but printed no version, and
+`not_reached` means the run failed before installer boot. It is recorded, not
+judged. Neither a passing VM nor offline contract
 tests qualify hardware, graphical login, encrypted unlock or upgrades. No
 run or pass is claimed by the submit file alone.
 
