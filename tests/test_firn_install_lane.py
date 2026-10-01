@@ -150,8 +150,8 @@ def test_verified_iso_is_promoted_before_vm_creation(lane, tmp_path, cached):
 EXPECTED_DIGEST = "sha256:" + "a" * 64
 EXPECTED_IMAGE = "ghcr.io/frostyard/floe:latest"
 GOOD_CHECKS = (
-    "booted=ok\nrootfs=btrfs\nosrelease=floe\nluks=absent\n"
-    f"bootc=bootc_1.0\nlogin=active\nbootc_image={EXPECTED_IMAGE}\n"
+    "booted=ok\nrootfs=overlay\nsysroot=btrfs\nosrelease=floe\nluks=absent\n"
+    f"firn_version=firn_0.6.0\nbootc=bootc_1.0\nlogin=active\nbootc_image={EXPECTED_IMAGE}\n"
     f"bootc_digest={EXPECTED_DIGEST}\n"
 )
 
@@ -159,8 +159,17 @@ GOOD_CHECKS = (
 @pytest.mark.parametrize(
     ("change", "expected"),
     [
-        ({}, f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST}"),
-        ({"login_unit": "none"}, f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST}"),
+        ({}, f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST} firn=firn_0.6.0"),
+        ({"login_unit": "none"}, f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST} firn=firn_0.6.0"),
+        # A plain btrfs root (no composefs overlay) is still accepted.
+        ({"rootfs": "btrfs", "sysroot": None},
+         f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST} firn=firn_0.6.0"),
+        # The Firn version is recorded, not judged: unknown is visible but not a failure.
+        ({"firn_version": None},
+         f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST} firn=unknown"),
+        ({"sysroot": "ext4"}, "FAILED: boot:rootfs_mismatch (bootc/floe/none/sb=false)"),
+        ({"sysroot": None}, "FAILED: boot:rootfs_mismatch (bootc/floe/none/sb=false)"),
+        ({"rootfs": "ext4", "sysroot": "btrfs"}, "FAILED: boot:rootfs_mismatch (bootc/floe/none/sb=false)"),
         ({"bootc_image": "unknown"}, "FAILED: boot:bootc_image_unknown (bootc/floe/none/sb=false)"),
         ({"bootc_digest": "sha256:" + "b" * 64}, "FAILED: boot:digest_mismatch (bootc/floe/none/sb=false)"),
         ({"login": "inactive"}, "FAILED: boot:login_unavailable (bootc/floe/none/sb=false)"),
@@ -218,7 +227,7 @@ M_CHECK=FIRN_QA__CHECK; M_DONE=FIRN_QA__CHECKS_DONE
 IMAGE=floe
 systemctl() { printf active; }
 timeout() { shift; "$@"; }
-findmnt() { printf btrfs; }
+findmnt() { if [[ "${@: -1}" == /sysroot ]]; then printf btrfs; else printf overlay; fi; }
 lsblk() { return 0; }
 bootc() { if [[ "$1" == --version ]]; then printf 'bootc 1.0'; else printf '%s' "$STATUS"; fi; }
 """ + ("" if bootc_present else 'command() { if [[ "$2" == bootc ]]; then return 1; fi; builtin command "$@"; }\n') + creation + "\n" + 'printf "%s" "$CHECK_SH"'
@@ -233,6 +242,8 @@ bootc() { if [[ "$1" == --version ]]; then printf 'bootc 1.0'; else printf '%s' 
     assert f"FIRN_QA__CHECK bootc_image={expected_image}" in guest.stdout
     assert f"FIRN_QA__CHECK bootc_digest={expected_digest}" in guest.stdout
     assert f"FIRN_QA__CHECK bootc={'bootc_1.0' if bootc_present else 'absent'}" in guest.stdout
+    assert "FIRN_QA__CHECK rootfs=overlay" in guest.stdout
+    assert "FIRN_QA__CHECK sysroot=btrfs" in guest.stdout
 
 
 def test_guest_check_login_poll_has_safe_unit_budget(lane):
@@ -471,8 +482,8 @@ def test_mok_uuid_failure_uses_fail_helper(lane, tmp_path):
 
 def test_console_collection_preserves_underscore_check_keys(lane, tmp_path):
     source = lane["script"]["source"]
-    collect = source[source.index('console_log | grep -aoE "${M_CHECK}'):
-                     source.index('echo "--- post-install checks ---"')]
+    collect = source[source.index("# --- BEGIN collect-checks ---"):
+                     source.index("# --- END collect-checks ---")]
     result = subprocess.run(
         ["bash", "-c", 'set -euo pipefail\nM_CHECK=FIRN_QA__CHECK\n'
          + 'console_log() { printf "%s\\n" "FIRN_QA__CHECK bootc_image=ghcr.io/frostyard/floe:latest" '
@@ -482,5 +493,31 @@ def test_console_collection_preserves_underscore_check_keys(lane, tmp_path):
     )
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "checks.txt").read_text() == (
-        "bootc_digest=sha256:aaa\nbootc_image=ghcr.io/frostyard/floe:latest\n"
+        "bootc_digest=sha256:aaa\nbootc_image=ghcr.io/frostyard/floe:latest\nfirn_version=unknown\n"
     )
+
+
+def test_installer_reports_firn_version_before_install(lane):
+    source = lane["script"]["source"]
+    install = source.split("INSTALL_SH=$(cat <<SCRIPT\n", 1)[1].split("\nSCRIPT", 1)[0]
+    version = install.index("FIRN_QA__FIRN_VERSION=")
+    assert "firn --version" in install[version:install.index("\n", version)]
+    assert version < install.index("if firn install")
+
+
+@pytest.mark.parametrize("console,expected", [
+    ("noise\nFIRN_QA__FIRN_VERSION=firn_0.6.0\r\nFIRN_QA__INSTALL_OK", "firn_0.6.0"),
+    ("FIRN_QA__INSTALL_OK", "unknown"),
+])
+def test_firn_version_is_collected_into_checks(lane, tmp_path, console, expected):
+    source = lane["script"]["source"]
+    capture = source[source.index("# --- BEGIN firn-version ---"):source.index("# --- END firn-version ---")]
+    collect = source[source.index("# --- BEGIN collect-checks ---"):source.index("# --- END collect-checks ---")]
+    script = ('set -euo pipefail\nM_CHECK=FIRN_QA__CHECK\n'
+              'console_log() { printf "%b\\n" "$CONSOLE"; }\n'
+              + capture + '\nCONSOLE="FIRN_QA__CHECK booted=ok"\n'
+              + collect.replace("/tmp/results", str(tmp_path)))
+    result = subprocess.run(["bash", "-c", script], env={**os.environ, "CONSOLE": console},
+                            capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "checks.txt").read_text().splitlines() == ["booted=ok", f"firn_version={expected}"]

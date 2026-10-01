@@ -166,7 +166,10 @@ submit file by decision; its presence in the broader matrix does not make it
 evidence for this run. On minideb (10.0.1.175), never selfie, a passing cell
 proves a fresh ISO-to-blank-virtual-disk install, the Secure Boot MOK chain,
 first boot with a login prompt ready (display manager, tty1 getty or serial
-getty), and the installed bootc image ref and digest. This is VM evidence,
+getty), a btrfs root (directly, or under a composefs overlay whose
+`/sysroot` is btrfs), and the installed bootc image ref and digest. The
+result line also records the Firn version the installer reported
+(`firn=unknown` if it printed none; recorded, not judged). This is VM evidence,
 **not hardware qualification**; it does not prove
 graphical login, encrypted unlock or upgrades. See
 [quality evidence limits](docs/quality.md#bootc-only-iso-install-evidence).

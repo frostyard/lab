@@ -207,6 +207,8 @@ spec:
         #!/bin/bash
         exec > >(tee /dev/console /dev/ttyS0 2>/dev/null) 2>&1
         echo "${M_BEGIN}"
+        # Record which Firn the installer ISO carries, so a run ties to a release.
+        echo "FIRN_QA__FIRN_VERSION=\$(firn --version 2>/dev/null | head -n 1 | tr -s ' ' '_' || true)"
         set -x
         # Target = the one writable disk. The installer ISO is attached
         # read-only, so it is RO=1 (or a rom) and excluded.
@@ -326,6 +328,10 @@ spec:
           fail install timeout
         fi
         echo "Install reported success." >&2
+        # --- BEGIN firn-version ---
+        # Read now: the installer console is gone once the VM restarts.
+        FIRN_VERSION="$(console_log | tr -d '\r' | grep -aoE 'FIRN_QA__FIRN_VERSION=[^[:space:]]+' | tail -n 1 | cut -d= -f2- || true)"
+        # --- END firn-version ---
 
         # ── boot what was installed ──────────────────────────────────────────
         # Detach the ISO so firmware falls through to the freshly written ESP.
@@ -363,6 +369,8 @@ spec:
         emit() { echo "${M_CHECK} \$1=\$2"; }
         emit booted ok
         emit rootfs "\$(findmnt -no FSTYPE / 2>/dev/null || echo unknown)"
+        # On a composefs bootc root, / is an overlay; the disk filesystem is /sysroot.
+        emit sysroot "\$(findmnt -no FSTYPE /sysroot 2>/dev/null || echo unknown)"
         emit osrelease "\$(. /etc/os-release 2>/dev/null; echo "\${IMAGE_ID:-unknown}")"
         if lsblk -o FSTYPE 2>/dev/null | grep -qi crypto_LUKS; then emit luks present; else emit luks absent; fi
         if command -v bootc >/dev/null 2>&1; then
@@ -439,21 +447,27 @@ spec:
           fail boot no_report
         fi
 
+        # --- BEGIN collect-checks ---
         # `|| true` is load-bearing (pipefail + set -e): see the native lane.
-        console_log | grep -aoE "${M_CHECK} [a-z_]+=[^[:space:]]+" | sed "s/${M_CHECK} //" | sort -u \
-          > /tmp/results/checks.txt || true
+        { console_log | grep -aoE "${M_CHECK} [a-z_]+=[^[:space:]]+" | sed "s/${M_CHECK} //" || true
+          echo "firn_version=${FIRN_VERSION:-unknown}"; } | sort -u > /tmp/results/checks.txt || true
+        # --- END collect-checks ---
         echo "--- post-install checks ---" >&2
         cat /tmp/results/checks.txt >&2
 
         # ── judge: fixed order; first failing check wins ──
         judge() {
-          local checks_file="$1" bootc_image bootc_digest
+          local checks_file="$1" bootc_image bootc_digest firn_version
           if ! grep -qx 'booted=ok' "${checks_file}"; then fail boot no_report; fi
           if ! grep -qx "osrelease=${IMAGE}" "${checks_file}"; then fail boot wrong_image; fi
           if [[ "${ENC}" != none ]]; then
             if ! grep -qx 'luks=present' "${checks_file}"; then fail boot luks_missing; fi
           fi
-          if ! grep -qx 'rootfs=btrfs' "${checks_file}"; then fail boot rootfs_mismatch; fi
+          # btrfs directly, or a composefs overlay whose backing /sysroot is btrfs.
+          if ! grep -qx 'rootfs=btrfs' "${checks_file}" \
+             && ! { grep -qx 'rootfs=overlay' "${checks_file}" && grep -qx 'sysroot=btrfs' "${checks_file}"; }; then
+            fail boot rootfs_mismatch
+          fi
           if ! grep -q '^bootc=[^[:space:]]\+$' "${checks_file}"; then fail boot bootc_absent; fi
           if grep -qx 'bootc=absent' "${checks_file}"; then fail boot bootc_absent; fi
           if ! grep -qx 'login=active' "${checks_file}"; then fail boot login_unavailable; fi
@@ -462,7 +476,8 @@ spec:
           bootc_digest="$(grep -m1 '^bootc_digest=' "${checks_file}" | cut -d= -f2- || true)"
           if [[ -z "${bootc_digest}" || "${bootc_digest}" == unknown ]]; then fail boot bootc_digest_unknown; fi
           if [[ "${bootc_digest}" != "${IMAGE_DIGEST}" ]]; then fail boot digest_mismatch; fi
-          printf '%s' "PASS: ${CELL} image=${bootc_image} digest=${bootc_digest}" > /tmp/results/result-summary.txt
+          firn_version="$(grep -m1 '^firn_version=' "${checks_file}" | cut -d= -f2- || true)"
+          printf '%s' "PASS: ${CELL} image=${bootc_image} digest=${bootc_digest} firn=${firn_version:-unknown}" > /tmp/results/result-summary.txt
           cat /tmp/results/result-summary.txt >&2
         }
         judge /tmp/results/checks.txt
