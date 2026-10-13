@@ -14,7 +14,8 @@
 # The secret is in place (created 2026-08-07), the hardened script was proven
 # end to end by a manual run that pushed 988ec16 and triggered a green Pages
 # deploy, so this is now active. If the credential is ever removed, the script
-# exits 0 at its own guard rather than failing every 30 minutes.
+# fails at its own guard (exit 1) so the missing credential shows up as a Failed
+# run instead of a silent Succeeded.
 apiVersion: argoproj.io/v1alpha1
 kind: CronWorkflow
 metadata:
@@ -52,8 +53,10 @@ spec:
                 secretKeyRef:
                   name: github-token
                   key: token
-                  # optional so a missing secret is a clean skip rather than a
-                  # pod that will not start
+                  # optional so a missing secret still starts the pod and hits
+                  # the script's guard, which exits non-zero with a clear
+                  # message. Without it the pod sits in
+                  # CreateContainerConfigError until the deadline.
                   optional: true
             - name: DEBIAN_FRONTEND
               value: noninteractive
@@ -68,9 +71,9 @@ spec:
             set -euo pipefail
 
             if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-              echo "No github-token secret in the argo namespace; nothing to publish." >&2
+              echo "ERROR: github-token secret (key: token) is missing or empty in the argo namespace; cannot publish." >&2
               echo "See the comment at the top of manifests/publish-results.yaml." >&2
-              exit 0
+              exit 1
             fi
 
             apt-get update -qq
