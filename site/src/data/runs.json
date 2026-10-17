@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-17T17:30:19Z",
+  "generated": "2026-10-17T18:00:49Z",
   "lanes": [
     {
       "laneKey": "run-firn-install-tests",
@@ -63,9 +63,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1792258200",
+        "name": "publish-results-1792260000",
         "phase": "Running",
-        "started": "2026-10-17T17:30:00Z",
+        "started": "2026-10-17T18:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -104,6 +104,29 @@
         ]
       },
       "runs": 1,
+      "everGreen": false
+    },
+    {
+      "laneKey": "image-poll-snow-latest",
+      "template": "image-poller",
+      "label": "Registry digest poll",
+      "kind": "poll",
+      "latest": {
+        "name": "image-poll-snow-latest-1792260000",
+        "phase": "Succeeded",
+        "started": "2026-10-17T18:00:00Z",
+        "finished": "2026-10-17T18:00:20Z",
+        "durationSeconds": 20,
+        "template": "image-poller",
+        "laneKey": "image-poll-snow-latest",
+        "qaOutcome": "not-run",
+        "kind": "poll",
+        "label": "Registry digest poll",
+        "trigger": "scheduled",
+        "result": null,
+        "checks": []
+      },
+      "runs": 4,
       "everGreen": false
     },
     {
@@ -151,38 +174,45 @@
       },
       "runs": 3,
       "everGreen": false
-    },
-    {
-      "laneKey": "image-poll-snow-latest",
-      "template": "image-poller",
-      "label": "Registry digest poll",
-      "kind": "poll",
-      "latest": {
-        "name": "image-poll-snow-latest-1792238400",
-        "phase": "Succeeded",
-        "started": "2026-10-17T12:00:00Z",
-        "finished": "2026-10-17T12:00:20Z",
-        "durationSeconds": 20,
-        "template": "image-poller",
-        "laneKey": "image-poll-snow-latest",
-        "qaOutcome": "not-run",
-        "kind": "poll",
-        "label": "Registry digest poll",
-        "trigger": "scheduled",
-        "result": null,
-        "checks": []
-      },
-      "runs": 4,
-      "everGreen": false
     }
   ],
   "runs": [
     {
-      "name": "publish-results-1792258200",
+      "name": "image-poll-snow-latest-1792260000",
+      "phase": "Succeeded",
+      "started": "2026-10-17T18:00:00Z",
+      "finished": "2026-10-17T18:00:20Z",
+      "durationSeconds": 20,
+      "template": "image-poller",
+      "laneKey": "image-poll-snow-latest",
+      "qaOutcome": "not-run",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1792260000",
       "phase": "Running",
-      "started": "2026-10-17T17:30:00Z",
+      "started": "2026-10-17T18:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1792258200",
+      "phase": "Succeeded",
+      "started": "2026-10-17T17:30:00Z",
+      "finished": "2026-10-17T17:30:32Z",
+      "durationSeconds": 32,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -233,21 +263,6 @@
       "qaOutcome": "not-run",
       "kind": "poll",
       "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1792240200",
-      "phase": "Succeeded",
-      "started": "2026-10-17T12:30:00Z",
-      "finished": "2026-10-17T12:30:30Z",
-      "durationSeconds": 30,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
       "trigger": "scheduled",
       "result": null,
       "checks": []
@@ -383,21 +398,6 @@
       "qaOutcome": "unknown",
       "kind": "maintenance",
       "label": "Orphan pod GC",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "image-poll-snow-latest-1792216800",
-      "phase": "Succeeded",
-      "started": "2026-10-17T06:00:00Z",
-      "finished": "2026-10-17T06:00:20Z",
-      "durationSeconds": 20,
-      "template": "image-poller",
-      "laneKey": "image-poll-snow-latest",
-      "qaOutcome": "not-run",
-      "kind": "poll",
-      "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": null,
       "checks": []
