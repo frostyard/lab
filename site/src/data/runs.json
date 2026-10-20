@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-20T04:30:17Z",
+  "generated": "2026-10-20T05:00:18Z",
   "lanes": [
     {
       "laneKey": "run-firn-install-tests",
@@ -63,9 +63,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1792470600",
+        "name": "publish-results-1792472400",
         "phase": "Running",
-        "started": "2026-10-20T04:30:00Z",
+        "started": "2026-10-20T05:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -178,11 +178,26 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1792470600",
+      "name": "publish-results-1792472400",
       "phase": "Running",
-      "started": "2026-10-20T04:30:00Z",
+      "started": "2026-10-20T05:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1792470600",
+      "phase": "Succeeded",
+      "started": "2026-10-20T04:30:00Z",
+      "finished": "2026-10-20T04:30:31Z",
+      "durationSeconds": 31,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -263,21 +278,6 @@
       "qaOutcome": "not-run",
       "kind": "poll",
       "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1792465200",
-      "phase": "Succeeded",
-      "started": "2026-10-20T03:00:00Z",
-      "finished": "2026-10-20T03:00:32Z",
-      "durationSeconds": 32,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
       "trigger": "scheduled",
       "result": null,
       "checks": []
