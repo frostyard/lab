@@ -72,7 +72,7 @@ Classify a proposed change by its highest applicable risk before editing:
 | Risk | Examples | Required evidence |
 | --- | --- | --- |
 | Low | Documentation or comments with no operational effect | Link and formatting checks |
-| Medium | Tests, reporting UI, observer logic, or non-privileged tooling | Targeted tests and relevant CI |
+| Medium | Tests, reporting UI, or non-privileged tooling | Targeted tests and relevant CI |
 | High | Argo or Kubernetes desired state, workflow permissions, secrets, image selection, result publication, privileged execution, or safety-gate changes | Threat and failure analysis, least-privilege review, positive and negative validation, and maintainer approval |
 
 Use the higher class when uncertain. Reassess if scope expands or a

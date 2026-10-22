@@ -14,9 +14,8 @@ latest state of each test lane and recent runs, including duration, trigger,
 result summary, and lane-specific checks. The collector reads Argo directly,
 so new workflow lanes appear without a separate reporting integration.
 
-Hive does not currently publish a public metrics surface. Its dashboard is
-internal; see [`hive/README.md`](../../hive/README.md) for the current
-deployment and security posture.
+Hive now runs as a hosted service outside this repository; lab no longer
+carries its deployment, and Hive publishes no public metrics surface here.
 
 ## Pull request acceptance
 

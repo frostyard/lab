@@ -7,7 +7,7 @@ pull request. A small diff is not necessarily low risk.
 | Tier | Typical changes | Required review and evidence |
 | --- | --- | --- |
 | Low | Documentation, comments, or formatting with no operational effect | Author review plus relevant link or formatting checks |
-| Medium | Tests, reporting UI, observer logic, dependencies, or non-privileged tooling | Targeted tests, relevant CI, and maintainer review |
+| Medium | Tests, reporting UI, dependencies, or non-privileged tooling | Targeted tests, relevant CI, and maintainer review |
 | High | Argo or Kubernetes desired state, Argo CD ownership, RBAC, workflow permissions, secret references, image selection, result publication, destructive operations, or safety-gate changes | Maintainer approval, threat and failure analysis, least-privilege review, positive and negative validation, and a rollback plan |
 
 ## Classification rules
