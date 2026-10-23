@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-23T01:00:17Z",
+  "generated": "2026-10-23T01:30:16Z",
   "lanes": [
     {
       "laneKey": "run-firn-install-tests",
@@ -19,6 +19,7 @@
         "label": "firn installer matrix",
         "trigger": "manual",
         "result": "FAILED: boot:rootfs_mismatch (bootc/snow/none/sb=true)",
+        "digest": null,
         "checks": [
           "bootc=bootc_1.16.8",
           "bootc_digest=sha256:a8b4a633beb1135b6c16c0c071b567076da65fc722cc3a4e2f7953ec0bad9c6f",
@@ -32,7 +33,8 @@
         ]
       },
       "runs": 2,
-      "everGreen": false
+      "everGreen": false,
+      "qaRun": null
     },
     {
       "laneKey": "orphan-pod-gc",
@@ -52,10 +54,12 @@
         "label": "Orphan pod GC",
         "trigger": "scheduled",
         "result": null,
+        "digest": null,
         "checks": []
       },
       "runs": 3,
-      "everGreen": true
+      "everGreen": true,
+      "qaRun": null
     },
     {
       "laneKey": "publish",
@@ -63,9 +67,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1792717200",
+        "name": "publish-results-1792719000",
         "phase": "Running",
-        "started": "2026-10-23T01:00:00Z",
+        "started": "2026-10-23T01:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -75,10 +79,12 @@
         "label": "publish",
         "trigger": "scheduled",
         "result": null,
+        "digest": null,
         "checks": []
       },
       "runs": 4,
-      "everGreen": true
+      "everGreen": true,
+      "qaRun": null
     },
     {
       "laneKey": "run-snow-bootc-lifecycle",
@@ -98,13 +104,15 @@
         "label": "run-snow-bootc-lifecycle",
         "trigger": "scheduled",
         "result": "FAILED: install_failed:firn_install:unknown:step_failed",
+        "digest": null,
         "checks": [
           "manifest_sha256=bc4128fcd6cbfc0669da668aa0a928401e0fa7b6f266eb0fd91cbb85187c448a",
           "tag=before-install timestamp=2026-09-26T10:49:21.360729+00:00"
         ]
       },
       "runs": 1,
-      "everGreen": false
+      "everGreen": false,
+      "qaRun": null
     },
     {
       "laneKey": "image-poll-snowfield-latest",
@@ -119,15 +127,21 @@
         "durationSeconds": 20,
         "template": "image-poller",
         "laneKey": "image-poll-snowfield-latest",
-        "qaOutcome": "not-run",
+        "qaOutcome": "carried",
         "kind": "poll",
         "label": "Registry digest poll",
         "trigger": "scheduled",
         "result": null,
+        "digest": "sha256:cc8d26b3ca0a3327ae1850b1d2c81b8c4902dd059b434a1405d59c087b06d909",
         "checks": []
       },
       "runs": 4,
-      "everGreen": true
+      "everGreen": true,
+      "qaRun": {
+        "name": "image-poll-snowfield-latest-1792705200",
+        "finished": "2026-10-22T21:41:44Z",
+        "result": "20 passed"
+      }
     },
     {
       "laneKey": "image-poll-floe-latest",
@@ -142,15 +156,21 @@
         "durationSeconds": 20,
         "template": "image-poller",
         "laneKey": "image-poll-floe-latest",
-        "qaOutcome": "not-run",
+        "qaOutcome": "carried",
         "kind": "poll",
         "label": "Registry digest poll",
         "trigger": "scheduled",
         "result": null,
+        "digest": "sha256:186733309d47d5ea01b4f74f3627a3051d14248df656fde7fc4909d5f61e17d2",
         "checks": []
       },
       "runs": 3,
-      "everGreen": true
+      "everGreen": true,
+      "qaRun": {
+        "name": "image-poll-floe-latest-1792704000",
+        "finished": "2026-10-22T21:21:38Z",
+        "result": "14 passed, 6 skipped"
+      }
     },
     {
       "laneKey": "image-poll-snow-latest",
@@ -165,22 +185,28 @@
         "durationSeconds": 20,
         "template": "image-poller",
         "laneKey": "image-poll-snow-latest",
-        "qaOutcome": "not-run",
+        "qaOutcome": "carried",
         "kind": "poll",
         "label": "Registry digest poll",
         "trigger": "scheduled",
         "result": null,
+        "digest": "sha256:b5ceaa7ac7e7f2a7c68050f9288317527d53116dffdbd1d6af0993148b9184ca",
         "checks": []
       },
       "runs": 4,
-      "everGreen": true
+      "everGreen": true,
+      "qaRun": {
+        "name": "image-poll-snow-latest-1792702800",
+        "finished": "2026-10-22T21:01:55Z",
+        "result": "20 passed"
+      }
     }
   ],
   "runs": [
     {
-      "name": "publish-results-1792717200",
+      "name": "publish-results-1792719000",
       "phase": "Running",
-      "started": "2026-10-23T01:00:00Z",
+      "started": "2026-10-23T01:30:00Z",
       "finished": null,
       "durationSeconds": null,
       "template": "publish",
@@ -190,6 +216,23 @@
       "label": "publish",
       "trigger": "scheduled",
       "result": null,
+      "digest": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1792717200",
+      "phase": "Succeeded",
+      "started": "2026-10-23T01:00:00Z",
+      "finished": "2026-10-23T01:00:30Z",
+      "durationSeconds": 30,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": null,
       "checks": []
     },
     {
@@ -200,11 +243,12 @@
       "durationSeconds": 20,
       "template": "image-poller",
       "laneKey": "image-poll-snowfield-latest",
-      "qaOutcome": "not-run",
+      "qaOutcome": "carried",
       "kind": "poll",
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": null,
+      "digest": "sha256:cc8d26b3ca0a3327ae1850b1d2c81b8c4902dd059b434a1405d59c087b06d909",
       "checks": []
     },
     {
@@ -220,6 +264,7 @@
       "label": "publish",
       "trigger": "scheduled",
       "result": null,
+      "digest": null,
       "checks": []
     },
     {
@@ -230,11 +275,12 @@
       "durationSeconds": 20,
       "template": "image-poller",
       "laneKey": "image-poll-floe-latest",
-      "qaOutcome": "not-run",
+      "qaOutcome": "carried",
       "kind": "poll",
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": null,
+      "digest": "sha256:186733309d47d5ea01b4f74f3627a3051d14248df656fde7fc4909d5f61e17d2",
       "checks": []
     },
     {
@@ -250,6 +296,7 @@
       "label": "Orphan pod GC",
       "trigger": "scheduled",
       "result": null,
+      "digest": null,
       "checks": []
     },
     {
@@ -260,11 +307,12 @@
       "durationSeconds": 20,
       "template": "image-poller",
       "laneKey": "image-poll-snow-latest",
-      "qaOutcome": "not-run",
+      "qaOutcome": "carried",
       "kind": "poll",
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": null,
+      "digest": "sha256:b5ceaa7ac7e7f2a7c68050f9288317527d53116dffdbd1d6af0993148b9184ca",
       "checks": []
     },
     {
@@ -280,21 +328,7 @@
       "label": "publish",
       "trigger": "scheduled",
       "result": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1792711800",
-      "phase": "Succeeded",
-      "started": "2026-10-22T23:30:00Z",
-      "finished": "2026-10-22T23:30:35Z",
-      "durationSeconds": 35,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
+      "digest": null,
       "checks": []
     },
     {
@@ -310,6 +344,7 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "20 passed",
+      "digest": "sha256:cc8d26b3ca0a3327ae1850b1d2c81b8c4902dd059b434a1405d59c087b06d909",
       "checks": []
     },
     {
@@ -325,6 +360,7 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "14 passed, 6 skipped",
+      "digest": "sha256:186733309d47d5ea01b4f74f3627a3051d14248df656fde7fc4909d5f61e17d2",
       "checks": []
     },
     {
@@ -340,6 +376,7 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "20 passed",
+      "digest": "sha256:b5ceaa7ac7e7f2a7c68050f9288317527d53116dffdbd1d6af0993148b9184ca",
       "checks": []
     },
     {
@@ -355,6 +392,7 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "20 passed",
+      "digest": "sha256:72919cd1f745144e7ac2791873af8947973f0f08ec855660e32b76307ec1207a",
       "checks": []
     },
     {
@@ -370,6 +408,7 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "14 passed, 6 skipped",
+      "digest": "sha256:e881bb1a92dc60e239de709620e67cd8f1cdd0742990e5e951d80c7ffdb5f2ba",
       "checks": []
     },
     {
@@ -385,6 +424,7 @@
       "label": "Orphan pod GC",
       "trigger": "scheduled",
       "result": null,
+      "digest": null,
       "checks": []
     },
     {
@@ -400,6 +440,7 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "20 passed",
+      "digest": "sha256:d4c6d2fc263a1f2178bbf536e5a48b8962bc7025809eebe0dfb48e4fe8eccadd",
       "checks": []
     },
     {
@@ -415,6 +456,7 @@
       "label": "Orphan pod GC",
       "trigger": "scheduled",
       "result": null,
+      "digest": null,
       "checks": []
     },
     {
@@ -430,6 +472,7 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "19 passed, 1 failed",
+      "digest": "sha256:2f542144df6253c75685911bc8897ca0af429eeb58f9a70affa5e7f0149e0e25",
       "checks": []
     },
     {
@@ -445,6 +488,7 @@
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": "19 passed, 1 failed",
+      "digest": "sha256:8e231f188562c9414b46fbf054908f2cb04a6f90b0bc1e9e3926aa568719b9c2",
       "checks": []
     },
     {
@@ -460,6 +504,7 @@
       "label": "firn installer matrix",
       "trigger": "manual",
       "result": "FAILED: boot:rootfs_mismatch (bootc/snow/none/sb=true)",
+      "digest": null,
       "checks": [
         "bootc=bootc_1.16.8",
         "bootc_digest=sha256:a8b4a633beb1135b6c16c0c071b567076da65fc722cc3a4e2f7953ec0bad9c6f",
@@ -485,6 +530,7 @@
       "label": "firn installer matrix",
       "trigger": "manual",
       "result": "FAILED: boot:no_report (bootc/snow/none/sb=true)",
+      "digest": null,
       "checks": []
     },
     {
@@ -500,6 +546,7 @@
       "label": "run-snow-bootc-lifecycle",
       "trigger": "scheduled",
       "result": "FAILED: install_failed:firn_install:unknown:step_failed",
+      "digest": null,
       "checks": [
         "manifest_sha256=bc4128fcd6cbfc0669da668aa0a928401e0fa7b6f266eb0fd91cbb85187c448a",
         "tag=before-install timestamp=2026-09-26T10:49:21.360729+00:00"
