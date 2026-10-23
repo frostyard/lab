@@ -27,13 +27,13 @@ test('summarises the lanes from runs.json', async ({ page }) => {
     await expect(page.locator('.table-card')).toHaveCount(0);
   }
 
-  const expectedLanes = lanes.filter((lane) => lane.template !== 'image-poller').length + 3;
+  const expectedLanes = lanes.filter((lane) => lane.template !== 'image-poller').length + 4;
   await expect(page.locator('.stat').filter({ hasText: 'Lanes' }).locator('strong')).toHaveText(
     String(expectedLanes),
   );
   await expect(page.locator('.cards .card')).toHaveCount(expectedLanes);
   const cards = page.locator('.cards .card');
-  for (const product of ['snow', 'floe', 'snowfield']) {
+  for (const product of ['snow', 'floe', 'snowfield', 'sundog']) {
     const card = cards.filter({ has: page.locator('.card-head .name', { hasText: `${product} · Registry digest poll` }) });
     await expect(card).toHaveCount(1);
     if ((data.runs ?? []).length === 0) {
@@ -45,14 +45,14 @@ test('summarises the lanes from runs.json', async ({ page }) => {
     await expect(page.locator('.card.table-card')).toBeVisible();
   } else {
     await expect(page.locator('.stat').filter({ hasText: 'Runs' }).locator('strong')).toHaveText('0');
-    await expect(page.locator('.stat').filter({ hasText: 'Unknown / stale evidence' }).locator('strong')).toHaveText('3 / 0');
+    await expect(page.locator('.stat').filter({ hasText: 'Unknown / stale evidence' }).locator('strong')).toHaveText('4 / 0');
   }
 });
 
 test('rendered product runs distinguish workflow phase from verified QA', async ({ page }) => {
   const productRows = (data.runs ?? []).slice(0, 40)
     .map((run, index) => ({ run, index }))
-    .filter(({ run }) => /^image-poll-(snow|floe|snowfield)-latest-/.test(run.name));
+    .filter(({ run }) => /^image-poll-(snow|floe|snowfield|sundog)-latest-/.test(run.name));
   test.skip(productRows.length === 0, 'no product runs among the 40 rendered rows; roster checked separately');
   await page.goto('/lab/');
   const rows = page.locator('.table-card tbody tr');

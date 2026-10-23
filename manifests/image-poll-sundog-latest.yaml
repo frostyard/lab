@@ -1,0 +1,43 @@
+# CronWorkflow: poll ghcr.io/frostyard/sundog:latest.
+#
+# sundog is the KDE Plasma desktop image. It runs 50 minutes off the snow lane,
+# so it does not share a registry pull with the other lanes, and not at :00 or
+# :30, when publish-results collects.
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: image-poll-sundog-latest
+  namespace: argo
+  labels:
+    app.kubernetes.io/part-of: lab
+    snosi.io/trigger: digest-poll
+spec:
+  suspend: false
+  schedules:
+    - "50 */3 * * *"
+  timezone: "UTC"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  workflowSpec:
+    serviceAccountName: argo
+    podGC:
+      strategy: OnWorkflowSuccess
+    ttlStrategy:
+      secondsAfterSuccess: 604800
+      secondsAfterFailure: 2592000
+    workflowTemplateRef:
+      name: image-poller
+    arguments:
+      parameters:
+        - name: image
+          value: "ghcr.io/frostyard/sundog"
+        - name: image-tag
+          value: "latest"
+        - name: image-digest
+          value: ""
+        - name: state-key
+          value: "digest-sundog-latest"
+        - name: suites
+          value: "smoke"
+        - name: variant
+          value: "sundog"

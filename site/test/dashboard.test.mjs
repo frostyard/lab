@@ -6,7 +6,7 @@ import * as dashboard from '../src/dashboard.mjs';
 const { duration, laneLabel, laneState, legacyProductLanes, productLanes, stampOf, state, when } = dashboard;
 
 const generated = '2026-09-24T23:30:17Z';
-const roster = ['snow', 'floe', 'snowfield'].map((product) => `image-poll-${product}-latest`);
+const roster = ['snow', 'floe', 'snowfield', 'sundog'].map((product) => `image-poll-${product}-latest`);
 
 test('dashboard product roster matches image-poll CronWorkflow manifest names', () => {
   const manifestDir = new URL('../../manifests/', import.meta.url);
@@ -64,15 +64,15 @@ test('missing roster entry is unknown, with no invented run', () => {
   assert.equal(laneState(lanes[2], generated), 'unknown');
 });
 
-test('empty published snapshot shows three unknown product lanes with no retained evidence', () => {
+test('empty published snapshot shows four unknown product lanes with no retained evidence', () => {
   const lanes = dashboard.displayLanes({ generated, lanes: [], runs: [] });
   assert.deepEqual(lanes.map((lane) => lane.laneKey), roster);
-  assert.deepEqual(lanes.map((lane) => lane.runs), [0, 0, 0]);
-  assert.deepEqual(lanes.map((lane) => lane.latest), [null, null, null]);
-  assert.deepEqual(lanes.map((lane) => laneState(lane, generated)), ['unknown', 'unknown', 'unknown']);
-  assert.deepEqual(lanes.map((lane) => laneLabel(lane, generated)), ['no poll record', 'no poll record', 'no poll record']);
+  assert.deepEqual(lanes.map((lane) => lane.runs), [0, 0, 0, 0]);
+  assert.deepEqual(lanes.map((lane) => lane.latest), [null, null, null, null]);
+  assert.deepEqual(lanes.map((lane) => laneState(lane, generated)), ['unknown', 'unknown', 'unknown', 'unknown']);
+  assert.deepEqual(lanes.map((lane) => laneLabel(lane, generated)), ['no poll record', 'no poll record', 'no poll record', 'no poll record']);
   assert.deepEqual(dashboard.productEvidenceCounts(lanes, generated), {
-    passed: 0, failed: 0, unknown: 3, stale: 0,
+    passed: 0, failed: 0, unknown: 4, stale: 0,
   });
 });
 
@@ -117,7 +117,7 @@ test('product evidence counts include old failure as failed and stale, not curre
     poll('floe', 'Succeeded', 'passed', '2026-09-08T21:20:00Z'),
   ], generated);
   assert.deepEqual(dashboard.productEvidenceCounts(lanes, generated), {
-    passed: 0, failed: 1, unknown: 1, stale: 2,
+    passed: 0, failed: 1, unknown: 2, stale: 2,
   });
   assert.equal(laneState(lanes[1], generated), 'stale');
   assert.equal(laneLabel(lanes[1], generated), 'stale');
@@ -146,8 +146,8 @@ test('legacy mixed image-poller history exposes each product without claiming ve
     { name: 'image-poll-snowfield-latest-1', phase: 'Running', started: '2026-09-08T18:40:00Z', template: 'image-poller' },
   ];
   const lanes = productLanes(legacyProductLanes(runs), generated);
-  assert.deepEqual(lanes.map((lane) => lane.latest.name), [runs[1].name, runs[0].name, runs[2].name]);
-  assert.deepEqual(lanes.map((lane) => laneState(lane, generated)), ['unknown', 'unknown', 'stale']);
+  assert.deepEqual(lanes.map((lane) => lane.latest?.name), [runs[1].name, runs[0].name, runs[2].name, undefined]);
+  assert.deepEqual(lanes.map((lane) => laneState(lane, generated)), ['unknown', 'unknown', 'stale', 'unknown']);
 });
 
 test('legacy-shaped snapshot separates product polls without promoting summary text to QA evidence', () => {
@@ -155,13 +155,13 @@ test('legacy-shaped snapshot separates product polls without promoting summary t
   const displayLanes = dashboard.displayLanes(data);
   const products = displayLanes.filter((lane) => roster.includes(lane.laneKey));
   assert.deepEqual(products.map((lane) => lane.laneKey), roster);
-  assert.deepEqual(products.map((lane) => lane.latest.phase), ['Failed', 'Succeeded', 'Running']);
-  assert.deepEqual(products.map((lane) => lane.runs), [1, 1, 1]);
-  assert.deepEqual(products.map((lane) => laneState(lane, data.generated)), ['unknown', 'unknown', 'stale']);
+  assert.deepEqual(products.map((lane) => lane.latest?.phase), ['Failed', 'Succeeded', 'Running', undefined]);
+  assert.deepEqual(products.map((lane) => lane.runs), [1, 1, 1, 0]);
+  assert.deepEqual(products.map((lane) => laneState(lane, data.generated)), ['unknown', 'unknown', 'stale', 'unknown']);
   assert.deepEqual(products.map((lane) => laneLabel(lane, data.generated)),
-    ['QA unknown (legacy)', 'QA unknown (legacy)', 'QA unknown (legacy; stale evidence)']);
+    ['QA unknown (legacy)', 'QA unknown (legacy)', 'QA unknown (legacy; stale evidence)', 'no poll record']);
   assert.deepEqual(dashboard.productEvidenceCounts(displayLanes, data.generated), {
-    passed: 0, failed: 0, unknown: 3, stale: 1,
+    passed: 0, failed: 0, unknown: 4, stale: 1,
   });
 });
 
@@ -190,6 +190,47 @@ test('proven lanes retain their latest phase and state', () => {
 
   assert.equal(laneState(lane), 'danger');
   assert.equal(laneLabel(lane), 'Failed');
+});
+
+test('carried poll is a fresh pass labelled by its digest', () => {
+  const lane = poll('sundog', 'Succeeded', 'carried');
+  lane.latest.digest = `sha256:${'a'.repeat(64)}`;
+  assert.equal(laneState(lane, generated), 'ok');
+  assert.equal(laneLabel(lane, generated), 'QA passed (digest unchanged)');
+  assert.deepEqual(dashboard.productEvidenceCounts([lane], generated), {
+    passed: 1, failed: 0, unknown: 0, stale: 0,
+  });
+});
+
+test('stale carried poll is stale, not green', () => {
+  const lane = poll('snowfield', 'Succeeded', 'carried', '2026-09-08T21:00:00Z');
+  lane.latest.digest = `sha256:${'a'.repeat(64)}`;
+  assert.equal(laneState(lane, generated), 'stale');
+  assert.equal(laneLabel(lane, generated), 'stale');
+  assert.deepEqual(dashboard.productEvidenceCounts([lane], generated), {
+    passed: 0, failed: 0, unknown: 0, stale: 1,
+  });
+});
+
+test('snapshot freshness uses the viewer clock with a two-hour limit', () => {
+  const now = Date.parse('2026-09-24T23:30:00Z');
+  assert.equal(dashboard.SNAPSHOT_STALE_MS, 2 * 60 * 60 * 1000);
+  assert.equal(dashboard.snapshotStale('2026-09-24T22:30:00Z', now), false);
+  assert.equal(dashboard.snapshotStale('2026-09-24T21:30:00Z', now), false);
+  assert.equal(dashboard.snapshotStale('2026-09-24T21:29:59Z', now), true);
+  assert.equal(dashboard.snapshotStale(undefined, now), true);
+  assert.equal(dashboard.snapshotStale(null, now), true);
+  assert.equal(dashboard.snapshotStale('not-a-date', now), true);
+  assert.equal(dashboard.snapshotStale('2026-09-24T23:34:00Z', now), false);
+  assert.equal(dashboard.snapshotStale('2026-09-24T23:36:00Z', now), true);
+});
+
+test('snapshot age text is short and readable', () => {
+  const now = Date.parse('2026-09-24T23:30:00Z');
+  assert.equal(dashboard.snapshotAgeText('2026-09-24T20:20:00Z', now), '3 h 10 min');
+  assert.equal(dashboard.snapshotAgeText('2026-09-24T21:30:00Z', now), '2 h');
+  assert.equal(dashboard.snapshotAgeText('2026-09-24T23:05:00Z', now), '25 min');
+  assert.equal(dashboard.snapshotAgeText('not-a-date', now), 'unknown');
 });
 
 test('duration formats seconds, minutes, hours, and missing values', () => {

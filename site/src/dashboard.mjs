@@ -7,7 +7,7 @@ export function state(phase) {
   return 'warn';
 }
 
-export const PRODUCTS = ['snow', 'floe', 'snowfield'];
+export const PRODUCTS = ['snow', 'floe', 'snowfield', 'sundog'];
 const productKey = (name) => PRODUCTS.map((p) => `image-poll-${p}-latest`)
   .find((key) => name === key || name?.startsWith(`${key}-`));
 
@@ -63,6 +63,35 @@ export function staleEvidence(lane, generated) {
   return age !== null && age > 6 * 60 * 60 * 1000;
 }
 
+// The page shows a snapshot by the viewer's clock, not only the collector's:
+// publication can stop while the lab still looks healthy in the stored data.
+export const SNAPSHOT_STALE_MS = 2 * 60 * 60 * 1000;
+export const SNAPSHOT_FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
+
+function snapshotAge(generated, nowMs) {
+  const then = Date.parse(generated);
+  if (!Number.isFinite(then) || !Number.isFinite(nowMs)) return null;
+  return nowMs - then;
+}
+
+export function snapshotStale(generated, nowMs = Date.now()) {
+  const age = snapshotAge(generated, nowMs);
+  if (age === null) return true;
+  if (age < -SNAPSHOT_FUTURE_TOLERANCE_MS) return true;
+  return age > SNAPSHOT_STALE_MS;
+}
+
+export function snapshotAgeText(generated, nowMs = Date.now()) {
+  const age = snapshotAge(generated, nowMs);
+  if (age === null) return 'unknown';
+  const minutes = Math.max(0, Math.floor(age / 60000));
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours > 0) return rest > 0 ? `${hours} h ${rest} min` : `${hours} h`;
+  if (minutes > 0) return `${minutes} min`;
+  return 'less than 1 min';
+}
+
 // A non-product lane that has never succeeded is unproven rather than a
 // product finding. Product failures with actual QA evidence retain their red.
 export function laneState(lane, generated) {
@@ -71,7 +100,8 @@ export function laneState(lane, generated) {
     if (evidenceAge(lane, generated) === null) return 'unknown';
     if (lane.latest.qaOutcome === 'failed') return 'danger';
     if (staleEvidence(lane, generated)) return 'stale';
-    if (lane.latest.qaOutcome === 'passed') return 'ok';
+    // An unchanged-digest poll carries the last pass for that digest.
+    if (lane.latest.qaOutcome === 'passed' || lane.latest.qaOutcome === 'carried') return 'ok';
     return 'unknown';
   }
   if (lane.everGreen === false && state(lane.latest.phase) === 'danger') return 'unproven';
@@ -81,12 +111,14 @@ export function laneState(lane, generated) {
 export function laneLabel(lane, generated) {
   const status = laneState(lane, generated);
   if (productKey(lane.laneKey) || productOf(lane.latest)) {
-    if (status === 'ok') return 'QA passed';
+    if (status === 'ok') {
+      return lane.latest.qaOutcome === 'carried' ? 'QA passed (digest unchanged)' : 'QA passed';
+    }
     if (status === 'danger') return staleEvidence(lane, generated) ? 'QA failed (stale evidence)' : 'QA failed';
     if (!lane.latest) return 'no poll record';
     // The stale state keeps old passes from looking green, but age must not
     // erase whether this poll ever provided verifiable QA evidence.
-    if (status === 'stale' && lane.latest.qaOutcome === 'passed') return 'stale';
+    if (status === 'stale' && (lane.latest.qaOutcome === 'passed' || lane.latest.qaOutcome === 'carried')) return 'stale';
     const qa = !lane.latest.qaOutcome ? 'QA unknown (legacy)'
       : lane.latest.qaOutcome === 'not-run' ? 'QA not run' : 'QA unknown';
     if (status !== 'stale') return qa;
@@ -104,7 +136,7 @@ export function productEvidenceCounts(lanes, generated) {
     const status = laneState(lane, generated);
     if (status === 'ok') counts.passed++;
     if (status === 'danger') counts.failed++;
-    if (status === 'unknown' || (status === 'stale' && lane.latest.qaOutcome !== 'passed')) counts.unknown++;
+    if (status === 'unknown' || (status === 'stale' && lane.latest.qaOutcome !== 'passed' && lane.latest.qaOutcome !== 'carried')) counts.unknown++;
     if (staleEvidence(lane, generated)) counts.stale++;
   }
   return counts;
