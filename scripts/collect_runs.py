@@ -37,8 +37,12 @@ LANE_KINDS = {
     "orphan-pod-gc": ("maintenance", "Orphan pod GC"),
 }
 
-PRODUCT_POLLS = tuple(f"image-poll-{product}-latest" for product in ("snow", "floe", "snowfield"))
+PRODUCT_POLLS = tuple(
+    f"image-poll-{product}-latest"
+    for product in ("snow", "floe", "snowfield", "sundog")
+)
 SCENARIO_COUNTS = re.compile(r"\d+ (?:passed|failed|skipped|undefined)(?:, \d+ (?:passed|failed|skipped|undefined))*")
+DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 
 
 def kubectl(*args: str) -> str:
@@ -69,6 +73,7 @@ def summarize(workflow: dict) -> dict:
     # "main" — the DAG's entrypoint — which is useless.
     template = (spec.get("workflowTemplateRef") or {}).get("name") or ""
     result = checks = None
+    remote_digest = stored_digest = changed = None
     fallback = ""
 
     for node in (status.get("nodes") or {}).values():
@@ -79,6 +84,10 @@ def summarize(workflow: dict) -> dict:
             fallback = fallback or node.get("templateName") or ""
         result = result or output_param(node, "result")
         checks = checks or output_param(node, "checks")
+        # check-digest carries these; compare carries changed and stored-digest.
+        remote_digest = remote_digest or output_param(node, "remote-digest")
+        stored_digest = stored_digest or output_param(node, "stored-digest")
+        changed = changed or output_param(node, "changed")
 
     if not template:
         # Inline-template workflows (orphan-pod-gc) have no ref at all. Their
@@ -94,6 +103,15 @@ def summarize(workflow: dict) -> dict:
 
     kind, label = LANE_KINDS.get(template, ("other", template or "unknown"))
     lane_key = template or label
+    # A registry failure emits the literal "none"; anything that is not a full
+    # sha256 digest identifies no image and must not be carried forward.
+    digest = (
+        remote_digest
+        if template == "image-poller"
+        and isinstance(remote_digest, str)
+        and DIGEST.fullmatch(remote_digest)
+        else None
+    )
     qa_outcome = "unknown"
     if template == "image-poller":
         name = meta.get("name") or ""
@@ -114,7 +132,13 @@ def summarize(workflow: dict) -> dict:
                   and not scenario_counts.get("undefined", 0)):
                 qa_outcome = "passed"
             elif status.get("phase") == "Succeeded" and result is None:
-                qa_outcome = "not-run"
+                # image-poller stores a digest only after QA succeeds (ADR-0002),
+                # so an unchanged poll of a stored digest proves that digest
+                # passed earlier. Without the stored match there is no proof.
+                if changed == "false" and digest is not None and stored_digest == digest:
+                    qa_outcome = "carried"
+                else:
+                    qa_outcome = "not-run"
 
     started, finished = status.get("startedAt"), status.get("finishedAt")
     duration = None
@@ -142,6 +166,7 @@ def summarize(workflow: dict) -> dict:
         "label": label,
         "trigger": (meta.get("labels") or {}).get("snosi.io/trigger", "scheduled"),
         "result": result,
+        "digest": digest,
         # checks arrive as newline-separated key=value pairs from the VM lanes
         "checks": [c for c in (checks or "").splitlines() if "=" in c],
     }
@@ -152,7 +177,7 @@ def rollup(runs: list[dict]) -> list[dict]:
     lanes: dict[str, dict] = {}
     for run in runs:
         key = run["laneKey"]
-        green = (run["qaOutcome"] == "passed" if key in PRODUCT_POLLS
+        green = (run["qaOutcome"] in ("passed", "carried") if key in PRODUCT_POLLS
                  else run["phase"] == "Succeeded")
         if key in lanes:
             lanes[key]["runs"] += 1
@@ -172,6 +197,26 @@ def rollup(runs: list[dict]) -> list[dict]:
             # The site renders this as `unproven` rather than `Failed`.
             "everGreen": green,
         }
+    # A carried pass names the retained run that actually verified the image,
+    # but only when that run covers the same digest as the lane's latest poll.
+    for lane in lanes.values():
+        lane["qaRun"] = None
+    for run in runs:
+        lane = lanes.get(run["laneKey"])
+        if lane is None or lane["laneKey"] not in PRODUCT_POLLS:
+            continue
+        latest_digest = lane["latest"].get("digest")
+        if (
+            lane["qaRun"] is None
+            and latest_digest
+            and run.get("digest") == latest_digest
+            and run.get("qaOutcome") == "passed"
+        ):
+            lane["qaRun"] = {
+                "name": run.get("name"),
+                "finished": run.get("finished"),
+                "result": run.get("result"),
+            }
     return sorted(lanes.values(), key=lambda item: (item["kind"], item["label"]))
 
 

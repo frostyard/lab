@@ -6,6 +6,9 @@ import data from '../data/runs.json';
 const { generated, runs = [] } = data;
 const lanes = displayLanes(data);
 const productName = (run) => productOf(run)?.split('-')[2];
+// A digest is long; the card shows its algorithm and first 12 hex characters.
+const shortDigest = (digest) => (typeof digest === 'string' && /^sha256:[0-9a-f]{64}$/.test(digest)
+  ? digest.slice(0, 19) : null);
 
 const KIND_ORDER = ['container', 'install', 'vm', 'poll', 'maintenance', 'other'];
 const KIND_LABEL = {
@@ -36,6 +39,11 @@ const retained = runs.length;
       A successful registry poll alone does not prove image QA.
     </p>
   </section>
+
+  {/* Hidden until the client compares the snapshot age with the viewer's clock. */}
+  <div class="snapshot-banner" role="alert" data-generated={generated} hidden>
+    <span class="snapshot-banner-text"></span>
+  </div>
 
   {(
     <>
@@ -90,6 +98,12 @@ const retained = runs.length;
                   <p class="meta">Poll execution: <span class={`badge ${lane.latest ? state(lane.latest.phase) : 'unknown'}`}>{lane.latest?.phase || 'no record'}</span> · Last actual QA in retained runs: {runs.find((run) => productOf(run) === lane.laneKey && ['passed', 'failed'].includes(run.qaOutcome))?.qaOutcome || 'not verified in this snapshot'} (historical, not current status)</p>
                 ) : <p class="meta">Workflow phase: {lane.latest?.phase || 'no record'} · not product QA</p>}
                 {lane.latest?.result && <p class="result">Reported result: {lane.latest.result}{!lane.latest.qaOutcome ? ' (legacy, unverified)' : ''}</p>}
+                {shortDigest(lane.latest?.digest) && (
+                  <p class="meta">Digest: <span class="mono">{shortDigest(lane.latest.digest)}</span></p>
+                )}
+                {lane.qaRun && (
+                  <p class="meta">verified by {lane.qaRun.name} · {when(lane.qaRun.finished)}</p>
+                )}
                 {lane.latest?.checks?.length > 0 && (
                   <ul class="checks">
                     {lane.latest.checks.map((c) => {
@@ -124,7 +138,7 @@ const retained = runs.length;
                   <td class="mono nowrap">{run.name}</td>
                   <td>{productName(run) ? `${productName(run)} · ` : ''}{run.label}</td>
                   <td><span class={`badge ${state(run.phase)}`}>{run.phase}</span></td>
-                  <td><span class={`badge ${productName(run) ? (run.qaOutcome === 'passed' ? 'ok' : run.qaOutcome === 'failed' ? 'danger' : 'unknown') : 'unknown'}`}>{productName(run) ? (run.qaOutcome || 'legacy unknown') : 'not product QA'}</span></td>
+                  <td><span class={`badge ${productName(run) ? (run.qaOutcome === 'passed' || run.qaOutcome === 'carried' ? 'ok' : run.qaOutcome === 'failed' ? 'danger' : 'unknown') : 'unknown'}`}>{productName(run) ? (run.qaOutcome || 'legacy unknown') : 'not product QA'}</span></td>
                   <td class="nowrap mono dim">{when(run.started)}</td>
                   <td class="nowrap mono dim">{duration(run.durationSeconds)}</td>
                   <td class="result-cell">{run.result || '—'}{productName(run) && !run.qaOutcome && run.result ? ' (legacy, unverified)' : ''}</td>
@@ -137,6 +151,21 @@ const retained = runs.length;
     </>
   )}
 </Layout>
+
+<script>
+  import { snapshotAgeText, snapshotStale } from '../dashboard.mjs';
+
+  const banner = document.querySelector('.snapshot-banner[data-generated]');
+  if (banner) {
+    const generated = banner.getAttribute('data-generated');
+    const now = Date.now();
+    if (snapshotStale(generated, now)) {
+      banner.querySelector('.snapshot-banner-text').textContent =
+        `This snapshot is ${snapshotAgeText(generated, now)} old. The lab may be down: treat every status on this page as stale.`;
+      banner.hidden = false;
+    }
+  }
+</script>
 
 <style>
   /* Hero — the signature two-beat headline over the signal gradient. */
@@ -198,6 +227,21 @@ const retained = runs.length;
   .stat strong.danger { color: var(--state-danger); }
   .stat small { color: var(--text-footer); font-size: 9.5px; }
   .legend { color: var(--text-dim); font-size: 11px; line-height: 1.5; margin: -1rem 0 1.5rem; }
+
+  /* Snapshot-age warning: hidden with JavaScript off because `hidden` must win
+     over the display rule below. */
+  .snapshot-banner {
+    background: linear-gradient(90deg, rgba(224, 177, 92, .12), transparent 60%), var(--gradient-card);
+    border: 1px solid var(--state-warn);
+    color: var(--state-warn);
+    display: flex;
+    font: 700 11px var(--font-mono);
+    letter-spacing: .02em;
+    line-height: 1.5;
+    margin-bottom: 1rem;
+    padding: 10px 14px;
+  }
+  .snapshot-banner[hidden] { display: none; }
 
   /* Group heading — mono index marker, then a hairline out to the count. */
   .group { margin-bottom: 1.75rem; }

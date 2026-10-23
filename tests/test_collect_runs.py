@@ -25,6 +25,9 @@ spec.loader.exec_module(collect_runs)  # type: ignore[union-attr]
 
 UNSPECIFIED_RESULT = object()
 
+DIGEST_A = "sha256:" + "a" * 64
+DIGEST_B = "sha256:" + "b" * 64
+
 
 def make_workflow(
     name="run-container-tests-abc123",
@@ -34,10 +37,16 @@ def make_workflow(
     finished="2024-01-01T00:05:00Z",
     trigger=None,
     result=UNSPECIFIED_RESULT,
+    params=None,
 ):
     labels = {}
     if trigger is not None:
         labels["snosi.io/trigger"] = trigger
+    parameters = []
+    if result is not UNSPECIFIED_RESULT:
+        parameters.append({"name": "result", "value": result})
+    for key, value in (params or {}).items():
+        parameters.append({"name": key, "value": value})
     return {
         "metadata": {"name": name, "labels": labels},
         "spec": {"workflowTemplateRef": {"name": template_ref}},
@@ -46,8 +55,8 @@ def make_workflow(
             "startedAt": started,
             "finishedAt": finished,
             "nodes": (
-                {"qa": {"outputs": {"parameters": [{"name": "result", "value": result}]}}}
-                if result is not UNSPECIFIED_RESULT
+                {"qa": {"outputs": {"parameters": parameters}}}
+                if parameters
                 else {}
             ),
         },
@@ -90,6 +99,106 @@ def test_empty_behave_result_is_present_but_has_no_qa_evidence(phase):
     summary = collect_runs.summarize(workflow)
     assert summary["result"] == ""
     assert summary["qaOutcome"] == "unknown"
+
+
+def test_unchanged_poll_carries_the_stored_pass_for_its_digest():
+    # ADR-0002 stores a digest only after QA succeeds, so a matching stored
+    # digest proves that this exact image passed earlier.
+    summary = collect_runs.summarize(make_workflow(
+        name="image-poll-snow-latest-11",
+        template_ref="image-poller",
+        params={"changed": "false", "remote-digest": DIGEST_A, "stored-digest": DIGEST_A},
+    ))
+    assert summary["laneKey"] == "image-poll-snow-latest"
+    assert summary["digest"] == DIGEST_A
+    assert summary["qaOutcome"] == "carried"
+
+
+def test_unchanged_poll_with_the_none_sentinel_is_not_run():
+    # The registry returned no digest; nothing was compared or verified.
+    summary = collect_runs.summarize(make_workflow(
+        name="image-poll-floe-latest-12",
+        template_ref="image-poller",
+        params={"changed": "false", "remote-digest": "none", "stored-digest": DIGEST_A},
+    ))
+    assert summary["digest"] is None
+    assert summary["qaOutcome"] == "not-run"
+
+
+def test_unchanged_poll_whose_digests_disagree_is_not_run():
+    summary = collect_runs.summarize(make_workflow(
+        name="image-poll-snowfield-latest-13",
+        template_ref="image-poller",
+        params={"changed": "false", "remote-digest": DIGEST_A, "stored-digest": DIGEST_B},
+    ))
+    assert summary["digest"] == DIGEST_A
+    assert summary["qaOutcome"] == "not-run"
+
+
+def test_poll_without_digest_outputs_is_not_run():
+    # Old runs predate the check-digest output parameters.
+    summary = collect_runs.summarize(make_workflow(
+        name="image-poll-snow-latest-14", template_ref="image-poller"
+    ))
+    assert summary["digest"] is None
+    assert summary["qaOutcome"] == "not-run"
+
+
+def test_invalid_remote_digest_is_not_recorded():
+    summary = collect_runs.summarize(make_workflow(
+        name="image-poll-sundog-latest-15",
+        template_ref="image-poller",
+        params={"changed": "false", "remote-digest": "sha256:not-a-digest", "stored-digest": "sha256:not-a-digest"},
+    ))
+    assert summary["digest"] is None
+    assert summary["qaOutcome"] == "not-run"
+
+
+def test_digest_is_none_for_non_poll_runs():
+    summary = collect_runs.summarize(make_workflow(
+        template_ref="publish", params={"remote-digest": DIGEST_A}
+    ))
+    assert summary["digest"] is None
+
+
+def test_rollup_points_qa_run_at_newest_retained_pass_with_the_same_digest():
+    runs = [
+        collect_runs.summarize(make_workflow(
+            name="image-poll-snow-latest-4", template_ref="image-poller",
+            params={"changed": "false", "remote-digest": DIGEST_A, "stored-digest": DIGEST_A})),
+        collect_runs.summarize(make_workflow(
+            name="image-poll-snow-latest-3", template_ref="image-poller", result="19 passed",
+            params={"changed": "true", "remote-digest": DIGEST_A, "stored-digest": ""})),
+        collect_runs.summarize(make_workflow(
+            name="image-poll-snow-latest-2", template_ref="image-poller", result="19 passed",
+            params={"changed": "true", "remote-digest": DIGEST_B, "stored-digest": ""})),
+    ]
+    lane = next(item for item in collect_runs.rollup(runs) if item["laneKey"] == "image-poll-snow-latest")
+    assert lane["latest"] is runs[0]
+    assert lane["everGreen"] is True
+    assert lane["qaRun"] == {
+        "name": "image-poll-snow-latest-3",
+        "finished": "2024-01-01T00:05:00Z",
+        "result": "19 passed",
+    }
+
+
+def test_rollup_qa_run_is_none_without_a_same_digest_pass():
+    runs = [
+        collect_runs.summarize(make_workflow(
+            name="image-poll-floe-latest-4", template_ref="image-poller",
+            params={"changed": "false", "remote-digest": DIGEST_A, "stored-digest": DIGEST_A})),
+        collect_runs.summarize(make_workflow(
+            name="image-poll-floe-latest-3", template_ref="image-poller", result="14 passed",
+            params={"changed": "true", "remote-digest": DIGEST_B, "stored-digest": ""})),
+    ]
+    lane = next(item for item in collect_runs.rollup(runs) if item["laneKey"] == "image-poll-floe-latest")
+    assert lane["qaRun"] is None
+
+
+def test_rollup_non_product_lane_has_no_qa_run():
+    lane = collect_runs.rollup([collect_runs.summarize(make_workflow())])[0]
+    assert lane["qaRun"] is None
 
 
 def test_workflow_fixture_distinguishes_omitted_result_from_explicit_value():

@@ -28,25 +28,40 @@ and installer workflows provide separate, non-continuous evidence.
 ## Triaging product QA evidence
 
 1. Start with the committed `site/src/data/runs.json`: note `generated`, exact
-   workflow `name`, `phase`, `started`/`finished`, `result`, and whether this is
-   a scheduled `image-poll-{snow,floe,snowfield}-latest-*` or a manual VM run.
-   Per-product `laneKey` and `qaOutcome` (`passed`, `failed`, `not-run`,
-   `unknown`) separate products and distinguish QA from poll execution.
-   Older entries may instead share one `image-poller` lane; identify their
-   product by workflow name, never by the mixed lane's latest run. A record
-   without `qaOutcome` remains legacy unknown despite suggestive `result` text.
-   A Failed phase with zero observed scenarios is also unknown; empty container
-   `checks` are not per-step coverage.
+   workflow `name`, `phase`, `started`/`finished`, `result`, `digest`, and
+   whether this is a scheduled
+   `image-poll-{snow,floe,snowfield,sundog}-latest-*` or a manual VM run.
+   Per-product `laneKey` and `qaOutcome` (`passed`, `failed`, `carried`,
+   `not-run`, `unknown`) separate products and distinguish QA from poll
+   execution. The current roster is every product snosi publishes: snow, floe,
+   snowfield, sundog. Older entries may instead share one `image-poller` lane;
+   identify their product by workflow name, never by the mixed lane's latest
+   run. A record without `qaOutcome` remains legacy unknown despite suggestive
+   `result` text. A Failed phase with zero observed scenarios is also unknown;
+   empty container `checks` are not per-step coverage.
+   `digest` is the poll's remote sha256 digest, or `null` when the registry
+   returned no digest (the `none` sentinel) or the value is not a full digest.
+   `carried` means phase `Succeeded`, no Behave result, `changed: "false"`, a
+   valid `digest`, and `stored-digest` equal to it. Because image-poller stores
+   a digest only after QA succeeds (ADR-0002), that digest passed earlier. A
+   carried run without that proof is `not-run`. On a product lane, `qaRun`
+   names the newest retained passed run with the same digest as the lane's
+   latest run, as `{name, finished, result}`, or `null` when none is retained.
 2. Interpret the snapshot as retained, bounded evidence, not live status:
    `generated` is its collection time, not proof of a current image result.
-   Compare each product's own latest retained poll time with `generated`;
-   evidence older than six hours is stale (an old confirmed failure remains
-   failed but is not a current image diagnosis). `Succeeded` can mean an
-   unchanged digest and QA not run. `qaOutcome: passed`/`failed` records observed
-   Behave evidence; `not-run`/`unknown` and absent or expired records are not
-   observed failures or passes. A missing later run does not prove polling
-   stopped. Summary `result` text cannot identify the cause or exact failing
-   step, and the snapshot may omit the digest and testsuite commit.
+   Two freshness checks apply. Compare each product's own latest retained poll
+   time with `generated`; evidence older than six hours is stale (an old
+   confirmed failure remains failed but is not a current image diagnosis; an
+   old pass or carried pass is not green). Separately, the page warns when the
+   snapshot is missing, invalid, more than five minutes in the future, or older
+   than two hours by the viewer's clock: the lab or the publisher stopped.
+   `Succeeded` can mean an unchanged digest: it is `carried` with the stored
+   digest proof, and `not-run` without it. `qaOutcome: passed`/`failed` records
+   observed Behave evidence; `not-run`/`unknown` and absent or expired records
+   are not observed failures or passes. A missing later run does not prove
+   polling stopped. Summary `result` text cannot identify the cause or exact
+   failing step. New snapshots record the digest; older snapshots may omit it,
+   and no snapshot records the testsuite commit.
 3. For a workflow whose original evidence is available, record its exact name
    and phase; use `check-digest`/`run-pipeline` to determine whether QA ran or
    was skipped. Take the pinned `image-digest` passed to `run-pipeline` from

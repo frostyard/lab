@@ -626,21 +626,29 @@ It skips the commit when only the generation timestamp moved, so an idle cluster
 does not push a commit every 30 minutes.
 
 Each published run records `name`, `phase`, `started`, `finished`,
-`durationSeconds`, `template`, `laneKey`, `qaOutcome`, `kind`, `label`,
-`trigger`, `result`, and `checks`. `lanes` groups runs by `laneKey` with
-`latest`, retained `runs` count and `everGreen`; `generated` timestamps the
-snapshot. Scheduled product polls have distinct keys
-`image-poll-{snow,floe,snowfield}-latest` (from the workflow name), despite all
-using the `image-poller` template. For those polls, `qaOutcome` is `passed` or
-`failed` only with observed Behave scenario counts and a matching terminal
-workflow phase; `not-run` means a successful poll with an absent or null Behave
-result, and `unknown` means insufficient or ambiguous evidence (including an
-empty result string or zero-count failures). For non-product runs,
-`qaOutcome: unknown` means image QA is not applicable; the workflow phase is
-the relevant status.
-`phase: Succeeded` alone can mean unchanged-digest polling, **not**
-passing QA; a Failed phase may still carry a Behave result. `result` is a
-summary, not a failing step, and empty container `checks` does not mean all
+`durationSeconds`, `template`, `laneKey`, `qaOutcome`, `digest`, `kind`,
+`label`, `trigger`, `result`, and `checks`. `digest` is the poll's remote
+sha256 digest, or `null` when none resolved. `lanes` groups runs by `laneKey`
+with `latest`, retained `runs` count, `everGreen`, and, for product lanes,
+`qaRun`: the newest retained passed run with the same digest as the lane's
+latest run, as `{name, finished, result}`, or `null`. `generated` timestamps
+the snapshot. Scheduled product polls have distinct keys
+`image-poll-{snow,floe,snowfield,sundog}-latest` (from the workflow name),
+despite all using the `image-poller` template; that list is the roster of
+products snosi publishes. For those polls, `qaOutcome` is `passed` or `failed`
+only with observed Behave scenario counts and a matching terminal workflow
+phase. `carried` means a successful poll with an absent or null Behave result
+whose `changed` is `"false"` and whose valid remote digest equals
+`stored-digest`: because image-poller stores a digest only after QA succeeds
+(ADR-0002), that digest already passed. When retained, the dashboard shows the
+short digest and the run that verified it. `not-run` means a successful poll
+without that proof (for example `remote-digest: none`), and `unknown` means
+insufficient or ambiguous evidence (including an empty result string or
+zero-count failures). For non-product runs, `qaOutcome: unknown` means image QA
+is not applicable; the workflow phase is the relevant status.
+`phase: Succeeded` can mean a carried pass with proof, but **not** passing QA
+without that proof; a Failed phase may still carry a Behave result. `result` is
+a summary, not a failing step, and empty container `checks` does not mean all
 steps passed. `trigger` defaults to `scheduled` unless the workflow supplies a
 label; VM/installer runs are manual evidence, not continuous product QA. Other
 lanes' phases describe workflow execution only.
@@ -648,12 +656,16 @@ lanes' phases describe workflow execution only.
 Older snapshots may predate `laneKey`/`qaOutcome` publication and group all
 product polls under one `image-poller` lane. The dashboard separates those
 legacy runs by workflow name but leaves their QA outcome **unknown**, even
-when their `result` text looks conclusive. Freshness is measured against `generated`:
-poll evidence older than six hours is stale, not current image status; an old
-confirmed failure stays a failure with a stale qualifier. Old unknown or not-run
-polls remain unverified and count as both unknown and stale; an old pass is not
-green. New fields take effect through collector publication, not by
-hand-editing `runs.json`.
+when their `result` text looks conclusive. Two freshness checks apply. Poll
+evidence older than six hours by `generated` is stale: the poll stopped while
+publication went on. An old confirmed failure stays a failure with a stale
+qualifier; old unknown or not-run polls remain unverified and count as both
+unknown and stale; an old pass or carried pass is not green. Separately, the
+page warns when the snapshot is missing, invalid, more than five minutes in
+the future, or older than two hours by the viewer's clock: the lab or the
+publisher stopped. That check runs in the browser, so the banner stays hidden
+with JavaScript off. New fields take effect through collector publication, not
+by hand-editing `runs.json`.
 
 `e2e/` holds the [Playwright](https://playwright.dev) end-to-end suite. It
 builds the site and drives the same static output GitHub Pages serves, asserting

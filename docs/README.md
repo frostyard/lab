@@ -24,7 +24,7 @@ Docs are split by the question they answer
 - [0008 — Host media cache with origin-fingerprint sidecars](adr/0008-media-cache-with-fingerprint-sidecars.md)
 - [0009 — No artifact store: the workflow log is the surface, host disk the fallback](adr/0009-no-artifact-store-logs-are-the-surface.md)
 - [0010 — Vacuous success is forbidden: green must mean work was done](adr/0010-vacuous-success-is-forbidden.md)
-- [0011 — Roster product polls and qualify their QA evidence by freshness (Proposed; product-only refinement to 0003/0004)](adr/0011-product-poll-qa-evidence-is-rostered-and-fresh.md)
+- [0011 — Roster product polls and qualify their QA evidence by digest and freshness](adr/0011-product-poll-qa-evidence-is-rostered-and-fresh.md) (product-only refinement to 0003/0004)
 
 Org-wide decisions binding this repo: [org-adrs.md](org-adrs.md).
 
