@@ -368,8 +368,19 @@ spec:
 
         CHECK_SH=$(cat <<SCRIPT
         #!/bin/bash
-        exec > >(tee /dev/console /dev/ttyS0 2>/dev/null) 2>&1
-        emit() { echo "${M_CHECK} \$1=\$2"; }
+        # The pod reads only the serial log, and /dev/console on the guest is
+        # tty0. serial-getty@ttyS0 (Type=idle, TTYVHangup=yes) runs vhangup on
+        # ttyS0 and revokes every fd opened before it, so a long-lived
+        # pipe to ttyS0 loses the rest of the output. Open /dev/ttyS0 afresh for each
+        # write, and replay all results after the getty TTY setup is done.
+        # See frostyard/snosi#1123. Stdout stays in the journal.
+        : > /run/firn-qa-checks.txt || true
+        emit() {
+          local line="${M_CHECK} \$1=\$2"
+          printf '%s\n' "\$line" >> /run/firn-qa-checks.txt || true
+          printf '%s\n' "\$line"
+          printf '%s\n' "\$line" > /dev/ttyS0 2>/dev/null || true
+        }
         emit booted ok
         emit rootfs "\$(findmnt -no FSTYPE / 2>/dev/null || echo unknown)"
         # On a composefs bootc root, / is an overlay; the disk filesystem is /sysroot.
@@ -422,7 +433,25 @@ spec:
         ' )"
         emit bootc_image "\$(printf '%s\n' "\${BOOTC_FIELDS}" | head -n 1)"
         emit bootc_digest "\$(printf '%s\n' "\${BOOTC_FIELDS}" | tail -n 1)"
+        # Wait (bounded) until serial-getty@ttyS0 has finished its TTY setup:
+        # MainPID is set and the process has exec'd agetty (it is "(agetty)"
+        # before that).
+        SERIAL_WAIT_SECONDS=30
+        serial_deadline=\$((SECONDS+SERIAL_WAIT_SECONDS))
+        while :; do
+          SERIAL_STATE="\$(timeout 10 systemctl is-active serial-getty@ttyS0.service 2>/dev/null || true)"
+          if [[ "\${SERIAL_STATE}" != active && "\${SERIAL_STATE}" != activating ]]; then break; fi
+          GETTY_PID="\$(timeout 10 systemctl show -p MainPID --value serial-getty@ttyS0.service 2>/dev/null || true)"
+          if [[ "\${GETTY_PID}" =~ ^[0-9]+\$ ]] && (( GETTY_PID > 0 )) \\
+             && [[ "\$(cat "/proc/\${GETTY_PID}/comm" 2>/dev/null || true)" == agetty ]]; then break; fi
+          if (( SECONDS >= serial_deadline )); then break; fi
+          sleep 1 || true
+        done
         echo "${M_DONE}"
+        { cat /run/firn-qa-checks.txt; printf '%s\n' "${M_DONE}"; } 2>/dev/null > /dev/ttyS0 || true
+        sync || true
+        sleep 2 || true
+        { cat /run/firn-qa-checks.txt; printf '%s\n' "${M_DONE}"; } 2>/dev/null > /dev/ttyS0 || true
         SCRIPT
         )
         C_B64="$(printf '%s' "${CHECK_SH}" | base64 -w0)"
