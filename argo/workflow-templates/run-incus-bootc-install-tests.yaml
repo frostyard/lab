@@ -456,10 +456,11 @@ spec:
         else                                                                    emit backend MISSING; fi
         emit osrelease "$(. /etc/os-release; echo "${IMAGE_ID:-?}-${IMAGE_VERSION:-?}")"
         # frostyard/snosi#1130: count fs-verity corruption messages in this boot's
-        # kernel log (only read, never filtered). Kernels 7.2.11/7.2.12 log them for
-        # compressed btrfs fs-verity files (upstream fix kdave/linux dcf8811f63af;
-        # Firn trigger frostyard/firn#119). Objects from bootc install to-disk and
-        # updates are not compressed, so any message is a regression.
+        # kernel log (only read, never filtered). Kernels 7.2.11/7.2.12 log them
+        # for btrfs fs-verity files (upstream fix kdave/linux dcf8811f63af).
+        # Uncompressed objects (bootc install to-disk, updates) hit it rarely,
+        # when a large folio spans two bios at an extent boundary; the judge
+        # compares the count with the emitted kernel.
         fsverity_errors() {
           local log trimmed
           # -q: no "-- No entries --" banner. Empty output, or only that banner,
@@ -472,6 +473,7 @@ spec:
             /fsverity_msg: [0-9]+ callbacks suppressed/ { sub(/.*fsverity_msg: /, ""); n += $1 }
             END { print n + 0 }'
         }
+        emit kernel "$(uname -r)"
         emit fsverity_errors "$(fsverity_errors || echo unknown)"
         echo "SNOSI_QA__CHECKS_DONE"
         SCRIPT
@@ -542,10 +544,11 @@ spec:
         emit osrelease "$(. /etc/os-release; echo "${IMAGE_ID:-?}-${IMAGE_VERSION:-?}")"
         emit failedunits "$(systemctl list-units --state=failed --no-legend --plain 2>/dev/null | wc -l)"
         # frostyard/snosi#1130: count fs-verity corruption messages in this boot's
-        # kernel log (only read, never filtered). Kernels 7.2.11/7.2.12 log them for
-        # compressed btrfs fs-verity files (upstream fix kdave/linux dcf8811f63af;
-        # Firn trigger frostyard/firn#119). Objects from bootc install to-disk and
-        # updates are not compressed, so any message is a regression.
+        # kernel log (only read, never filtered). Kernels 7.2.11/7.2.12 log them
+        # for btrfs fs-verity files (upstream fix kdave/linux dcf8811f63af).
+        # Uncompressed objects (bootc install to-disk, updates) hit it rarely,
+        # when a large folio spans two bios at an extent boundary; the judge
+        # compares the count with the emitted kernel.
         fsverity_errors() {
           local log trimmed
           # -q: no "-- No entries --" banner. Empty output, or only that banner,
@@ -558,6 +561,7 @@ spec:
             /fsverity_msg: [0-9]+ callbacks suppressed/ { sub(/.*fsverity_msg: /, ""); n += $1 }
             END { print n + 0 }'
         }
+        emit kernel "$(uname -r)"
         emit fsverity_errors "$(fsverity_errors || echo unknown)"
         PROBE
         fi
@@ -589,10 +593,18 @@ spec:
           exit 1
         }
 
-        # frostyard/snosi#1130: these objects are not compressed, so any fs-verity
-        # corruption message is a regression. The guard must have run: at least
-        # one valid numeric count from either channel is required, else the lane
-        # fails (ADR-0010). Both channels may report: take the largest number.
+        # frostyard/snosi#1130: the guard must have run: at least one valid numeric
+        # count from either channel is required, else the lane fails (ADR-0010).
+        # Both channels may report: take the largest number. A count above 0 is
+        # the known upstream btrfs fs-verity defect (kdave/linux dcf8811f63af)
+        # when the kernel is on the list below: uncompressed objects still hit it
+        # rarely (a large folio across two bios at an extent boundary), so it is
+        # recorded, not failed. Any other kernel with errors fails: a human then
+        # checks whether that kernel has the fix. Remove a list entry when the
+        # kernel canary (Firn lane) says `clean` on it or a fixed kernel ships.
+        # Keep this list identical in every lane.
+        known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64"
+        fsverity_note=""
         fsverity_errors="$(grep '^fsverity_errors=' /tmp/results/checks.txt | cut -d= -f2- | grep -E '^[0-9]+$' | sort -n | tail -n 1 || true)"
         if [[ ! "${fsverity_errors}" =~ ^[0-9]+$ ]]; then
           printf '%s' "FAILED: fs-verity guard did not report (snosi#1130)" \
@@ -600,12 +612,19 @@ spec:
           exit 1
         fi
         if (( 10#${fsverity_errors} > 0 )); then
-          printf '%s' "FAILED: installed system logged ${fsverity_errors} fs-verity corruption message(s) (snosi#1130)" \
-            > /tmp/results/result-summary.txt
-          exit 1
+          fsverity_kernel="$(grep -m1 '^kernel=' /tmp/results/checks.txt | cut -d= -f2- || true)"
+          if [[ -n "${fsverity_kernel}" && " ${known_defect_kernels} " == *" ${fsverity_kernel} "* ]]; then
+            fsverity_note=" fsverity_known_defect=${fsverity_kernel}"
+            printf 'fsverity_known_defect=%s\n' "${fsverity_kernel}" >> /tmp/results/checks.txt
+            echo "fs-verity: ${fsverity_errors} message(s) on known-defect kernel ${fsverity_kernel} (snosi#1130); recorded, not failed" >&2
+          else
+            printf '%s' "FAILED: installed system logged ${fsverity_errors} fs-verity corruption message(s) on kernel ${fsverity_kernel:-unknown} (snosi#1130)" \
+              > /tmp/results/result-summary.txt
+            exit 1
+          fi
         fi
 
-        printf '%s' "bootc installed and verified: ${IMAGE} (secureboot=${SECUREBOOT})" \
+        printf '%s' "bootc installed and verified: ${IMAGE} (secureboot=${SECUREBOOT})${fsverity_note}" \
           > /tmp/results/result-summary.txt
         cat /tmp/results/result-summary.txt >&2
     volumes:

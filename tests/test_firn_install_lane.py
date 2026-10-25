@@ -223,7 +223,7 @@ GOOD_CHECKS = (
     "booted=ok\nrootfs=btrfs\nosrelease=floe\nluks=absent\n"
     f"bootc=bootc_1.0\nlogin=active\nbootc_image={EXPECTED_IMAGE}\n"
     f"bootc_digest={EXPECTED_DIGEST}\n"
-    "cfs_compressed_objects=0\nfsverity_errors=0\nkernel=7.2.12\nkernel_btrfs_verity_canary=clean\n"
+    "cfs_compressed_objects=0\nfsverity_errors=0\nkernel=7.3.1+deb14-amd64\nkernel_btrfs_verity_canary=clean\n"
 )
 
 
@@ -271,6 +271,24 @@ GOOD_CHECKS = (
         ({"rootfs": "overlay", "sysroot": "btrfs", "cfs_compressed_objects": "4"},
          "FAILED: boot:cfs_compressed_objects_4 (bootc/floe/none/sb=false)"),
         ({"fsverity_errors": "7"}, "FAILED: boot:fsverity_errors_7 (bootc/floe/none/sb=false)"),
+        # Known upstream defect kernels (snosi#1130): errors are recorded with a note, not failed.
+        ({"fsverity_errors": "7", "kernel": "7.2.11+deb14-amd64"},
+         f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST} fsverity_known_defect=7.2.11+deb14-amd64"),
+        ({"fsverity_errors": "1", "kernel": "7.2.12+deb14-amd64"},
+         f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST} fsverity_known_defect=7.2.12+deb14-amd64"),
+        ({"fsverity_errors": "0", "kernel": "7.2.11+deb14-amd64"},
+         f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST}"),
+        # Any other kernel with errors fails, as does an unknown, missing or look-alike kernel.
+        ({"fsverity_errors": "7", "kernel": "7.2.13+deb14-amd64"}, "FAILED: boot:fsverity_errors_7 (bootc/floe/none/sb=false)"),
+        ({"fsverity_errors": "7", "kernel": "7.2.11+deb14-amd64-extra"}, "FAILED: boot:fsverity_errors_7 (bootc/floe/none/sb=false)"),
+        ({"fsverity_errors": "7", "kernel": "unknown"}, "FAILED: boot:fsverity_errors_7 (bootc/floe/none/sb=false)"),
+        ({"fsverity_errors": "7", "kernel": None}, "FAILED: boot:fsverity_errors_7 (bootc/floe/none/sb=false)"),
+        # The false-pass fixes stay, also on a known-defect kernel.
+        ({"fsverity_errors": "unknown", "kernel": "7.2.11+deb14-amd64"}, "FAILED: boot:fsverity_errors_unknown (bootc/floe/none/sb=false)"),
+        ({"fsverity_errors": None, "kernel": "7.2.11+deb14-amd64"}, "FAILED: boot:fsverity_errors_unknown (bootc/floe/none/sb=false)"),
+        # The compressed-object check is deterministic: no kernel excuses it.
+        ({"rootfs": "overlay", "sysroot": "btrfs", "cfs_compressed_objects": "2", "kernel": "7.2.11+deb14-amd64"},
+         "FAILED: boot:cfs_compressed_objects_2 (bootc/floe/none/sb=false)"),
         ({"fsverity_errors": "unknown"}, "FAILED: boot:fsverity_errors_unknown (bootc/floe/none/sb=false)"),
         ({"fsverity_errors": None}, "FAILED: boot:fsverity_errors_unknown (bootc/floe/none/sb=false)"),
         ({"cfs_compressed_objects": "2", "fsverity_errors": "7"},
@@ -283,6 +301,10 @@ GOOD_CHECKS = (
     ],
 )
 def test_judge_checks_under_errexit(lane, tmp_path, change, expected):
+    _judge_case(lane, tmp_path, change, expected)
+
+
+def _judge_case(lane, tmp_path, change, expected):
     source = lane["script"]["source"]
     fail = source[source.index("fail() {"):source.index("\n}", source.index("fail() {")) + 2]
     # Source just the declared function, not VM setup or package installation.
@@ -854,3 +876,30 @@ def test_kernel_canary_runs_after_the_error_count_and_never_judges(lane):
     assert "dmesg -c" not in check and "dmesg -C" not in check and "journalctl --rotate" not in check
     assert "compress-force=zstd" in check and "0x40806685" in check and "hash-alg=sha512" in check
     assert "echo 3 > /proc/sys/vm/drop_caches" in check
+
+
+def test_judge_records_the_known_defect_note_in_the_checks_file(lane, tmp_path):
+    source = lane["script"]["source"]
+    fail = source[source.index("fail() {"):source.index("\n}", source.index("fail() {")) + 2]
+    judge = source[source.index("judge() {"):source.index("\n}", source.index("judge() {")) + 2]
+    values = dict(line.split("=", 1) for line in GOOD_CHECKS.splitlines())
+    values.update(fsverity_errors="3", kernel="7.2.12+deb14-amd64")
+    checks = tmp_path / "checks.txt"
+    checks.write_text("".join(f"{k}={v}\n" for k, v in values.items()))
+    result = subprocess.run(
+        ["bash", "-c", "set -euo pipefail\nFIRN_VERSION=firn_0.6.0\n" + fail.replace("/tmp/results", str(tmp_path))
+         + "\n" + judge.replace("/tmp/results", str(tmp_path)) + "\njudge \"$CHECKS\""],
+        env={**os.environ, "CELL": "c", "IMAGE": "floe", "ENC": "none", "IMAGE_DIGEST": EXPECTED_DIGEST,
+             "CHECKS": str(checks)}, text=True, capture_output=True, check=False)
+    assert result.returncode == 0, result.stderr
+    assert "fsverity_known_defect=7.2.12+deb14-amd64" in checks.read_text().splitlines()
+    assert "known-defect kernel 7.2.12+deb14-amd64" in result.stderr   # visible note
+    # One list per template, with the two kernels of snosi#1130.
+    assert source.count('known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64"') == 1
+
+
+def test_probe_emits_the_kernel_before_the_canary_in_every_run(lane):
+    check = _render_check(lane)
+    assert 'emit kernel "$(uname -r)"' in check
+    assert check.count("emit kernel ") == 1
+    assert check.index('emit kernel "') < check.index("emit fsverity_errors") < check.index("canary_body()")
