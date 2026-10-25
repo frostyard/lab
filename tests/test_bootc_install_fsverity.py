@@ -72,6 +72,7 @@ def test_underscore_check_keys_survive_both_channels(source, tmp_path):
 GUARD_MISSING = "FAILED: fs-verity guard did not report (snosi#1130)"
 KNOWN = "7.2.11+deb14-amd64"
 OTHER = "7.3.1+deb14-amd64"
+AMBIGUOUS = "FAILED: installed system logged 2 fs-verity corruption message(s) and the kernel identity is ambiguous: fsverity_kernel_ambiguous"
 
 
 @pytest.mark.parametrize("checks,failed,message", [
@@ -92,7 +93,21 @@ OTHER = "7.3.1+deb14-amd64"
     (["booted=ok", "fsverity_errors=2", "kernel=7.2.13+deb14-amd64"], True, "FAILED: installed system logged 2"),
     (["booted=ok", "fsverity_errors=2", f"kernel={KNOWN}-extra"], True, "FAILED: installed system logged 2"),
     (["booted=ok", "fsverity_errors=2", "kernel=unknown"], True, "FAILED: installed system logged 2"),
-    (["booted=ok", "fsverity_errors=2"], True, "FAILED: installed system logged 2 fs-verity corruption message(s) on kernel unknown"),
+    (["booted=ok", "fsverity_errors=2"], True, "FAILED: installed system logged 2 fs-verity corruption message(s) and the kernel identity is ambiguous: fsverity_kernel_ambiguous"),
+    # Both channels can hold different kernel lines: the exemption needs exactly 1 distinct,
+    # well-formed value (identical duplicates are fine).
+    (["booted=ok", "fsverity_errors=2", f"kernel={KNOWN}", f"kernel={KNOWN}"], False, None),
+    (["booted=ok", "fsverity_errors=2", f"kernel={KNOWN}", f"kernel={OTHER}"], True, AMBIGUOUS),
+    (["booted=ok", "fsverity_errors=2", f"kernel={OTHER}", f"kernel={KNOWN}"], True, AMBIGUOUS),
+    (["booted=ok", "fsverity_errors=2", f"kernel={KNOWN}", "kernel=7.2.12+deb14-amd64"], True, AMBIGUOUS),
+    (["booted=ok", "fsverity_errors=2", f"kernel={KNOWN} 7.2.12+deb14-amd64"], True, AMBIGUOUS),  # both entries in one value
+    (["booted=ok", "fsverity_errors=2", f"kernel={KNOWN} junk"], True, AMBIGUOUS),
+    (["booted=ok", "fsverity_errors=2", f"kernel={KNOWN} "], True, AMBIGUOUS),
+    (["booted=ok", "fsverity_errors=2", "kernel="], True, AMBIGUOUS),
+    (["booted=ok", "fsverity_errors=2", "kernel=" + "a" * 65], True, AMBIGUOUS),
+    (["booted=ok", "fsverity_errors=2", f"kernel={KNOWN};x"], True, AMBIGUOUS),
+    # Without errors the kernel identity is not consulted.
+    (["booted=ok", "fsverity_errors=0", f"kernel={KNOWN}", f"kernel={OTHER}"], False, None),
     # The guard must have reported: no valid number from any channel fails the lane,
     # on a known-defect kernel too.
     (["booted=ok", "fsverity_errors=unknown", f"kernel={OTHER}"], True, GUARD_MISSING),
@@ -126,6 +141,7 @@ def test_judge_requires_a_numeric_count_and_judges_it_by_kernel(source, tmp_path
         known_errors = any(c.startswith("fsverity_errors=") and c[16:].isdigit() and int(c[16:]) > 0 for c in checks)
         kernel = next((c[7:] for c in checks if c.startswith("kernel=")), None)
         if known_errors and kernel in ("7.2.11+deb14-amd64", "7.2.12+deb14-amd64"):
+            assert (tmp_path / "checks.txt").read_text().splitlines().count(f"fsverity_known_defect={kernel}") == 1
             # Visible note in the summary, the checks file and the log.
             assert summary_file.read_text() == f"bootc installed and verified: snow (secureboot=true) fsverity_known_defect={kernel}"
             assert f"fsverity_known_defect={kernel}" in (tmp_path / "checks.txt").read_text().splitlines()

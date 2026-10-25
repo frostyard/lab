@@ -138,8 +138,12 @@ bootc install judge and the lifecycle `run.sh`): `7.2.11+deb14-amd64` and
 `7.2.12+deb14-amd64`. A missing or non-numeric count always fails. A count of 0
 passes. A count above 0 on a listed kernel is recorded with a visible note
 (`fsverity_known_defect=<kernel>` in the checks and in the summary line) and
-does not fail. A count above 0 on any other kernel, or with no kernel value,
-fails: a human then checks whether that kernel has the fix. **Remove an entry
+does not fail. The exemption needs exactly 1 distinct, well-formed `kernel=`
+value (`[0-9A-Za-z._+~-]{1,64}`, identical duplicates are fine), compared with
+each list entry by exact equality. Conflicting, malformed or missing kernel
+values with a count above 0 fail with `fsverity_kernel_ambiguous`. A count above
+0 on any other single kernel fails: a human then checks whether that kernel has
+the fix. **Remove an entry
 from the list** when the kernel canary says `clean` on that kernel or when a
 fixed kernel ships. The lanes only read kernel logs: nothing deletes or filters
 them.

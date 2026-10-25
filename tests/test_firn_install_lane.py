@@ -282,7 +282,7 @@ GOOD_CHECKS = (
         ({"fsverity_errors": "7", "kernel": "7.2.13+deb14-amd64"}, "FAILED: boot:fsverity_errors_7 (bootc/floe/none/sb=false)"),
         ({"fsverity_errors": "7", "kernel": "7.2.11+deb14-amd64-extra"}, "FAILED: boot:fsverity_errors_7 (bootc/floe/none/sb=false)"),
         ({"fsverity_errors": "7", "kernel": "unknown"}, "FAILED: boot:fsverity_errors_7 (bootc/floe/none/sb=false)"),
-        ({"fsverity_errors": "7", "kernel": None}, "FAILED: boot:fsverity_errors_7 (bootc/floe/none/sb=false)"),
+        ({"fsverity_errors": "7", "kernel": None}, "FAILED: boot:fsverity_kernel_ambiguous (bootc/floe/none/sb=false)"),
         # The false-pass fixes stay, also on a known-defect kernel.
         ({"fsverity_errors": "unknown", "kernel": "7.2.11+deb14-amd64"}, "FAILED: boot:fsverity_errors_unknown (bootc/floe/none/sb=false)"),
         ({"fsverity_errors": None, "kernel": "7.2.11+deb14-amd64"}, "FAILED: boot:fsverity_errors_unknown (bootc/floe/none/sb=false)"),
@@ -903,3 +903,55 @@ def test_probe_emits_the_kernel_before_the_canary_in_every_run(lane):
     assert 'emit kernel "$(uname -r)"' in check
     assert check.count("emit kernel ") == 1
     assert check.index('emit kernel "') < check.index("emit fsverity_errors") < check.index("canary_body()")
+
+
+KNOWN_A, KNOWN_B, OTHER_KERNEL = "7.2.11+deb14-amd64", "7.2.12+deb14-amd64", "7.3.1+deb14-amd64"
+
+
+@pytest.mark.parametrize("kernels,errors,expected", [
+    # Exactly 1 distinct, well-formed value is needed for the exemption; identical duplicates are fine.
+    ([KNOWN_A], "2", "PASS-NOTE:" + KNOWN_A),
+    ([KNOWN_A, KNOWN_A], "2", "PASS-NOTE:" + KNOWN_A),
+    ([KNOWN_A, OTHER_KERNEL], "2", "FAILED: boot:fsverity_kernel_ambiguous"),
+    ([OTHER_KERNEL, KNOWN_A], "2", "FAILED: boot:fsverity_kernel_ambiguous"),
+    ([KNOWN_A, KNOWN_B], "2", "FAILED: boot:fsverity_kernel_ambiguous"),
+    ([KNOWN_A + " " + KNOWN_B], "2", "FAILED: boot:fsverity_kernel_ambiguous"),
+    ([KNOWN_A + " junk"], "2", "FAILED: boot:fsverity_kernel_ambiguous"),
+    ([KNOWN_A + " "], "2", "FAILED: boot:fsverity_kernel_ambiguous"),
+    ([" " + KNOWN_A], "2", "FAILED: boot:fsverity_kernel_ambiguous"),
+    ([""], "2", "FAILED: boot:fsverity_kernel_ambiguous"),
+    (["a" * 65], "2", "FAILED: boot:fsverity_kernel_ambiguous"),
+    ([KNOWN_A + ";x"], "2", "FAILED: boot:fsverity_kernel_ambiguous"),
+    ([], "2", "FAILED: boot:fsverity_kernel_ambiguous"),
+    ([OTHER_KERNEL, OTHER_KERNEL], "2", "FAILED: boot:fsverity_errors_2"),
+    # Without errors the kernel identity is not consulted.
+    ([KNOWN_A, OTHER_KERNEL], "0", "PASS"),
+    ([KNOWN_A + " " + KNOWN_B], "0", "PASS"),
+])
+def test_judge_needs_one_unambiguous_kernel_for_the_exemption(lane, tmp_path, kernels, errors, expected):
+    source = lane["script"]["source"]
+    fail = source[source.index("fail() {"):source.index("\n}", source.index("fail() {")) + 2]
+    judge = source[source.index("judge() {"):source.index("\n}", source.index("judge() {")) + 2]
+    values = dict(line.split("=", 1) for line in GOOD_CHECKS.splitlines())
+    values.update(fsverity_errors=errors)
+    lines = [f"{k}={v}" for k, v in values.items() if k != "kernel"] + [f"kernel={k}" for k in kernels]
+    checks = tmp_path / "checks.txt"
+    checks.write_text("".join(line + "\n" for line in lines))
+    result = subprocess.run(
+        ["bash", "-c", "set -euo pipefail\nFIRN_VERSION=firn_0.6.0\n" + fail.replace("/tmp/results", str(tmp_path))
+         + "\n" + judge.replace("/tmp/results", str(tmp_path)) + "\njudge \"$CHECKS\""],
+        env={**os.environ, "CELL": "c", "IMAGE": "floe", "ENC": "none", "IMAGE_DIGEST": EXPECTED_DIGEST,
+             "CHECKS": str(checks)}, text=True, capture_output=True, check=False)
+    summary = (tmp_path / "result-summary.txt").read_text()
+    if expected.startswith("PASS"):
+        assert result.returncode == 0, result.stderr
+        if expected == "PASS":
+            assert "fsverity_known_defect" not in summary
+        else:
+            note = expected.split(":", 1)[1]
+            assert f" fsverity_known_defect={note} firn=" in summary
+            assert checks.read_text().splitlines().count(f"fsverity_known_defect={note}") == 1
+    else:
+        assert result.returncode == 1
+        assert summary.startswith(expected + " (c)")
+        assert "fsverity_known_defect" not in summary

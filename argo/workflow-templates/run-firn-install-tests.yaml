@@ -599,7 +599,7 @@ spec:
 
         # ── judge: fixed order; first failing check wins ──
         judge() {
-          local checks_file="$1" bootc_image bootc_digest cfs_objects fsverity_errors fsverity_kernel fsverity_note=""
+          local checks_file="$1" bootc_image bootc_digest cfs_objects fsverity_errors fsverity_kernel fsverity_kernels fsverity_known entry fsverity_note=""
           # Kernels with the known upstream btrfs fs-verity defect (frostyard/snosi#1130,
           # kdave/linux dcf8811f63af). Remove an entry when the kernel canary says
           # `clean` on it or a fixed kernel ships. Keep identical in every lane.
@@ -644,8 +644,20 @@ spec:
           fsverity_errors="$(grep -m1 '^fsverity_errors=' "${checks_file}" | cut -d= -f2- || true)"
           if [[ ! "${fsverity_errors}" =~ ^[0-9]+$ ]]; then fail boot fsverity_errors_unknown; fi
           if (( 10#${fsverity_errors} > 0 )); then
-            fsverity_kernel="$(grep -m1 '^kernel=' "${checks_file}" | cut -d= -f2- || true)"
-            if [[ -n "${fsverity_kernel}" && " ${known_defect_kernels} " == *" ${fsverity_kernel} "* ]]; then
+            # The exemption needs one unambiguous kernel identity: exactly 1
+            # distinct, well-formed `kernel=` value (identical duplicates are fine).
+            # Several values, a malformed one or none fails.
+            fsverity_kernels="$(grep '^kernel=' "${checks_file}" | cut -d= -f2- | sort -u || true)"
+            if [[ -z "${fsverity_kernels}" || "${fsverity_kernels}" == *$'\n'* \
+                  || ! "${fsverity_kernels}" =~ ^[0-9A-Za-z._+~-]{1,64}$ ]]; then
+              fail boot fsverity_kernel_ambiguous
+            fi
+            fsverity_kernel="${fsverity_kernels}"
+            fsverity_known=0
+            for entry in ${known_defect_kernels}; do
+              if [[ "${fsverity_kernel}" == "${entry}" ]]; then fsverity_known=1; fi
+            done
+            if [[ "${fsverity_known}" == 1 ]]; then
               fsverity_note=" fsverity_known_defect=${fsverity_kernel}"
               printf 'fsverity_known_defect=%s\n' "${fsverity_kernel}" >> "${checks_file}"
               echo "fs-verity: ${fsverity_errors} message(s) on known-defect kernel ${fsverity_kernel} (snosi#1130); recorded, not failed" >&2
