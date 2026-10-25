@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-25T20:30:17Z",
+  "generated": "2026-10-25T21:00:17Z",
   "lanes": [
     {
       "laneKey": "run-firn-install-tests",
@@ -68,9 +68,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1792960200",
+        "name": "publish-results-1792962000",
         "phase": "Running",
-        "started": "2026-10-25T20:30:00Z",
+        "started": "2026-10-25T21:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -113,6 +113,31 @@
       },
       "runs": 1,
       "everGreen": false,
+      "qaRun": null
+    },
+    {
+      "laneKey": "image-poll-snow-latest",
+      "template": "image-poller",
+      "label": "Registry digest poll",
+      "kind": "poll",
+      "latest": {
+        "name": "image-poll-snow-latest-1792962000",
+        "phase": "Running",
+        "started": "2026-10-25T21:00:00Z",
+        "finished": null,
+        "durationSeconds": null,
+        "template": "image-poller",
+        "laneKey": "image-poll-snow-latest",
+        "qaOutcome": "unknown",
+        "kind": "poll",
+        "label": "Registry digest poll",
+        "trigger": "scheduled",
+        "result": null,
+        "digest": null,
+        "checks": []
+      },
+      "runs": 5,
+      "everGreen": true,
       "qaRun": null
     },
     {
@@ -201,44 +226,47 @@
         "finished": "2026-10-25T12:21:35Z",
         "result": "14 passed, 9 skipped"
       }
-    },
-    {
-      "laneKey": "image-poll-snow-latest",
-      "template": "image-poller",
-      "label": "Registry digest poll",
-      "kind": "poll",
-      "latest": {
-        "name": "image-poll-snow-latest-1792951200",
-        "phase": "Succeeded",
-        "started": "2026-10-25T18:00:00Z",
-        "finished": "2026-10-25T18:00:20Z",
-        "durationSeconds": 20,
-        "template": "image-poller",
-        "laneKey": "image-poll-snow-latest",
-        "qaOutcome": "carried",
-        "kind": "poll",
-        "label": "Registry digest poll",
-        "trigger": "scheduled",
-        "result": null,
-        "digest": "sha256:01a5af1b51676474adaf4eca5ec88948e6ad2980a64086f39389b72b2f78cb2b",
-        "checks": []
-      },
-      "runs": 4,
-      "everGreen": true,
-      "qaRun": {
-        "name": "image-poll-snow-latest-1792940400",
-        "finished": "2026-10-25T15:01:54Z",
-        "result": "20 passed, 3 skipped"
-      }
     }
   ],
   "runs": [
     {
-      "name": "publish-results-1792960200",
+      "name": "image-poll-snow-latest-1792962000",
       "phase": "Running",
-      "started": "2026-10-25T20:30:00Z",
+      "started": "2026-10-25T21:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "image-poller",
+      "laneKey": "image-poll-snow-latest",
+      "qaOutcome": "unknown",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1792962000",
+      "phase": "Running",
+      "started": "2026-10-25T21:00:00Z",
+      "finished": null,
+      "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1792960200",
+      "phase": "Succeeded",
+      "started": "2026-10-25T20:30:00Z",
+      "finished": "2026-10-25T20:30:30Z",
+      "durationSeconds": 30,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -271,22 +299,6 @@
       "started": "2026-10-25T19:30:00Z",
       "finished": "2026-10-25T19:30:31Z",
       "durationSeconds": 31,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1792954800",
-      "phase": "Succeeded",
-      "started": "2026-10-25T19:00:00Z",
-      "finished": "2026-10-25T19:00:32Z",
-      "durationSeconds": 32,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
