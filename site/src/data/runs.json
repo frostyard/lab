@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-25T00:30:19Z",
+  "generated": "2026-10-25T01:00:19Z",
   "lanes": [
     {
       "laneKey": "run-firn-install-tests",
@@ -57,9 +57,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1792888200",
+        "name": "publish-results-1792890000",
         "phase": "Running",
-        "started": "2026-10-25T00:30:00Z",
+        "started": "2026-10-25T01:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -103,6 +103,64 @@
       "runs": 1,
       "everGreen": false,
       "qaRun": null
+    },
+    {
+      "laneKey": "image-poll-sundog-latest",
+      "template": "image-poller",
+      "label": "Registry digest poll",
+      "kind": "poll",
+      "latest": {
+        "name": "image-poll-sundog-latest-1792889400",
+        "phase": "Succeeded",
+        "started": "2026-10-25T00:50:00Z",
+        "finished": "2026-10-25T00:50:20Z",
+        "durationSeconds": 20,
+        "template": "image-poller",
+        "laneKey": "image-poll-sundog-latest",
+        "qaOutcome": "carried",
+        "kind": "poll",
+        "label": "Registry digest poll",
+        "trigger": "scheduled",
+        "result": null,
+        "digest": "sha256:f8937384af78aa7ded64528a9993364dbcc1dd86308e96b4bc2cc5f15ba6f7be",
+        "checks": []
+      },
+      "runs": 3,
+      "everGreen": true,
+      "qaRun": {
+        "name": "image-poll-sundog-latest-1792878600",
+        "finished": "2026-10-24T21:51:46Z",
+        "result": "20 passed, 3 skipped"
+      }
+    },
+    {
+      "laneKey": "image-poll-snowfield-latest",
+      "template": "image-poller",
+      "label": "Registry digest poll",
+      "kind": "poll",
+      "latest": {
+        "name": "image-poll-snowfield-latest-1792888800",
+        "phase": "Succeeded",
+        "started": "2026-10-25T00:40:00Z",
+        "finished": "2026-10-25T00:40:20Z",
+        "durationSeconds": 20,
+        "template": "image-poller",
+        "laneKey": "image-poll-snowfield-latest",
+        "qaOutcome": "carried",
+        "kind": "poll",
+        "label": "Registry digest poll",
+        "trigger": "scheduled",
+        "result": null,
+        "digest": "sha256:8f44d795daddaa42f3c4e41ca958797627933724d048e532b032b2a009bd5442",
+        "checks": []
+      },
+      "runs": 4,
+      "everGreen": true,
+      "qaRun": {
+        "name": "image-poll-snowfield-latest-1792878000",
+        "finished": "2026-10-24T21:41:47Z",
+        "result": "20 passed, 3 skipped"
+      }
     },
     {
       "laneKey": "image-poll-floe-latest",
@@ -161,73 +219,63 @@
         "finished": "2026-10-24T21:01:53Z",
         "result": "20 passed, 3 skipped"
       }
-    },
-    {
-      "laneKey": "image-poll-sundog-latest",
-      "template": "image-poller",
-      "label": "Registry digest poll",
-      "kind": "poll",
-      "latest": {
-        "name": "image-poll-sundog-latest-1792878600",
-        "phase": "Succeeded",
-        "started": "2026-10-24T21:50:00Z",
-        "finished": "2026-10-24T21:51:46Z",
-        "durationSeconds": 106,
-        "template": "image-poller",
-        "laneKey": "image-poll-sundog-latest",
-        "qaOutcome": "passed",
-        "kind": "poll",
-        "label": "Registry digest poll",
-        "trigger": "scheduled",
-        "result": "20 passed, 3 skipped",
-        "digest": "sha256:f8937384af78aa7ded64528a9993364dbcc1dd86308e96b4bc2cc5f15ba6f7be",
-        "checks": []
-      },
-      "runs": 3,
-      "everGreen": true,
-      "qaRun": {
-        "name": "image-poll-sundog-latest-1792878600",
-        "finished": "2026-10-24T21:51:46Z",
-        "result": "20 passed, 3 skipped"
-      }
-    },
-    {
-      "laneKey": "image-poll-snowfield-latest",
-      "template": "image-poller",
-      "label": "Registry digest poll",
-      "kind": "poll",
-      "latest": {
-        "name": "image-poll-snowfield-latest-1792878000",
-        "phase": "Succeeded",
-        "started": "2026-10-24T21:40:00Z",
-        "finished": "2026-10-24T21:41:47Z",
-        "durationSeconds": 107,
-        "template": "image-poller",
-        "laneKey": "image-poll-snowfield-latest",
-        "qaOutcome": "passed",
-        "kind": "poll",
-        "label": "Registry digest poll",
-        "trigger": "scheduled",
-        "result": "20 passed, 3 skipped",
-        "digest": "sha256:8f44d795daddaa42f3c4e41ca958797627933724d048e532b032b2a009bd5442",
-        "checks": []
-      },
-      "runs": 4,
-      "everGreen": true,
-      "qaRun": {
-        "name": "image-poll-snowfield-latest-1792878000",
-        "finished": "2026-10-24T21:41:47Z",
-        "result": "20 passed, 3 skipped"
-      }
     }
   ],
   "runs": [
     {
-      "name": "publish-results-1792888200",
+      "name": "publish-results-1792890000",
       "phase": "Running",
-      "started": "2026-10-25T00:30:00Z",
+      "started": "2026-10-25T01:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": null,
+      "checks": []
+    },
+    {
+      "name": "image-poll-sundog-latest-1792889400",
+      "phase": "Succeeded",
+      "started": "2026-10-25T00:50:00Z",
+      "finished": "2026-10-25T00:50:20Z",
+      "durationSeconds": 20,
+      "template": "image-poller",
+      "laneKey": "image-poll-sundog-latest",
+      "qaOutcome": "carried",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": "sha256:f8937384af78aa7ded64528a9993364dbcc1dd86308e96b4bc2cc5f15ba6f7be",
+      "checks": []
+    },
+    {
+      "name": "image-poll-snowfield-latest-1792888800",
+      "phase": "Succeeded",
+      "started": "2026-10-25T00:40:00Z",
+      "finished": "2026-10-25T00:40:20Z",
+      "durationSeconds": 20,
+      "template": "image-poller",
+      "laneKey": "image-poll-snowfield-latest",
+      "qaOutcome": "carried",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": "sha256:8f44d795daddaa42f3c4e41ca958797627933724d048e532b032b2a009bd5442",
+      "checks": []
+    },
+    {
+      "name": "publish-results-1792888200",
+      "phase": "Succeeded",
+      "started": "2026-10-25T00:30:00Z",
+      "finished": "2026-10-25T00:30:32Z",
+      "durationSeconds": 32,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -308,22 +356,6 @@
       "started": "2026-10-24T23:30:00Z",
       "finished": "2026-10-24T23:30:30Z",
       "durationSeconds": 30,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1792882800",
-      "phase": "Succeeded",
-      "started": "2026-10-24T23:00:00Z",
-      "finished": "2026-10-24T23:00:31Z",
-      "durationSeconds": 31,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -476,38 +508,6 @@
       "trigger": "scheduled",
       "result": null,
       "digest": "sha256:8215b69772dfe8b9ff3a27e1fb6b7daa9130c3d294cd0752bddfd360362735d2",
-      "checks": []
-    },
-    {
-      "name": "image-poll-sundog-latest-1792857000",
-      "phase": "Succeeded",
-      "started": "2026-10-24T15:50:00Z",
-      "finished": "2026-10-24T15:50:20Z",
-      "durationSeconds": 20,
-      "template": "image-poller",
-      "laneKey": "image-poll-sundog-latest",
-      "qaOutcome": "carried",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": "sha256:e582ffb9189ee2007321ae6b274734c419b61b43b5a65abf6023469d492ce72a",
-      "checks": []
-    },
-    {
-      "name": "image-poll-snowfield-latest-1792856400",
-      "phase": "Succeeded",
-      "started": "2026-10-24T15:40:00Z",
-      "finished": "2026-10-24T15:40:20Z",
-      "durationSeconds": 20,
-      "template": "image-poller",
-      "laneKey": "image-poll-snowfield-latest",
-      "qaOutcome": "carried",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": "sha256:0551f879e1d68a5be4d63f93b37d2b4ec9233e3962d313f6e453279a58d620a5",
       "checks": []
     },
     {
