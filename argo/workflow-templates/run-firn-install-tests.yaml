@@ -72,8 +72,10 @@ spec:
         value: "420"
       - name: install-timeout-seconds
         value: "2400"
+      # 900: the post-install probe also scans the composefs objects and runs
+      # the kernel canary (see the fsverity-probe block).
       - name: installed-boot-timeout-seconds
-        value: "600"
+        value: "900"
     outputs:
       parameters:
       - name: result
@@ -433,6 +435,106 @@ spec:
         ' )"
         emit bootc_image "\$(printf '%s\n' "\${BOOTC_FIELDS}" | head -n 1)"
         emit bootc_digest "\$(printf '%s\n' "\${BOOTC_FIELDS}" | tail -n 1)"
+        # --- BEGIN fsverity-probe ---
+        # frostyard/snosi#1130: Debian kernels 7.2.11 and 7.2.12 verify a whole
+        # large folio of a COMPRESSED btrfs fs-verity file before it is fully
+        # read and log "fs-verity ... FILE CORRUPTED! ... level=-1". The
+        # synchronous re-read succeeds, so no bad bytes reach user space.
+        # Upstream fix: kdave/linux dcf8811f63af ("btrfs: fix the fsverity
+        # callback where unexpected range is verified"). Our trigger was Firn
+        # mounting the install target with compress=zstd:1, which compressed the
+        # install-time composefs objects (frostyard/firn#119). Kernel logs are
+        # only read, never filtered or cleared.
+        fsverity_count() {
+          local log
+          log="\$(timeout 20 journalctl -k -b --no-pager 2>/dev/null)" || return 1
+          [[ -n "\${log}" ]] || return 1
+          printf '%s\n' "\${log}" | awk '
+            /FILE CORRUPTED/ { n++ }
+            /fsverity_msg: [0-9]+ callbacks suppressed/ { sub(/.*fsverity_msg: /, ""); n += \$1 }
+            END { print n + 0 }'
+        }
+        # Regular files under the composefs object store with at least one
+        # extent flagged "encoded" (btrfs compression) in filefrag -v.
+        cfs_compressed_objects() {
+          local dir=/sysroot/composefs/objects n
+          if [[ "\$(findmnt -no FSTYPE /sysroot 2>/dev/null || true)" != btrfs ]]; then echo n/a; return 0; fi
+          if ! command -v filefrag >/dev/null 2>&1 || [[ ! -d "\${dir}" ]]; then echo unknown; return 0; fi
+          n="\$(set -o pipefail
+            find "\${dir}" -type f -print0 2>/dev/null \\
+              | timeout 180 xargs -0 -r -n 256 filefrag -v 2>/dev/null \\
+              | awk '
+                  /^File size of / { seen = 0; next }
+                  /^ *[0-9]+: / && !seen && \$0 ~ /(^|[ ,])encoded(,|\$)/ { seen = 1; n++ }
+                  END { print n + 0 }')" || { echo unknown; return 0; }
+          echo "\${n}"
+        }
+        emit cfs_compressed_objects "\$(cfs_compressed_objects)"
+        # Counted before the canary below, which logs on a defective kernel.
+        emit fsverity_errors "\$(fsverity_count || echo unknown)"
+        # Kernel canary, informational only (never fails the lane): does THIS
+        # kernel log FILE CORRUPTED when it reads a compressed fs-verity file on
+        # btrfs? defect = yes; clean = no; skipped = the canary could not run.
+        # When it first says clean on a new kernel, hosts can take that kernel.
+        export CANARY_IMG=/var/tmp/qa-btrfs-verity.img CANARY_MNT=/var/tmp/qa-btrfs-verity.mnt
+        dmesg_count() {
+          local out
+          out="\$(dmesg 2>/dev/null)" || { echo unknown; return 0; }
+          printf '%s\n' "\${out}" | grep -c 'FILE CORRUPTED' || true
+        }
+        canary_body() {
+          set -e
+          [[ "\$(id -u)" == 0 ]]
+          command -v mkfs.btrfs >/dev/null
+          command -v losetup >/dev/null
+          command -v python3 >/dev/null
+          mkdir -p "\${CANARY_MNT}"
+          truncate -s 64M "\${CANARY_IMG}"
+          mkfs.btrfs -q -f -m single -d single "\${CANARY_IMG}" >/dev/null
+          mount -o loop,compress-force=zstd "\${CANARY_IMG}" "\${CANARY_MNT}"
+          local f="\${CANARY_MNT}/canary.bin"
+          base64 /dev/urandom | head -c 33554432 > "\${f}"
+          sync
+          if command -v fsverity >/dev/null 2>&1; then
+            fsverity enable --hash-alg=sha512 --block-size=4096 "\${f}"
+          else
+            python3 -c '
+        import fcntl, os, struct, sys
+        fd = os.open(sys.argv[1], os.O_RDONLY)
+        # struct fsverity_enable_arg: version=1, SHA-512, 4096-byte blocks, rest zero.
+        arg = struct.pack("=IIIIQIIQ11Q", 1, 2, 4096, 0, 0, 0, 0, 0, *([0] * 11))
+        fcntl.ioctl(fd, 0x40806685, arg)
+        ' "\${f}"
+          fi
+          # The canary is only meaningful if the extents really are compressed.
+          if command -v filefrag >/dev/null 2>&1; then filefrag -v "\${f}" | grep -qw encoded; fi
+          sync
+          echo 3 > /proc/sys/vm/drop_caches
+          cat "\${f}" > /dev/null
+        }
+        canary_cleanup() {
+          umount "\${CANARY_MNT}" 2>/dev/null || umount -l "\${CANARY_MNT}" 2>/dev/null || true
+          for d in \$(losetup -j "\${CANARY_IMG}" 2>/dev/null | cut -d: -f1); do losetup -d "\${d}" 2>/dev/null || true; done
+          rmdir "\${CANARY_MNT}" 2>/dev/null || true
+          rm -f -- "\${CANARY_IMG}" 2>/dev/null || true
+        }
+        CANARY=skipped
+        CANARY_BEFORE="\$(dmesg_count)"
+        CANARY_RC=0
+        timeout -k 5 60 bash -c "\$(declare -f canary_body); canary_body" >/dev/null 2>&1 || CANARY_RC=\$?
+        sleep 1 || true
+        CANARY_AFTER="\$(dmesg_count)"
+        canary_cleanup
+        if [[ "\${CANARY_BEFORE}" =~ ^[0-9]+\$ && "\${CANARY_AFTER}" =~ ^[0-9]+\$ ]]; then
+          if (( CANARY_AFTER > CANARY_BEFORE )); then
+            CANARY=defect
+          elif (( CANARY_RC == 0 )); then
+            CANARY=clean
+          fi
+        fi
+        emit kernel "\$(uname -r)"
+        emit kernel_btrfs_verity_canary "\${CANARY}"
+        # --- END fsverity-probe ---
         # Wait (bounded) until serial-getty@ttyS0 has finished its TTY setup:
         # MainPID is set and the process has exec'd agetty (it is "(agetty)"
         # before that).
@@ -460,7 +562,7 @@ spec:
         After=multi-user.target
         [Service]
         Type=oneshot
-        TimeoutStartSec=600
+        TimeoutStartSec=900
         RemainAfterExit=yes
         StandardOutput=journal+console
         StandardError=journal+console
@@ -487,7 +589,7 @@ spec:
 
         # ── judge: fixed order; first failing check wins ──
         judge() {
-          local checks_file="$1" bootc_image bootc_digest
+          local checks_file="$1" bootc_image bootc_digest cfs_objects fsverity_errors
           if ! grep -qx 'booted=ok' "${checks_file}"; then fail boot no_report; fi
           if ! grep -qx "osrelease=${IMAGE}" "${checks_file}"; then fail boot wrong_image; fi
           if [[ "${ENC}" != none ]]; then
@@ -506,6 +608,23 @@ spec:
           bootc_digest="$(grep -m1 '^bootc_digest=' "${checks_file}" | cut -d= -f2- || true)"
           if [[ -z "${bootc_digest}" || "${bootc_digest}" == unknown ]]; then fail boot bootc_digest_unknown; fi
           if [[ "${bootc_digest}" != "${IMAGE_DIGEST}" ]]; then fail boot digest_mismatch; fi
+          # frostyard/snosi#1130 guards. First: no compressed composefs objects on
+          # btrfs (the Firn trigger, frostyard/firn#119). A missing value, or
+          # `unknown` on a btrfs composefs root, is a failure: a guard that
+          # silently did not run must not read as green (ADR-0010).
+          cfs_objects="$(grep -m1 '^cfs_compressed_objects=' "${checks_file}" | cut -d= -f2- || true)"
+          if [[ -z "${cfs_objects}" ]]; then fail boot cfs_check_missing; fi
+          if [[ "${cfs_objects}" =~ ^[0-9]+$ ]]; then
+            if (( 10#${cfs_objects} > 0 )); then fail boot "cfs_compressed_objects_${cfs_objects}"; fi
+          elif [[ "${cfs_objects}" == unknown ]] \
+               && grep -qx 'sysroot=btrfs' "${checks_file}" && grep -qx 'rootfs=overlay' "${checks_file}"; then
+            fail boot cfs_check_unknown
+          fi
+          # Second: no fs-verity corruption messages in this boot's kernel log.
+          # The objects are uncompressed here, so any message is a regression.
+          fsverity_errors="$(grep -m1 '^fsverity_errors=' "${checks_file}" | cut -d= -f2- || true)"
+          if [[ ! "${fsverity_errors}" =~ ^[0-9]+$ ]]; then fail boot fsverity_errors_unknown; fi
+          if (( 10#${fsverity_errors} > 0 )); then fail boot "fsverity_errors_${fsverity_errors}"; fi
           printf '%s' "PASS: ${CELL} image=${bootc_image} digest=${bootc_digest} firn=${FIRN_VERSION}" > /tmp/results/result-summary.txt
           cat /tmp/results/result-summary.txt >&2
         }

@@ -840,6 +840,7 @@ data:
     INSTALLER_ATTACHED=0
     prior=none
     seen_boot_ids=':'
+    fsverity_total=0
     for phase in installed-n stage boot-n-plus-1 rollback boot-n; do
       nonce=$(openssl rand -hex 16) || fail nonce
       tag before-"$phase"
@@ -867,14 +868,23 @@ data:
       await SNOW_QA_V1 "$((budget + 300))"
       python3 /opt/snow-qa/qa.py phase "$WORK/normalized.json" "$phase" "$nonce" "$prior" "$WORK/serial" "$WORK/checks.json" > "$WORK/boot-id" 2>/dev/null || fail phase_mismatch
       [[ -s "$WORK/boot-id" ]] || fail phase_mismatch
-      prior=$(<"$WORK/boot-id")
+      prior=$(head -n 1 "$WORK/boot-id")
+      # Line 2 is the attested fs-verity corruption count (frostyard/snosi#1130).
+      fsverity=$(sed -n '2s/^fsverity_errors=\([0-9]\{1,10\}\)$/\1/p' "$WORK/boot-id")
+      [[ -n "$fsverity" ]] || fail phase_mismatch
       [[ "$seen_boot_ids" != *":$prior:"* ]] || fail reused_boot_id
       seen_boot_ids+="$prior:"
-      printf 'phase=%s boot_id=%s\n' "$phase" "$prior" >> "$OUT/checks.txt"
+      printf 'phase=%s boot_id=%s fsverity_errors=%s\n' "$phase" "$prior" "$fsverity" >> "$OUT/checks.txt"
+      fsverity_total=$((fsverity_total + 10#$fsverity))
       persist "$OUT/checks.txt" "$EVIDENCE/checks.txt" || fail evidence_write
       case "$phase" in stage|boot-n-plus-1|rollback) tag after-"$phase";; esac
       timeout 120 incus stop "$VM" --force >/dev/null 2>&1 || fail guest_stop
     done
+    # Judged after all five boots so a failure keeps every phase's evidence
+    # (frostyard/snosi#1130). The Firn install is the only writer of compressed
+    # composefs objects (frostyard/firn#119), so an ISO that predates that fix
+    # can fail here by design on an affected kernel (7.2.11, 7.2.12).
+    (( fsverity_total == 0 )) || fail fsverity_errors
     STATE=PASS
     REASON=verified_five_fresh_boots
   guest.sh: |
@@ -916,7 +926,7 @@ data:
     LIMITS = {"iso_boot": 1800, "install": 7200, "installed_boot": 1800,
               "stage": 3600, "reboot": 1800}
     PHASES = ("installed-n", "stage", "boot-n-plus-1", "rollback", "boot-n")
-    RECORD_FIELDS = set("phase nonce boot_id spec_image spec_transport booted_digest booted_version staged_digest rollback_digest policy_sha256 policy_ok pull_ok pull_digest secure_boot uki_type2 lockdown root_luks root_btrfs tpm_pcr11_tokens action marker_digest".split())
+    RECORD_FIELDS = set("phase nonce boot_id spec_image spec_transport booted_digest booted_version staged_digest rollback_digest policy_sha256 policy_ok pull_ok pull_digest secure_boot uki_type2 lockdown root_luks root_btrfs tpm_pcr11_tokens fsverity_errors action marker_digest".split())
     GUEST_MANIFEST = Path("/opt/snow-qa/normalized.json")
     GUEST_PATHS = {"boot_id": Path("/proc/sys/kernel/random/boot_id"),
                    "uptime": Path("/proc/uptime"),
@@ -1293,12 +1303,15 @@ data:
         require(all(record[name] is True for name in
                     ("secure_boot", "uki_type2", "lockdown", "root_luks", "root_btrfs"))
                 and type(record["tpm_pcr11_tokens"]) is int and record["tpm_pcr11_tokens"] == 1, "boot_security")
+        # Recorded here, judged by the runner after the evidence is written:
+        # a non-zero count must not discard the attested boot (frostyard/snosi#1130).
+        require(type(record["fsverity_errors"]) is int and 0 <= record["fsverity_errors"] <= 10**9, "fsverity_field")
         require(record["action"] == ("staged" if phase == "stage" else "rolled-back" if phase == "rollback" else None), "action")
         require(record["marker_digest"] == (m["image_n_plus_1"].rsplit(":", 1)[-1] if phase == "stage" else None), "stage_marker")
         return record["boot_id"]
 
 
-    def phase_verdict(m, phase, nonce, prior, serial, checks):
+    def phase_attest(m, phase, nonce, prior, serial, checks):
         require(phase in PHASES and nonce_valid(nonce) and
                 (prior == "none" or boot_id_valid(prior)), "phase_arguments")
         check_state(m, read_json(checks)[0])
@@ -1319,7 +1332,29 @@ data:
                                 parse_constant=lambda _: (_ for _ in ()).throw(GateError("record_encoding")))
         except (ValueError, UnicodeError) as exc:
             raise GateError("record_encoding") from exc
-        return verdict(m, phase, nonce, prior, record)
+        verdict(m, phase, nonce, prior, record)
+        return record
+
+
+    def phase_verdict(m, phase, nonce, prior, serial, checks):
+        return phase_attest(m, phase, nonce, prior, serial, checks)["boot_id"]
+
+
+    def fsverity_error_count(log):
+        """Count fs-verity corruption messages in a kernel log; never edits the log.
+
+        Kernels 7.2.11/7.2.12 log "FILE CORRUPTED" when btrfs readahead verifies
+        a large folio of a compressed fs-verity file too early; the re-read
+        succeeds (frostyard/snosi#1130; upstream kdave/linux dcf8811f63af).
+        """
+        total = 0
+        for line in log.splitlines():
+            if b"FILE CORRUPTED" in line:
+                total += 1
+            suppressed = re.search(rb"fsverity_msg: ([0-9]{1,9}) callbacks suppressed", line)
+            if suppressed:
+                total += int(suppressed[1])
+        return total
 
 
     def guest_command(args, code, timeout=120):
@@ -1541,12 +1576,16 @@ data:
             # deployment bookkeeping, not the currently running boot.
             guest_command(["bootc", "rollback"], "rollback_action", timeout=action_timeout("rollback_action"))
             action = "rolled-back"
+        # After the update/rollback action, so this boot's reads are all counted.
+        kernel_log = guest_command(["journalctl", "-k", "-b", "--no-pager"], "fsverity_log")
+        require(len(kernel_log) > 0, "fsverity_log")
         record = dict(phase=phase, nonce=nonce, boot_id=boot_id, spec_image=spec, spec_transport=transport,
                       booted_digest=booted, booted_version=version, staged_digest=staged,
                       rollback_digest=rollback, policy_sha256=sha(key), policy_ok=True,
                       pull_ok=True, pull_digest=pulled.removeprefix("sha256:"), secure_boot=True,
                       uki_type2=True, lockdown=True, root_luks=True, root_btrfs=True,
-                      tpm_pcr11_tokens=1, action=action, marker_digest=marker)
+                      tpm_pcr11_tokens=1, fsverity_errors=fsverity_error_count(kernel_log),
+                      action=action, marker_digest=marker)
         verdict(m, phase, nonce, "none", record)
         return "SNOW_QA_V1 " + base64.urlsafe_b64encode(canonical(record).strip()).decode().rstrip("=")
 
@@ -1563,7 +1602,9 @@ data:
             elif argv[0] == "tag" and len(argv) == 4:
                 tag(load(argv[1], frozen=True), argv[2], argv[3])
             elif argv[0] == "phase" and len(argv) == 7:
-                print(phase_verdict(load(argv[1], frozen=True), argv[2], argv[3], argv[4], argv[5], argv[6]))
+                attested = phase_attest(load(argv[1], frozen=True), argv[2], argv[3], argv[4], argv[5], argv[6])
+                print(attested["boot_id"])
+                print("fsverity_errors=" + str(attested["fsverity_errors"]))
             elif argv[0] == "guest" and len(argv) == 2:
                 # The one-line record is emitted only after all probes and actions succeed.
                 with open("/dev/console", "w") as serial:

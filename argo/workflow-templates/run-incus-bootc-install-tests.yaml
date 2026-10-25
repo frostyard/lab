@@ -455,6 +455,21 @@ spec:
         elif [ -d /sysroot/ostree ];                                       then emit backend ostree
         else                                                                    emit backend MISSING; fi
         emit osrelease "$(. /etc/os-release; echo "${IMAGE_ID:-?}-${IMAGE_VERSION:-?}")"
+        # frostyard/snosi#1130: count fs-verity corruption messages in this boot's
+        # kernel log (only read, never filtered). Kernels 7.2.11/7.2.12 log them for
+        # compressed btrfs fs-verity files (upstream fix kdave/linux dcf8811f63af;
+        # Firn trigger frostyard/firn#119). Objects from bootc install to-disk and
+        # updates are not compressed, so any message is a regression.
+        fsverity_errors() {
+          local log
+          log="$(timeout 20 journalctl -k -b --no-pager 2>/dev/null)" || return 1
+          [ -n "$log" ] || return 1
+          printf '%s\n' "$log" | awk '
+            /FILE CORRUPTED/ { n++ }
+            /fsverity_msg: [0-9]+ callbacks suppressed/ { sub(/.*fsverity_msg: /, ""); n += $1 }
+            END { print n + 0 }'
+        }
+        emit fsverity_errors "$(fsverity_errors || echo unknown)"
         echo "SNOSI_QA__CHECKS_DONE"
         SCRIPT
         )
@@ -523,6 +538,21 @@ spec:
         else                                                                    emit backend MISSING; fi
         emit osrelease "$(. /etc/os-release; echo "${IMAGE_ID:-?}-${IMAGE_VERSION:-?}")"
         emit failedunits "$(systemctl list-units --state=failed --no-legend --plain 2>/dev/null | wc -l)"
+        # frostyard/snosi#1130: count fs-verity corruption messages in this boot's
+        # kernel log (only read, never filtered). Kernels 7.2.11/7.2.12 log them for
+        # compressed btrfs fs-verity files (upstream fix kdave/linux dcf8811f63af;
+        # Firn trigger frostyard/firn#119). Objects from bootc install to-disk and
+        # updates are not compressed, so any message is a regression.
+        fsverity_errors() {
+          local log
+          log="$(timeout 20 journalctl -k -b --no-pager 2>/dev/null)" || return 1
+          [ -n "$log" ] || return 1
+          printf '%s\n' "$log" | awk '
+            /FILE CORRUPTED/ { n++ }
+            /fsverity_msg: [0-9]+ callbacks suppressed/ { sub(/.*fsverity_msg: /, ""); n += $1 }
+            END { print n + 0 }'
+        }
+        emit fsverity_errors "$(fsverity_errors || echo unknown)"
         PROBE
         fi
 
@@ -535,8 +565,8 @@ spec:
         # silently instead of saying so. Third instance of this shape in this
         # repo; see docs/roadmap.md A5.
         { cat /tmp/results/agent-checks.txt 2>/dev/null || true
-          console_log | grep -aoE "${M_CHECK} [a-z]+=[^[:space:]]+" | sed "s/${M_CHECK} //" || true
-        } | grep -E '^[a-z]+=' | sort -u > /tmp/results/checks.txt || true
+          console_log | grep -aoE "${M_CHECK} [a-z_]+=[^[:space:]]+" | sed "s/${M_CHECK} //" || true
+        } | grep -E '^[a-z_]+=' | sort -u > /tmp/results/checks.txt || true
 
         if [[ ! -s /tmp/results/checks.txt ]]; then
           echo "--- neither the agent nor the console reported; console tail ---" >&2
@@ -552,6 +582,17 @@ spec:
             > /tmp/results/result-summary.txt
           exit 1
         }
+
+        # frostyard/snosi#1130: these objects are not compressed, so any fs-verity
+        # corruption message is a regression. A missing or `unknown` value is only
+        # recorded (the incus agent or journalctl may be unavailable), not judged.
+        # Both channels may report: take the largest number either one saw.
+        fsverity_errors="$(grep '^fsverity_errors=' /tmp/results/checks.txt | cut -d= -f2- | grep -E '^[0-9]+$' | sort -n | tail -n 1 || true)"
+        if [[ "${fsverity_errors}" =~ ^[0-9]+$ ]] && (( 10#${fsverity_errors} > 0 )); then
+          printf '%s' "FAILED: installed system logged ${fsverity_errors} fs-verity corruption message(s) (snosi#1130)" \
+            > /tmp/results/result-summary.txt
+          exit 1
+        fi
 
         printf '%s' "bootc installed and verified: ${IMAGE} (secureboot=${SECUREBOOT})" \
           > /tmp/results/result-summary.txt
