@@ -107,29 +107,53 @@ run or pass is claimed by the submit file alone.
 
 ## fs-verity regression checks (snosi#1130)
 
-Debian kernels 7.2.11 and 7.2.12 have a btrfs defect: on fs-verity files with
-**compressed** extents, readahead verifies a whole large folio before all of it
-is read. The kernel logs `fs-verity (...): FILE CORRUPTED! ... level=-1`. A
-synchronous re-read then succeeds, so no bad bytes reach user space; it is
-log noise with a real cause, not data corruption. The upstream fix is
+Debian kernels 7.2.11 and 7.2.12 have a btrfs defect: on fs-verity files,
+readahead verifies a whole large folio before all of it is read. The kernel
+logs `fs-verity (...): FILE CORRUPTED! ... level=-1`. A synchronous re-read
+then succeeds, so no bad bytes reach user space; it is log noise with a real
+cause, not data corruption. The upstream fix is
 [kdave/linux `dcf8811f63af`](https://github.com/kdave/linux/commit/dcf8811f63af)
 ("btrfs: fix the fsverity callback where unexpected range is verified"); it is
 not yet in a Debian kernel. See
 [snosi#1130](https://github.com/frostyard/snosi/issues/1130).
 
-The trigger in our stack was Firn mounting the Btrfs install target with
-`compress=zstd:1`, so the install-time composefs objects in
-`/sysroot/composefs/objects/` were compressed
-([firn#119](https://github.com/frostyard/firn/issues/119) removes that).
-Objects written by `bootc install to-disk --filesystem btrfs` or by updates
-are not compressed. The lanes below keep the guard in place. They only read
-kernel logs: nothing deletes or filters them.
+How often it hits depends on the extents:
+
+- **Compressed extents** hit it on almost every extent. The trigger in our
+  stack was Firn mounting the Btrfs install target with `compress=zstd:1`, so
+  the install-time composefs objects in `/sysroot/composefs/objects/` were
+  compressed ([firn#119](https://github.com/frostyard/firn/issues/119) removes
+  that). That count is deterministic, so it is judged without exception.
+- **Uncompressed files** hit it rarely: when a large folio spans two bios at
+  an extent boundary. Update-lab evidence on 7.2.11: a plain
+  `bootc install to-disk` Snow VM logged 1 `FILE CORRUPTED` at 8 of 10 boots
+  (gnome-shell mmap of `libz3.so.4`), and plain Floe logged 1 error in a cold
+  full read. Objects from `bootc install to-disk` or from updates are not
+  compressed, so on these kernels errors still appear, from the known upstream
+  defect and not from a regression.
+
+So `fsverity_errors` is judged against a **known-defect kernel list**, the same
+in every template that judges it (`known_defect_kernels` in the Firn judge, the
+bootc install judge and the lifecycle `run.sh`): `7.2.11+deb14-amd64` and
+`7.2.12+deb14-amd64`. A missing or non-numeric count always fails. A count of 0
+passes. A count above 0 on a listed kernel is recorded with a visible note
+(`fsverity_known_defect=<kernel>` in the checks and in the summary line) and
+does not fail. The exemption needs exactly 1 distinct, well-formed `kernel=`
+value (`[0-9A-Za-z._+~-]{1,64}`, identical duplicates are fine), compared with
+each list entry by exact equality. Conflicting, malformed or missing kernel
+values with a count above 0 fail with `fsverity_kernel_ambiguous`. A count above
+0 on any other single kernel fails: a human then checks whether that kernel has
+the fix. **Remove an entry
+from the list** when the kernel canary says `clean` on that kernel or when a
+fixed kernel ships. The lanes only read kernel logs: nothing deletes or filters
+them.
 
 | Check | Where | Meaning | Judged? |
 |---|---|---|---|
 | `cfs_compressed_objects=<N>` | Firn install probe | Regular files under `/sysroot/composefs/objects` with at least one `encoded` extent in `filefrag -v`. `n/a` = `findmnt` succeeded and `/sysroot` is not btrfs; `unknown` = `findmnt` failed, or `filefrag` or the directory is missing. | **FAIL** when N > 0. Also FAIL when the value is absent. On an attested composefs root (`rootfs=overlay` and `sysroot=btrfs`) the value must be the number 0: `n/a`, `unknown` or a malformed value fails (a guard that did not run is not a pass, [ADR-0010](adr/0010-vacuous-success-is-forbidden.md)). |
-| `fsverity_errors=<N>` | Firn install probe, bootc install probe (agent and console channels), lifecycle guest record | Count of `FILE CORRUPTED` lines in `journalctl -k -b`, plus the numbers in `fsverity_msg: N callbacks suppressed` lines. `journalctl -q` is used, and empty output or only `-- No entries --` (exit 0, no kernel entry read) gives `unknown` (`fsverity_log` in `qa.py`), never 0. | Firn: **FAIL** when N > 0 or the value is not a number (after `cfs_compressed_objects` passed). bootc install: **FAIL** when N > 0, and also when neither channel reports a valid number (`FAILED: fs-verity guard did not report (snosi#1130)`); with both channels the largest number counts. Lifecycle: **FAIL** `fsverity_errors` after the five boots when the sum is > 0 (see below). |
-| `kernel_btrfs_verity_canary=defect\|clean\|skipped` and `kernel=<uname -r>` | Firn install probe only | Informational canary, **never fails a lane**. See below. | No |
+| `fsverity_errors=<N>` | Firn install probe, bootc install probe (agent and console channels), lifecycle guest record | Count of `FILE CORRUPTED` lines in `journalctl -q -k -b`, plus the numbers in `fsverity_msg: N callbacks suppressed` lines. Empty output or only `-- No entries --` (exit 0, no kernel entry read) gives `unknown` (`fsverity_log` in `qa.py`), never 0. | Missing or non-numeric: **FAIL** in all three lanes (bootc install: `FAILED: fs-verity guard did not report (snosi#1130)`; with both channels the largest number counts). N > 0: **FAIL** unless the kernel is on the known-defect list (see above). |
+| `kernel=<uname -r>` | All three lanes (the lifecycle record has an attested `kernel` field) | Kernel release the count belongs to. | Used to judge `fsverity_errors`. |
+| `kernel_btrfs_verity_canary=defect\|clean\|skipped` | Firn install probe only | Informational canary, **never fails a lane**. See below. | No |
 
 The bootc install lane also widened its console and agent key patterns from
 `[a-z]+` to `[a-z_]+`: before, any check key with an underscore was silently
@@ -145,17 +169,22 @@ lines in `dmesg` give `defect`; none gives `clean`; any setup failure, a
 missing tool, a non-root run, a timeout (60 s) or a file whose extents are not
 compressed gives `skipped`. The mount, loop device and image are always
 removed. The canary is a property of the **kernel**, not of the image: when it
-first says `clean` on a new kernel, the hosts can take that kernel.
+first says `clean` on a new kernel, the hosts can take that kernel, and that
+kernel leaves the known-defect list (compressed files hit the defect almost every
+time, so `clean` is strong evidence of a fix).
 
-**Lifecycle.** Each guest boot adds `fsverity_errors` to its attested
-`SNOW_QA_V1` record, read after the stage or rollback action so the whole boot
-is counted. `checks.txt` lines become
-`phase=<phase> boot_id=<id> fsverity_errors=<N>`. The runner sums the five
-phases and fails with reason `fsverity_errors` only after all five boots were
-recorded, so a failure keeps every phase's evidence. The installed system comes
-from the pinned Firn ISO: an ISO that still has the `compress=zstd:1` mount
-(before firn#119) can fail this check on an affected kernel by design. The
-lane is advisory and never a release gate.
+**Lifecycle.** Each guest boot adds `fsverity_errors` and `kernel` (read from
+`/proc/sys/kernel/osrelease`) to its attested `SNOW_QA_V1` record, with the
+count read after the stage or rollback action so the whole boot is counted.
+`checks.txt` lines become
+`phase=<phase> boot_id=<id> kernel=<release> fsverity_errors=<N>`. The runner
+judges after all five boots were recorded, so a failure keeps every phase's
+evidence: it fails with reason `fsverity_errors` when any phase has errors on a
+kernel that is not on the known-defect list. Errors only on listed kernels pass
+with `fsverity_known_defect=<kernels>` in `checks.txt` and in the PASS reason.
+The installed system comes from the pinned Firn ISO: an ISO that still has the
+`compress=zstd:1` mount (before firn#119) makes errors near certain on an
+affected kernel. The lane is advisory and never a release gate.
 
 ## Manual Snow bootc lifecycle evidence
 

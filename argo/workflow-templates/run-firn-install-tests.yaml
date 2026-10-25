@@ -437,14 +437,18 @@ spec:
         emit bootc_digest "\$(printf '%s\n' "\${BOOTC_FIELDS}" | tail -n 1)"
         # --- BEGIN fsverity-probe ---
         # frostyard/snosi#1130: Debian kernels 7.2.11 and 7.2.12 verify a whole
-        # large folio of a COMPRESSED btrfs fs-verity file before it is fully
-        # read and log "fs-verity ... FILE CORRUPTED! ... level=-1". The
-        # synchronous re-read succeeds, so no bad bytes reach user space.
-        # Upstream fix: kdave/linux dcf8811f63af ("btrfs: fix the fsverity
-        # callback where unexpected range is verified"). Our trigger was Firn
-        # mounting the install target with compress=zstd:1, which compressed the
-        # install-time composefs objects (frostyard/firn#119). Kernel logs are
-        # only read, never filtered or cleared.
+        # large folio of a btrfs fs-verity file before all of it is read and log
+        # "fs-verity ... FILE CORRUPTED! ... level=-1". The synchronous re-read
+        # succeeds, so no bad bytes reach user space. Upstream fix: kdave/linux
+        # dcf8811f63af ("btrfs: fix the fsverity callback where unexpected range
+        # is verified"). COMPRESSED extents hit it on almost every extent: our
+        # trigger was Firn mounting the install target with compress=zstd:1,
+        # which compressed the install-time composefs objects
+        # (frostyard/firn#119), so cfs_compressed_objects is judged. UNCOMPRESSED
+        # files hit it rarely, when a large folio spans two bios at an extent
+        # boundary, so fsverity_errors is judged against a known-defect kernel
+        # list (see the judge). Kernel logs are only read, never filtered or
+        # cleared.
         fsverity_count() {
           local log trimmed
           # -q: no "-- No entries --" banner. Empty output, or only that banner,
@@ -476,11 +480,13 @@ spec:
         }
         emit cfs_compressed_objects "\$(cfs_compressed_objects)"
         # Counted before the canary below, which logs on a defective kernel.
+        emit kernel "\$(uname -r)"
         emit fsverity_errors "\$(fsverity_count || echo unknown)"
         # Kernel canary, informational only (never fails the lane): does THIS
         # kernel log FILE CORRUPTED when it reads a compressed fs-verity file on
         # btrfs? defect = yes; clean = no; skipped = the canary could not run.
-        # When it first says clean on a new kernel, hosts can take that kernel.
+        # When it first says clean on a new kernel, hosts can take that kernel,
+        # and its entry leaves the known-defect list in the judge.
         export CANARY_IMG=/var/tmp/qa-btrfs-verity.img CANARY_MNT=/var/tmp/qa-btrfs-verity.mnt
         dmesg_count() {
           local out
@@ -537,7 +543,6 @@ spec:
             CANARY=clean
           fi
         fi
-        emit kernel "\$(uname -r)"
         emit kernel_btrfs_verity_canary "\${CANARY}"
         # --- END fsverity-probe ---
         # Wait (bounded) until serial-getty@ttyS0 has finished its TTY setup:
@@ -594,7 +599,11 @@ spec:
 
         # ── judge: fixed order; first failing check wins ──
         judge() {
-          local checks_file="$1" bootc_image bootc_digest cfs_objects fsverity_errors
+          local checks_file="$1" bootc_image bootc_digest cfs_objects fsverity_errors fsverity_kernel fsverity_kernels fsverity_known entry fsverity_note=""
+          # Kernels with the known upstream btrfs fs-verity defect (frostyard/snosi#1130,
+          # kdave/linux dcf8811f63af). Remove an entry when the kernel canary says
+          # `clean` on it or a fixed kernel ships. Keep identical in every lane.
+          local known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64"
           if ! grep -qx 'booted=ok' "${checks_file}"; then fail boot no_report; fi
           if ! grep -qx "osrelease=${IMAGE}" "${checks_file}"; then fail boot wrong_image; fi
           if [[ "${ENC}" != none ]]; then
@@ -626,12 +635,37 @@ spec:
           elif grep -qx 'sysroot=btrfs' "${checks_file}" && grep -qx 'rootfs=overlay' "${checks_file}"; then
             fail boot cfs_check_unknown
           fi
-          # Second: no fs-verity corruption messages in this boot's kernel log.
-          # The objects are uncompressed here, so any message is a regression.
+          # Second: fs-verity corruption messages in this boot's kernel log. A
+          # missing or non-numeric count fails. With uncompressed objects the
+          # known kernel defect still hits rarely (a large folio across two bios
+          # at an extent boundary), so a count above 0 is recorded, not failed,
+          # on a kernel from the known-defect list. Any other kernel with errors
+          # fails: a human then checks whether that kernel has the fix.
           fsverity_errors="$(grep -m1 '^fsverity_errors=' "${checks_file}" | cut -d= -f2- || true)"
           if [[ ! "${fsverity_errors}" =~ ^[0-9]+$ ]]; then fail boot fsverity_errors_unknown; fi
-          if (( 10#${fsverity_errors} > 0 )); then fail boot "fsverity_errors_${fsverity_errors}"; fi
-          printf '%s' "PASS: ${CELL} image=${bootc_image} digest=${bootc_digest} firn=${FIRN_VERSION}" > /tmp/results/result-summary.txt
+          if (( 10#${fsverity_errors} > 0 )); then
+            # The exemption needs one unambiguous kernel identity: exactly 1
+            # distinct, well-formed `kernel=` value (identical duplicates are fine).
+            # Several values, a malformed one or none fails.
+            fsverity_kernels="$(grep '^kernel=' "${checks_file}" | cut -d= -f2- | sort -u || true)"
+            if [[ -z "${fsverity_kernels}" || "${fsverity_kernels}" == *$'\n'* \
+                  || ! "${fsverity_kernels}" =~ ^[0-9A-Za-z._+~-]{1,64}$ ]]; then
+              fail boot fsverity_kernel_ambiguous
+            fi
+            fsverity_kernel="${fsverity_kernels}"
+            fsverity_known=0
+            for entry in ${known_defect_kernels}; do
+              if [[ "${fsverity_kernel}" == "${entry}" ]]; then fsverity_known=1; fi
+            done
+            if [[ "${fsverity_known}" == 1 ]]; then
+              fsverity_note=" fsverity_known_defect=${fsverity_kernel}"
+              printf 'fsverity_known_defect=%s\n' "${fsverity_kernel}" >> "${checks_file}"
+              echo "fs-verity: ${fsverity_errors} message(s) on known-defect kernel ${fsverity_kernel} (snosi#1130); recorded, not failed" >&2
+            else
+              fail boot "fsverity_errors_${fsverity_errors}"
+            fi
+          fi
+          printf '%s' "PASS: ${CELL} image=${bootc_image} digest=${bootc_digest}${fsverity_note} firn=${FIRN_VERSION}" > /tmp/results/result-summary.txt
           cat /tmp/results/result-summary.txt >&2
         }
         judge /tmp/results/checks.txt

@@ -650,6 +650,10 @@ BLOCKS = {"blockdevices": [{"path": "/dev/vda3", "pkname": "/dev/vda", "partn": 
                            {"path": "/dev/vda2", "pkname": "/dev/vda", "partn": "2", "fstype": "vfat"}]}
 
 
+KERNEL = "7.3.1+deb14-amd64"   # not on the known-defect list
+KNOWN_DEFECT_KERNEL = "7.2.11+deb14-amd64"
+
+
 def phase_record(phase):
     newer = phase in ("boot-n-plus-1", "rollback")
     record = dict(phase=phase, nonce=NONCE, boot_id="12345678-1234-4234-8234-123456789abc",
@@ -661,7 +665,7 @@ def phase_record(phase):
                   policy_sha256="2" * 64, policy_ok=True, pull_ok=True,
                   pull_digest=NEXT, secure_boot=True, uki_type2=True, lockdown=True,
                    root_luks=True, root_btrfs=True, tpm_pcr11_tokens=1,
-                   fsverity_errors=0, action=None, marker_digest=None)
+                   kernel=KERNEL, fsverity_errors=0, action=None, marker_digest=None)
     if phase == "stage":
         record.update(action="staged", marker_digest=NEXT)
     if phase == "rollback":
@@ -697,7 +701,7 @@ def test_phase_accepts_one_attested_fresh_boot(qa, tmp_path, capsys, phase):
     assert qa.main(["phase", str(normalized), phase, NONCE,
                     "none", str(serial), str(checks)]) == 0
     assert capsys.readouterr().out.splitlines() == ["12345678-1234-4234-8234-123456789abc",
-                                                     "fsverity_errors=0"]
+                                                     "fsverity_errors=0", "kernel=" + KERNEL]
 
 
 @pytest.mark.parametrize("damage", [
@@ -822,6 +826,7 @@ def test_guest_stage_probes_and_emits_allowlisted_single_record(qa, tmp_path, mo
     (root / "update-staged").write_text("sha256:" + NEXT + "\n")
     (root / "tokens.json").write_text(json.dumps({"tokens": {"0": {"type": "systemd-tpm2", "tpm2-pcrs": [], "tpm2_pubkey_pcrs": [11], "tpm2-pubkey": "public"}}}))
     (root / "uptime").write_text("1000.00 500.00\n")
+    (root / "osrelease").write_text(KERNEL + "\n")
     esp = root / "esp"
     (esp / "loader/entries").mkdir(parents=True)
     (esp / UKI_PATH.lstrip("/")).parent.mkdir(parents=True)
@@ -829,7 +834,7 @@ def test_guest_stage_probes_and_emits_allowlisted_single_record(qa, tmp_path, mo
     (esp / "loader/entries/snow.conf").write_text("title Snow\nuki " + UKI_PATH + "\n")
     monkeypatch.setattr(qa, "GUEST_PATHS", {"boot_id": root / "boot_id", "policy": root / "policy.json",
         "key": root / "key", "update_check": root / "update-check", "update_staged": root / "update-staged",
-        "esp": esp, "uptime": root / "uptime"})
+        "esp": esp, "uptime": root / "uptime", "osrelease": root / "osrelease"})
     calls = []
     clock = [1000]
 
@@ -884,6 +889,7 @@ def test_guest_stage_probes_and_emits_allowlisted_single_record(qa, tmp_path, mo
     assert payload["rollback_digest"] == (None if phase == "stage" else N)
     # snosi#1130: FILE CORRUPTED lines plus suppressed-callback counts, read after the action.
     assert payload["fsverity_errors"] == expected
+    assert payload["kernel"] == KERNEL   # attested from /proc/sys/kernel/osrelease
     assert calls.index(["journalctl", "-q", "-k", "-b", "--no-pager"]) > calls.index(
         ["/usr/libexec/bootc-update-stage"] if phase == "stage" else ["bootc", "rollback"])
     assert "unattended" not in payload  # Host establishes freshness; guest cannot attest human absence.
@@ -2053,7 +2059,8 @@ def test_guest_never_emits_evidence_for_failed_probe_or_action(qa, tmp_path, mon
     (tmp_path / "uptime").write_text("1000.00 50.00\n")
     for key, value in {"boot_id": "12345678-1234-4234-8234-123456789abc",
                        "policy": json.dumps({"default": [{"type": "reject"}], "transports": {"docker": {REPO: [{"type": "sigstoreSigned", "keyPath": "/usr/lib/snosi/cosign.pub"}]}}}),
-                       "key": "public-key", "update_check": "outcome=staged\n", "update_staged": "sha256:" + NEXT}.items():
+                       "key": "public-key", "update_check": "outcome=staged\n", "update_staged": "sha256:" + NEXT,
+                       "osrelease": KERNEL + "\n"}.items():
         (tmp_path / key).write_text(value)
     if damage in ("policy", "outcome", "marker", "wrong_boot"):
         (tmp_path / {"policy": "policy", "outcome": "update_check", "marker": "update_staged",
@@ -2064,7 +2071,7 @@ def test_guest_never_emits_evidence_for_failed_probe_or_action(qa, tmp_path, mon
     (esp / UKI_PATH.lstrip("/")).write_bytes(b"mock-uki")
     (esp / "loader/entries/snow.conf").write_text("uki " + (UKI_PATH.replace("d" * 128, "a" * 128) if damage == "bls_wrong" else UKI_PATH) + "\n" + ("linux /vmlinuz\n" if damage == "bls_linux" else ""))
     monkeypatch.setattr(qa, "GUEST_PATHS", {**{key: tmp_path / key for key in
-        ("boot_id", "policy", "key", "update_check", "update_staged", "uptime")}, "esp": esp})
+        ("boot_id", "policy", "key", "update_check", "update_staged", "uptime", "osrelease")}, "esp": esp})
     monkeypatch.setattr(qa, "guest_lockdown", lambda: True)
     booted = NEXT if phase == "rollback" else N
     version = m["version_n_plus_1"] if phase == "rollback" else m["version_n"]
@@ -2237,6 +2244,27 @@ def test_phase_rejects_malformed_fsverity_count(qa, tmp_path, capsys, value):
     assert capsys.readouterr().err.strip() == "qa_failed:fsverity_field"
 
 
+@pytest.mark.parametrize("value", [None, "", "7.2 11", "a" * 65, 7, "7.2.11\n+x"])
+def test_phase_rejects_malformed_kernel(qa, tmp_path, capsys, value):
+    normalized, checks = phase_files(tmp_path, qa)
+    record = phase_record("stage")
+    record["kernel"] = value
+    serial = tmp_path / "serial"
+    serial.write_text(serial_record(record))
+    assert qa.main(["phase", str(normalized), "stage", NONCE, "none", str(serial), str(checks)]) == 1
+    assert capsys.readouterr().err.strip() == "qa_failed:kernel_field"
+
+
+def test_phase_rejects_record_without_kernel(qa, tmp_path, capsys):
+    normalized, checks = phase_files(tmp_path, qa)
+    record = phase_record("stage")
+    del record["kernel"]
+    serial = tmp_path / "serial"
+    serial.write_text(serial_record(record))
+    assert qa.main(["phase", str(normalized), "stage", NONCE, "none", str(serial), str(checks)]) == 1
+    assert capsys.readouterr().err.strip() == "qa_failed:record_fields"
+
+
 def test_phase_keeps_attested_boot_when_fsverity_errors_are_nonzero(qa, tmp_path, capsys):
     # The runner judges the count after it has stored the evidence.
     normalized, checks = phase_files(tmp_path, qa)
@@ -2245,7 +2273,7 @@ def test_phase_keeps_attested_boot_when_fsverity_errors_are_nonzero(qa, tmp_path
     serial = tmp_path / "serial"
     serial.write_text(serial_record(record))
     assert qa.main(["phase", str(normalized), "stage", NONCE, "none", str(serial), str(checks)]) == 0
-    assert capsys.readouterr().out.splitlines() == [record["boot_id"], "fsverity_errors=3"]
+    assert capsys.readouterr().out.splitlines() == [record["boot_id"], "fsverity_errors=3", "kernel=" + KERNEL]
 
 
 def test_five_phase_chain_rejects_reused_boot_identity(qa, tmp_path):
@@ -2488,7 +2516,7 @@ def test_runner_failure_never_initializes_vm_and_does_not_expose_inputs(tmp_path
     assert (tmp_path / "results/result-summary.txt").read_text().strip() == expected
 
 
-@pytest.mark.parametrize("scenario", ["pass", "stage", "stage_keep", "iso_add_partial_keep", "iso_add_partial_detach_failed", "no_reboot", "tag_drift", "evidence_write", "output_write", "stage_teardown", "teardown", "serial_oversize", "serial_unreadable", "blocked_teardown", "phase_missing", "phase_malformed", "guest_error", "guest_error_crlf", "updater_error_crlf", "rollback_error_crlf", "duplicate_error_crlf", "conflicting_error_crlf", "install_missing", "install_failed", "install_firn_v1", "install_firn_v2", "install_firn_hash", "install_fake_code", "install_disk_detect", "install_disk_byid", "install_progress", "install_bad_progress", "install_secret_code", "install_fallback", "install_empty_stream", "install_validate_secret", "install_validate_unknown", "install_validate_unclassified", "install_validate_fake", "cumulative_pass", "cumulative_stale", "cumulative_reset", "cumulative_prefix", "fsverity"])
+@pytest.mark.parametrize("scenario", ["pass", "stage", "stage_keep", "iso_add_partial_keep", "iso_add_partial_detach_failed", "no_reboot", "tag_drift", "evidence_write", "output_write", "stage_teardown", "teardown", "serial_oversize", "serial_unreadable", "blocked_teardown", "phase_missing", "phase_malformed", "guest_error", "guest_error_crlf", "updater_error_crlf", "rollback_error_crlf", "duplicate_error_crlf", "conflicting_error_crlf", "install_missing", "install_failed", "install_firn_v1", "install_firn_v2", "install_firn_hash", "install_fake_code", "install_disk_detect", "install_disk_byid", "install_progress", "install_bad_progress", "install_secret_code", "install_fallback", "install_empty_stream", "install_validate_secret", "install_validate_unknown", "install_validate_unclassified", "install_validate_fake", "cumulative_pass", "cumulative_stale", "cumulative_reset", "cumulative_prefix", "fsverity", "fsverity_known"])
 def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario):
     script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
     for old, new in (("ROOT=/var/lib/snosi-lab/snow-bootc-evidence", f"ROOT={tmp_path}/evidence"),
@@ -2538,9 +2566,11 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
             number = int(match.group(3))
             expected = 'none' if number == 1 else f'{number - 1:08x}-1234-4234-8234-123456789abc'
             if prior != expected or os.environ['SCENARIO'] in ('stage', 'stage_keep', 'stage_teardown') and phase == 'stage': sys.exit(1)
-            if os.environ['SCENARIO'] == 'no_reboot' and phase == 'boot-n-plus-1': print(prior); print('fsverity_errors=0'); sys.exit(0)
+            if os.environ['SCENARIO'] == 'no_reboot' and phase == 'boot-n-plus-1': print(prior); print('fsverity_errors=0'); print('kernel=7.3.1+deb14-amd64'); sys.exit(0)
             print(f'{number:08x}-1234-4234-8234-123456789abc')
-            print('fsverity_errors=' + ('2' if os.environ['SCENARIO'] == 'fsverity' and phase == 'boot-n-plus-1' else '0'))
+            errors = os.environ['SCENARIO'] in ('fsverity', 'fsverity_known') and phase == 'boot-n-plus-1'
+            print('fsverity_errors=' + ('2' if errors else '0'))
+            print('kernel=' + ('7.2.11+deb14-amd64' if os.environ['SCENARIO'] == 'fsverity_known' and phase == 'boot-n-plus-1' else '7.3.1+deb14-amd64'))
         else: sys.exit(1)
     '''))
     tools = tmp_path / "tools"
@@ -2664,10 +2694,14 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
     summary = summary_path.read_text() if summary_path.exists() else (tmp_path / 'evidence/mock-run/result-summary.txt').read_text()
     assert not any('console' in p.name or p.name == 'serial-full'
                    for p in (tmp_path / 'evidence/mock-run').iterdir())
-    if scenario in ('pass', 'cumulative_pass'):
+    if scenario in ('pass', 'cumulative_pass', 'fsverity_known'):
         assert not (tmp_path / 'evidence/mock-run/serial-redacted.log').exists()
         assert result.returncode == 0, (summary, result.stderr)
-        assert summary == 'PASS: verified_five_fresh_boots\n'
+        if scenario == 'fsverity_known':
+            # Known upstream defect: recorded with a visible note, never failed.
+            assert summary == 'PASS: verified_five_fresh_boots;fsverity_known_defect=7.2.11+deb14-amd64\n'
+        else:
+            assert summary == 'PASS: verified_five_fresh_boots\n'
         assert len([e for e in events if e.startswith('phase ')]) == 5
         assert len([e for e in events if e.startswith('incus start')]) == 6
         assert len(set(e.split()[2] for e in events if e.startswith('phase '))) == 5
@@ -2678,8 +2712,9 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
         assert (tmp_path / 'evidence/mock-run').stat().st_mode & 0o777 == 0o700
         assert not (tmp_path / 'snow-qa-mock-run.iso').exists()
         checks = (tmp_path / 'results/checks.txt').read_text().splitlines()
-        assert len(checks) == 1 + 9 + 5  # manifest, tags, attested boots
-        assert all(re.fullmatch(r'(?:manifest_sha256=[0-9a-f]{64}|tag=[a-z0-9-]+ timestamp=[0-9T:+.\-]+|phase=[a-z0-9-]+ boot_id=[0-9a-f-]+ fsverity_errors=[0-9]+)', line) for line in checks)
+        assert len(checks) == 1 + 9 + 5 + (scenario == 'fsverity_known')  # manifest, tags, attested boots, note
+        assert all(re.fullmatch(r'(?:manifest_sha256=[0-9a-f]{64}|tag=[a-z0-9-]+ timestamp=[0-9T:+.\-]+|phase=[a-z0-9-]+ boot_id=[0-9a-f-]+ kernel=[0-9A-Za-z._+~-]+ fsverity_errors=[0-9]+|fsverity_known_defect=7\.2\.11\+deb14-amd64)', line) for line in checks)
+        assert ('fsverity_known_defect=7.2.11+deb14-amd64' in checks) is (scenario == 'fsverity_known')
     else:
         if scenario not in ('evidence_write',):
             serial_evidence = tmp_path / 'evidence/mock-run/serial-redacted.log'
@@ -2699,7 +2734,8 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
                 # Judged only after all five fresh boots, so no phase's evidence is lost.
                 assert len([e for e in events if e.startswith('phase ')]) == 5
                 recorded = (tmp_path / 'results/checks.txt').read_text()
-                assert re.search(r'phase=boot-n-plus-1 boot_id=\S+ fsverity_errors=2\n', recorded)
+                assert re.search(r'phase=boot-n-plus-1 boot_id=\S+ kernel=7\.3\.1\+deb14-amd64 fsverity_errors=2\n', recorded)
+                assert 'fsverity_known_defect' not in recorded
                 assert recorded.count('fsverity_errors=') == 5
             if scenario == 'stage_keep':
                 assert len([e for e in events if e.startswith('incus config device remove')]) == 1
