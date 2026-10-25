@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-25T22:00:20Z",
+  "generated": "2026-10-25T22:30:20Z",
   "lanes": [
     {
       "laneKey": "run-firn-install-tests",
@@ -68,9 +68,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1792965600",
+        "name": "publish-results-1792967400",
         "phase": "Running",
-        "started": "2026-10-25T22:00:00Z",
+        "started": "2026-10-25T22:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -234,11 +234,27 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1792965600",
+      "name": "publish-results-1792967400",
       "phase": "Running",
-      "started": "2026-10-25T22:00:00Z",
+      "started": "2026-10-25T22:30:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1792965600",
+      "phase": "Succeeded",
+      "started": "2026-10-25T22:00:00Z",
+      "finished": "2026-10-25T22:00:33Z",
+      "durationSeconds": 33,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -334,22 +350,6 @@
       "phase": "Succeeded",
       "started": "2026-10-25T21:00:00Z",
       "finished": "2026-10-25T21:00:30Z",
-      "durationSeconds": 30,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1792960200",
-      "phase": "Succeeded",
-      "started": "2026-10-25T20:30:00Z",
-      "finished": "2026-10-25T20:30:30Z",
       "durationSeconds": 30,
       "template": "publish",
       "laneKey": "publish",
