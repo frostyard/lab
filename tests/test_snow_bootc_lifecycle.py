@@ -783,7 +783,15 @@ DEFECT_JOURNAL = (CLEAN_JOURNAL
                   + b"kernel: fs-verity (dm-0, inode 6): FILE CORRUPTED! pos=4096, level=-1\n")
 
 
-@pytest.mark.parametrize("journal,expected", [(CLEAN_JOURNAL, 0), (DEFECT_JOURNAL, 7)])
+NO_KERNEL_ENTRY = None  # expected value: the guest must refuse to attest a count
+
+
+@pytest.mark.parametrize("journal,expected", [
+    (CLEAN_JOURNAL, 0), (DEFECT_JOURNAL, 7),
+    # journalctl exits 0 and prints a banner (or nothing) when it read no kernel entry.
+    (b"", NO_KERNEL_ENTRY), (b"-- No entries --\n", NO_KERNEL_ENTRY),
+    (b"  \n-- No entries --  \n", NO_KERNEL_ENTRY),
+])
 @pytest.mark.parametrize("phase", ["stage", "rollback"])
 def test_guest_stage_probes_and_emits_allowlisted_single_record(qa, tmp_path, monkeypatch, phase, journal, expected):
     normalized, checks = phase_files(tmp_path, qa)
@@ -854,7 +862,7 @@ def test_guest_stage_probes_and_emits_allowlisted_single_record(qa, tmp_path, mo
             return subprocess.CompletedProcess(args, 0, json.dumps(BLOCKS).encode(), b"")
         if args[0] in ("mount", "umount"):
             return subprocess.CompletedProcess(args, 0, b"", b"")
-        if args == ["journalctl", "-k", "-b", "--no-pager"]:
+        if args == ["journalctl", "-q", "-k", "-b", "--no-pager"]:
             return subprocess.CompletedProcess(args, 0, journal, b"")
         responses = {"mokutil": b"SecureBoot enabled", "bootctl": ("  Secure Boot: enabled (user)\n  Measured UKI: yes\n  Current: $BOOT" + UKI_PATH + " (on the EFI System Partition)\n  Default: /boot/efi" + UKI_PATH + "\n").encode(),
                       "findmnt": b"btrfs", "cryptsetup": b"/dev/mapper/root is active and is in use.\n  device:   /dev/vda3"}
@@ -864,6 +872,10 @@ def test_guest_stage_probes_and_emits_allowlisted_single_record(qa, tmp_path, mo
 
     monkeypatch.setattr(qa.subprocess, "run", fake_run)
     monkeypatch.setattr(qa, "guest_lockdown", lambda: True)
+    if expected is NO_KERNEL_ENTRY:
+        with pytest.raises(qa.GateError, match="^fsverity_log$"):
+            qa.guest(credentials)
+        return
     line = qa.guest(credentials)
     assert line.startswith("SNOW_QA_V1 ")
     payload = json.loads(base64.urlsafe_b64decode(line.split()[1] + "=="))
@@ -872,7 +884,7 @@ def test_guest_stage_probes_and_emits_allowlisted_single_record(qa, tmp_path, mo
     assert payload["rollback_digest"] == (None if phase == "stage" else N)
     # snosi#1130: FILE CORRUPTED lines plus suppressed-callback counts, read after the action.
     assert payload["fsverity_errors"] == expected
-    assert calls.index(["journalctl", "-k", "-b", "--no-pager"]) > calls.index(
+    assert calls.index(["journalctl", "-q", "-k", "-b", "--no-pager"]) > calls.index(
         ["/usr/libexec/bootc-update-stage"] if phase == "stage" else ["bootc", "rollback"])
     assert "unattended" not in payload  # Host establishes freshness; guest cannot attest human absence.
     assert set(payload) == set(phase_record(phase))

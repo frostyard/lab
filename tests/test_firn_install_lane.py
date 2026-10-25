@@ -257,6 +257,19 @@ GOOD_CHECKS = (
          f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST}"),
         ({"cfs_compressed_objects": "n/a"},
          f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST}"),
+        # An attested composefs root (overlay + btrfs /sysroot) needs the number 0.
+        ({"rootfs": "overlay", "sysroot": "btrfs", "cfs_compressed_objects": "n/a"},
+         "FAILED: boot:cfs_check_unknown (bootc/floe/none/sb=false)"),
+        ({"rootfs": "overlay", "sysroot": "btrfs", "cfs_compressed_objects": "garbage"},
+         "FAILED: boot:cfs_check_unknown (bootc/floe/none/sb=false)"),
+        ({"rootfs": "overlay", "sysroot": "btrfs", "cfs_compressed_objects": "-1"},
+         "FAILED: boot:cfs_check_unknown (bootc/floe/none/sb=false)"),
+        ({"rootfs": "overlay", "sysroot": "btrfs", "cfs_compressed_objects": "1x"},
+         "FAILED: boot:cfs_check_unknown (bootc/floe/none/sb=false)"),
+        ({"rootfs": "overlay", "sysroot": "btrfs", "cfs_compressed_objects": None},
+         "FAILED: boot:cfs_check_missing (bootc/floe/none/sb=false)"),
+        ({"rootfs": "overlay", "sysroot": "btrfs", "cfs_compressed_objects": "4"},
+         "FAILED: boot:cfs_compressed_objects_4 (bootc/floe/none/sb=false)"),
         ({"fsverity_errors": "7"}, "FAILED: boot:fsverity_errors_7 (bootc/floe/none/sb=false)"),
         ({"fsverity_errors": "unknown"}, "FAILED: boot:fsverity_errors_unknown (bootc/floe/none/sb=false)"),
         ({"fsverity_errors": None}, "FAILED: boot:fsverity_errors_unknown (bootc/floe/none/sb=false)"),
@@ -723,8 +736,13 @@ def test_fsverity_count_adds_corrupted_lines_and_suppressed_callbacks(lane, tmp_
     assert result.stdout.strip() == expected
 
 
-@pytest.mark.parametrize("journal_script", ["return 1", "true"])
+@pytest.mark.parametrize("journal_script", [
+    "return 1", "true",
+    "echo '-- No entries --'",          # exit 0 and a banner: no kernel entry was read
+    "printf '\\n-- No entries --  \\n\\n'",
+])
 def test_fsverity_count_is_unknown_when_the_kernel_log_is_unreadable_or_empty(lane, journal_script):
+    assert "journalctl -q -k -b --no-pager" in _render_check(lane)
     _, functions = _probe_functions(lane)
     script = ('timeout() { shift; "$@"; }\njournalctl() { ' + journal_script + '; }\n' + functions
               + '\necho "$(fsverity_count || echo unknown)"')
@@ -751,7 +769,7 @@ done
 """
 
 
-def _run_cfs(lane, tmp_path, sysroot_fs="btrfs", with_filefrag=True, with_dir=True, names=()):
+def _run_cfs(lane, tmp_path, sysroot_fs="btrfs", with_filefrag=True, with_dir=True, names=(), findmnt_rc=0):
     _, functions = _probe_functions(lane)
     objects = tmp_path / "objects"
     if with_dir:
@@ -765,7 +783,7 @@ def _run_cfs(lane, tmp_path, sysroot_fs="btrfs", with_filefrag=True, with_dir=Tr
         (bin_dir / "filefrag").write_text(FILEFRAG)
         (bin_dir / "filefrag").chmod(0o755)
     body = functions[functions.index("cfs_compressed_objects() {"):].replace("/sysroot/composefs/objects", str(objects))
-    script = (f'PATH="{bin_dir}:$PATH"\nfindmnt() {{ printf "%s" "$SYSROOT_FS"; }}\n'
+    script = (f'PATH="{bin_dir}:$PATH"\nfindmnt() {{ printf "%s" "$SYSROOT_FS"; return {findmnt_rc}; }}\n'
               + ("" if with_filefrag else 'command() { if [[ "$2" == filefrag ]]; then return 1; fi; builtin command "$@"; }\n')
               + body + "\ncfs_compressed_objects")
     return subprocess.run(["bash", "-c", script], env={**os.environ, "SYSROOT_FS": sysroot_fs},
@@ -787,6 +805,10 @@ def test_cfs_compressed_objects_counts_files_with_an_encoded_extent(lane, tmp_pa
     ({"sysroot_fs": "ext4", "names": ("cc33",)}, "n/a"),
     ({"with_filefrag": False, "names": ("cc33",)}, "unknown"),
     ({"with_dir": False}, "unknown"),
+    # findmnt itself failing (or printing nothing) is not proof that /sysroot is not btrfs.
+    ({"findmnt_rc": 1, "sysroot_fs": "", "names": ("cc33",)}, "unknown"),
+    ({"findmnt_rc": 1, "sysroot_fs": "ext4", "names": ("cc33",)}, "unknown"),
+    ({"sysroot_fs": "", "names": ("cc33",)}, "unknown"),
 ])
 def test_cfs_compressed_objects_reports_na_or_unknown(lane, tmp_path, kwargs, expected):
     result = _run_cfs(lane, tmp_path, **kwargs)

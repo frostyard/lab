@@ -1577,8 +1577,10 @@ data:
             guest_command(["bootc", "rollback"], "rollback_action", timeout=action_timeout("rollback_action"))
             action = "rolled-back"
         # After the update/rollback action, so this boot's reads are all counted.
-        kernel_log = guest_command(["journalctl", "-k", "-b", "--no-pager"], "fsverity_log")
-        require(len(kernel_log) > 0, "fsverity_log")
+        # -q drops the "-- No entries --" banner; empty or banner-only output means
+        # no kernel entry was read, which must not count as zero errors.
+        kernel_log = guest_command(["journalctl", "-q", "-k", "-b", "--no-pager"], "fsverity_log")
+        require(kernel_log.strip() not in (b"", b"-- No entries --"), "fsverity_log")
         record = dict(phase=phase, nonce=nonce, boot_id=boot_id, spec_image=spec, spec_transport=transport,
                       booted_digest=booted, booted_version=version, staged_digest=staged,
                       rollback_digest=rollback, policy_sha256=sha(key), policy_ok=True,

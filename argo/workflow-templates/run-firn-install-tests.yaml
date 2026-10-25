@@ -446,9 +446,12 @@ spec:
         # install-time composefs objects (frostyard/firn#119). Kernel logs are
         # only read, never filtered or cleared.
         fsverity_count() {
-          local log
-          log="\$(timeout 20 journalctl -k -b --no-pager 2>/dev/null)" || return 1
-          [[ -n "\${log}" ]] || return 1
+          local log trimmed
+          # -q: no "-- No entries --" banner. Empty output, or only that banner,
+          # means no kernel entry was read, so the count is unknown, never 0.
+          log="\$(timeout 20 journalctl -q -k -b --no-pager 2>/dev/null)" || return 1
+          trimmed="\${log//[[:space:]]/}"
+          [[ -n "\${trimmed}" && "\${trimmed}" != "--Noentries--" ]] || return 1
           printf '%s\n' "\${log}" | awk '
             /FILE CORRUPTED/ { n++ }
             /fsverity_msg: [0-9]+ callbacks suppressed/ { sub(/.*fsverity_msg: /, ""); n += \$1 }
@@ -457,8 +460,10 @@ spec:
         # Regular files under the composefs object store with at least one
         # extent flagged "encoded" (btrfs compression) in filefrag -v.
         cfs_compressed_objects() {
-          local dir=/sysroot/composefs/objects n
-          if [[ "\$(findmnt -no FSTYPE /sysroot 2>/dev/null || true)" != btrfs ]]; then echo n/a; return 0; fi
+          local dir=/sysroot/composefs/objects n fstype
+          # n/a only when findmnt succeeds and says the filesystem is not btrfs.
+          if ! fstype="\$(findmnt -no FSTYPE /sysroot 2>/dev/null)" || [[ -z "\${fstype}" ]]; then echo unknown; return 0; fi
+          if [[ "\${fstype}" != btrfs ]]; then echo n/a; return 0; fi
           if ! command -v filefrag >/dev/null 2>&1 || [[ ! -d "\${dir}" ]]; then echo unknown; return 0; fi
           n="\$(set -o pipefail
             find "\${dir}" -type f -print0 2>/dev/null \\
@@ -609,15 +614,16 @@ spec:
           if [[ -z "${bootc_digest}" || "${bootc_digest}" == unknown ]]; then fail boot bootc_digest_unknown; fi
           if [[ "${bootc_digest}" != "${IMAGE_DIGEST}" ]]; then fail boot digest_mismatch; fi
           # frostyard/snosi#1130 guards. First: no compressed composefs objects on
-          # btrfs (the Firn trigger, frostyard/firn#119). A missing value, or
-          # `unknown` on a btrfs composefs root, is a failure: a guard that
-          # silently did not run must not read as green (ADR-0010).
+          # btrfs (the Firn trigger, frostyard/firn#119). A missing value is a
+          # failure. On an attested composefs root (rootfs=overlay and
+          # sysroot=btrfs) the value must be the number 0: `n/a`, `unknown` or a
+          # malformed value fails, because a guard that silently did not run must
+          # not read as green (ADR-0010).
           cfs_objects="$(grep -m1 '^cfs_compressed_objects=' "${checks_file}" | cut -d= -f2- || true)"
           if [[ -z "${cfs_objects}" ]]; then fail boot cfs_check_missing; fi
           if [[ "${cfs_objects}" =~ ^[0-9]+$ ]]; then
             if (( 10#${cfs_objects} > 0 )); then fail boot "cfs_compressed_objects_${cfs_objects}"; fi
-          elif [[ "${cfs_objects}" == unknown ]] \
-               && grep -qx 'sysroot=btrfs' "${checks_file}" && grep -qx 'rootfs=overlay' "${checks_file}"; then
+          elif grep -qx 'sysroot=btrfs' "${checks_file}" && grep -qx 'rootfs=overlay' "${checks_file}"; then
             fail boot cfs_check_unknown
           fi
           # Second: no fs-verity corruption messages in this boot's kernel log.
