@@ -97,7 +97,11 @@ a btrfs root (directly, or a composefs overlay backed by a btrfs
 image ref and digest. The trailing version comes from `firn --version` in the
 installer VM; `unknown` means it booted but printed no version, and
 `not_reached` means the run failed before installer boot. It is recorded, not
-judged. Neither a passing VM nor offline contract
+judged. The guest check unit writes each `FIRN_QA__CHECK` line to
+`/run/firn-qa-checks.txt` and to a fresh `/dev/ttyS0` open per line, then
+replays the file plus `FIRN_QA__CHECKS_DONE` twice after serial-getty has set
+up the TTY, because its `TTYVHangup` revokes older serial fds
+([snosi#1123](https://github.com/frostyard/snosi/issues/1123)). Neither a passing VM nor offline contract
 tests qualify hardware, graphical login, encrypted unlock or upgrades. No
 run or pass is claimed by the submit file alone.
 

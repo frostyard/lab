@@ -283,22 +283,25 @@ def test_judge_checks_under_errexit(lane, tmp_path, change, expected):
     ("{}", "unknown", "unknown"),
 ])
 @pytest.mark.parametrize("bootc_present", [True, False])
-def test_guest_checks_report_bootc_status_sysroot_and_missing_binary(lane, status, expected_image, expected_digest, bootc_present):
+def test_guest_checks_report_bootc_status_sysroot_and_missing_binary(lane, tmp_path, status, expected_image, expected_digest, bootc_present):
     source = lane["script"]["source"]
     creation = source[source.index("CHECK_SH=$(cat <<SCRIPT"):source.index("\nC_B64=", source.index("CHECK_SH=$(cat <<SCRIPT"))]
     script = """set -euo pipefail
 M_CHECK=FIRN_QA__CHECK; M_DONE=FIRN_QA__CHECKS_DONE
 IMAGE=floe
-systemctl() { printf active; }
+systemctl() { if [[ "$1" == show ]]; then printf 0; else printf active; fi; }
 timeout() { shift; "$@"; }
+sleep() { SECONDS=$((SECONDS + $1)); }
+sync() { return 0; }
 findmnt() { if [[ "${@: -1}" == /sysroot ]]; then printf btrfs; else printf overlay; fi; }
 lsblk() { return 0; }
 bootc() { if [[ "$1" == --version ]]; then printf 'bootc 1.0'; else printf '%s' "$STATUS"; fi; }
 """ + ("" if bootc_present else 'command() { if [[ "$2" == bootc ]]; then return 1; fi; builtin command "$@"; }\n') + creation + "\n" + 'printf "%s" "$CHECK_SH"'
     generated = subprocess.run(["bash", "-c", script], env={**os.environ, "STATUS": status},
                                capture_output=True, text=True, check=True).stdout
-    # Remove guest console redirection; run the actual generated body.
-    generated = generated.replace("exec > >(tee /dev/console /dev/ttyS0 2>/dev/null) 2>&1", "")
+    # Keep the real guest paths out of the test run.
+    generated = generated.replace("/dev/ttyS0", str(tmp_path / "ttyS0")).replace(
+        "/run/firn-qa-checks.txt", str(tmp_path / "checks.txt"))
     guest = subprocess.run(["bash", "-c", script.split(creation)[0] + generated],
                            env={**os.environ, "STATUS": status}, capture_output=True, text=True, check=True)
     assert f"FIRN_QA__CHECK login=active" in guest.stdout
@@ -317,7 +320,10 @@ def test_guest_check_login_poll_has_safe_unit_budget(lane):
     assert "is-system-running" not in check
     for unit_name in ("display-manager.service", "getty@tty1.service", "serial-getty@ttyS0.service"):
         assert f"timeout 10 systemctl is-active {unit_name}" in check
-    assert len(re.findall(r"systemctl is-active ", check)) == 3
+    poll = check.split("# --- BEGIN login-poll ---", 1)[1].split("# --- END login-poll ---", 1)[0]
+    assert len(re.findall(r"systemctl is-active ", poll)) == 3
+    assert "SERIAL_WAIT_SECONDS=30" in check
+    assert "timeout 10 systemctl show -p MainPID --value serial-getty@ttyS0.service" in check
     assert r"timeout 120 bootc status --json" in check
     assert len(re.findall(r"bootc status --json", check)) == 1
     assert "LOGIN_WAIT_SECONDS=300" in check
@@ -325,9 +331,11 @@ def test_guest_check_login_poll_has_safe_unit_budget(lane):
     assert r"SECONDS >= deadline" in check
     budget = re.search(r"^TimeoutStartSec=(\d+)$", unit, re.MULTILINE)
     assert budget is not None
-    # One last iteration may begin just before the deadline (three 10s calls),
-    # followed by up to 120s for bootc status and additional startup margin.
-    assert 300 + 3 * 10 + 120 + 10 < int(budget.group(1))
+    # One last login iteration may begin just before the deadline (three 10s
+    # calls), then up to 120s for bootc status, then the bounded 30s serial
+    # getty wait (its last iteration makes two 10s calls), the 2s replay delay
+    # and additional startup margin.
+    assert 300 + 3 * 10 + 120 + 30 + 2 * 10 + 10 < int(budget.group(1))
 
 
 @pytest.mark.parametrize("display,getty,serial,bound,expected,login_unit,iterations", [
@@ -385,6 +393,100 @@ def test_guest_login_poll_reports_final_state_without_hanging(
         unit for _ in range(iterations)
         for unit in ("display-manager.service", "getty@tty1.service", "serial-getty@ttyS0.service")
     ]
+
+
+def _render_check(lane):
+    source = lane["script"]["source"]
+    creation = source[source.index("CHECK_SH=$(cat <<SCRIPT"):source.index("\nC_B64=", source.index("CHECK_SH=$(cat <<SCRIPT"))]
+    return subprocess.run(
+        ["bash", "-c", 'M_CHECK=FIRN_QA__CHECK; M_DONE=FIRN_QA__CHECKS_DONE\n' + creation + '\nprintf "%s" "$CHECK_SH"'],
+        capture_output=True, text=True, check=True,
+    ).stdout
+
+
+def test_guest_check_uses_fresh_serial_opens_not_long_lived_tee(lane):
+    generated = _render_check(lane)
+    assert "tee" not in generated
+    assert not re.search(r"^\s*exec\s*>", generated, re.MULTILINE)
+    emit = generated.split("emit() {", 1)[1].split("\n}\n", 1)[0]
+    assert ">> /run/firn-qa-checks.txt" in emit
+    assert '> /dev/ttyS0 2>/dev/null || true' in emit
+    assert "frostyard/snosi#1123" in generated
+    assert generated.count("> /dev/ttyS0") >= 3  # emit plus two replays
+
+
+def _run_check_tail(lane, tmp_path, getty_state, getty_pid):
+    generated = _render_check(lane)
+    generated = generated.replace("> /dev/ttyS0", ">> " + str(tmp_path / "ttyS0")).replace(
+        "/run/firn-qa-checks.txt", str(tmp_path / "checks.txt"))  # a real tty does not truncate
+    start = generated.index("emit booted ok")
+    head = generated[:start]
+    tail = generated[generated.index("SERIAL_WAIT_SECONDS=30"):]
+    body = (
+        'emit login active\nemit login_unit display-manager.service\n'
+        'emit bootc_digest sha256:abc\n'
+    )
+    stubs = (
+        'systemctl() {\n'
+        '  case "$1" in\n'
+        '    is-active) printf "%s\\n" "$GETTY_STATE"; [[ "$GETTY_STATE" == active ]] ;;\n'
+        '    show) printf "%s\\n" "$GETTY_PID" ;;\n'
+        '  esac\n'
+        '}\n'
+        'timeout() { shift; "$@"; }\n'
+        'sleep() { echo "$1" >> "$SLEEPS"; SECONDS=$((SECONDS + $1)); }\n'
+        'sync() { echo sync >> "$SLEEPS"; }\n'
+    )
+    sleeps = tmp_path / "sleeps"
+    sleeps.write_text("")
+    result = subprocess.run(
+        ["bash", "-c", stubs + head + body + tail],
+        env={**os.environ, "GETTY_STATE": getty_state, "GETTY_PID": getty_pid, "SLEEPS": str(sleeps)},
+        capture_output=True, text=True, check=False, timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    return result, (tmp_path / "ttyS0").read_text().splitlines(), sleeps.read_text().split()
+
+
+CHECK_LINES = [
+    "FIRN_QA__CHECK login=active",
+    "FIRN_QA__CHECK login_unit=display-manager.service",
+    "FIRN_QA__CHECK bootc_digest=sha256:abc",
+]
+
+
+@pytest.mark.parametrize("state,pid,max_waits", [
+    ("inactive", "0", 0),   # no serial getty: do not wait at all
+    ("active", "0", 30),    # no MainPID ever: bounded by 30s
+    ("active", "1", 30),    # PID 1 is systemd, never agetty: bounded by 30s
+])
+def test_guest_final_replay_is_bounded_and_repeated(lane, tmp_path, state, pid, max_waits):
+    result, serial, sleeps = _run_check_tail(lane, tmp_path, state, pid)
+    block = CHECK_LINES + ["FIRN_QA__CHECKS_DONE"]
+    # Each check goes out once at emit time, then the whole block twice.
+    assert serial == CHECK_LINES + block + block
+    assert serial[-len(block):] == block
+    assert result.stdout.splitlines()[-1] == "FIRN_QA__CHECKS_DONE"
+    assert (tmp_path / "checks.txt").read_text().splitlines() == CHECK_LINES
+    waits = [x for x in sleeps if x == "1"]
+    assert len(waits) <= max_waits
+    assert sleeps[-3:] == ["sync", "2"] or sleeps[-2:] == ["sync", "2"]
+    assert sleeps.count("sync") == 1
+    if state == "inactive":
+        assert waits == []
+
+
+@pytest.mark.parametrize("serial_path", ["/nonexistent-dir/ttyS0"])
+def test_guest_serial_write_failure_never_stops_script(lane, tmp_path, serial_path):
+    generated = _render_check(lane).replace("/dev/ttyS0", serial_path).replace(
+        "/run/firn-qa-checks.txt", str(tmp_path / "checks.txt"))
+    head = generated[:generated.index("emit booted ok")]
+    tail = generated[generated.index("SERIAL_WAIT_SECONDS=30"):]
+    script = ('systemctl() { return 3; }\ntimeout() { shift; "$@"; }\nsleep() { :; }\nsync() { :; }\n'
+              + head + "emit a b\n" + tail + '\necho reached-end\n')
+    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False, timeout=10)
+    assert result.returncode == 0, result.stderr
+    assert "reached-end" in result.stdout
 
 
 @pytest.mark.parametrize("console,code", [
