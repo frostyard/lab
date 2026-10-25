@@ -177,6 +177,17 @@ Each `run-firn-install-tests` result line ends in `firn=<version>`, read from
 booted but printed no version; `firn=not_reached` means the run failed before
 the installer booted. The version is recorded, not judged.
 
+The post-install probe also guards the btrfs fs-verity kernel defect
+([snosi#1130](https://github.com/frostyard/snosi/issues/1130); Firn's
+`compress=zstd:1` mount, [firn#119](https://github.com/frostyard/firn/issues/119);
+upstream fix `dcf8811f63af` in kdave/linux). It emits
+`cfs_compressed_objects=<N>` and `fsverity_errors=<N>`, and the judge fails the
+cell when either is above zero. It also emits an informational
+`kernel_btrfs_verity_canary=defect|clean|skipped` and `kernel=<release>`; the
+canary never fails a cell. The bootc install lane and the Snow lifecycle lane
+record `fsverity_errors` too. Details:
+[quality evidence](docs/quality.md#fs-verity-regression-checks-snosi1130).
+
 The firn ISO is published by snosi's `build-native-images.yml` (build-iso →
 promote-iso), installing `firn` from the `frostyard-firn` apt package (snosi
 PR #699 switched the published installer from `native-installer` to

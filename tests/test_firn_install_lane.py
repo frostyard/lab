@@ -39,7 +39,8 @@ def test_recipe_and_checks_are_bootc_only(lane):
     assert 'family = "bootc"' in source
     assert 'family = "ab"' not in source
     assert '--pubring' not in source
-    assert 'verity' not in source
+    # No native A/B dm-verity: the only verity words are the fs-verity (snosi#1130) probe.
+    assert 'verity' not in source.replace('fsverity', '').replace('fs-verity', '').replace('_verity_', '')
     assert '-ab"' not in source
     assert 'sha256sum' in source
     assert '${ISO_PATH}' in source
@@ -222,6 +223,7 @@ GOOD_CHECKS = (
     "booted=ok\nrootfs=btrfs\nosrelease=floe\nluks=absent\n"
     f"bootc=bootc_1.0\nlogin=active\nbootc_image={EXPECTED_IMAGE}\n"
     f"bootc_digest={EXPECTED_DIGEST}\n"
+    "cfs_compressed_objects=0\nfsverity_errors=0\nkernel=7.2.12\nkernel_btrfs_verity_canary=clean\n"
 )
 
 
@@ -244,6 +246,40 @@ GOOD_CHECKS = (
         ({"login": None}, "FAILED: boot:login_unavailable (bootc/floe/none/sb=false)"),
         ({"booted": None}, "FAILED: boot:no_report (bootc/floe/none/sb=false)"),
         ({"osrelease": "snow", "login": "inactive"}, "FAILED: boot:wrong_image (bootc/floe/none/sb=false)"),
+        # snosi#1130: compressed composefs objects (firn#119) and fs-verity kernel errors.
+        ({"cfs_compressed_objects": "3"}, "FAILED: boot:cfs_compressed_objects_3 (bootc/floe/none/sb=false)"),
+        ({"cfs_compressed_objects": None}, "FAILED: boot:cfs_check_missing (bootc/floe/none/sb=false)"),
+        ({"rootfs": "overlay", "sysroot": "btrfs", "cfs_compressed_objects": "unknown"},
+         "FAILED: boot:cfs_check_unknown (bootc/floe/none/sb=false)"),
+        ({"rootfs": "overlay", "sysroot": "btrfs", "cfs_compressed_objects": "0"},
+         f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST}"),
+        ({"cfs_compressed_objects": "unknown"},  # ostree-style btrfs root has no composefs store
+         f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST}"),
+        ({"cfs_compressed_objects": "n/a"},
+         f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST}"),
+        # An attested composefs root (overlay + btrfs /sysroot) needs the number 0.
+        ({"rootfs": "overlay", "sysroot": "btrfs", "cfs_compressed_objects": "n/a"},
+         "FAILED: boot:cfs_check_unknown (bootc/floe/none/sb=false)"),
+        ({"rootfs": "overlay", "sysroot": "btrfs", "cfs_compressed_objects": "garbage"},
+         "FAILED: boot:cfs_check_unknown (bootc/floe/none/sb=false)"),
+        ({"rootfs": "overlay", "sysroot": "btrfs", "cfs_compressed_objects": "-1"},
+         "FAILED: boot:cfs_check_unknown (bootc/floe/none/sb=false)"),
+        ({"rootfs": "overlay", "sysroot": "btrfs", "cfs_compressed_objects": "1x"},
+         "FAILED: boot:cfs_check_unknown (bootc/floe/none/sb=false)"),
+        ({"rootfs": "overlay", "sysroot": "btrfs", "cfs_compressed_objects": None},
+         "FAILED: boot:cfs_check_missing (bootc/floe/none/sb=false)"),
+        ({"rootfs": "overlay", "sysroot": "btrfs", "cfs_compressed_objects": "4"},
+         "FAILED: boot:cfs_compressed_objects_4 (bootc/floe/none/sb=false)"),
+        ({"fsverity_errors": "7"}, "FAILED: boot:fsverity_errors_7 (bootc/floe/none/sb=false)"),
+        ({"fsverity_errors": "unknown"}, "FAILED: boot:fsverity_errors_unknown (bootc/floe/none/sb=false)"),
+        ({"fsverity_errors": None}, "FAILED: boot:fsverity_errors_unknown (bootc/floe/none/sb=false)"),
+        ({"cfs_compressed_objects": "2", "fsverity_errors": "7"},
+         "FAILED: boot:cfs_compressed_objects_2 (bootc/floe/none/sb=false)"),
+        # The canary is informational: a defective kernel alone never fails the lane.
+        ({"kernel_btrfs_verity_canary": "defect"},
+         f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST}"),
+        ({"kernel_btrfs_verity_canary": None, "kernel": None},
+         f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST}"),
     ],
 )
 def test_judge_checks_under_errexit(lane, tmp_path, change, expected):
@@ -295,6 +331,9 @@ sleep() { SECONDS=$((SECONDS + $1)); }
 sync() { return 0; }
 findmnt() { if [[ "${@: -1}" == /sysroot ]]; then printf btrfs; else printf overlay; fi; }
 lsblk() { return 0; }
+journalctl() { printf 'kernel: ok\n'; }
+dmesg() { return 0; }
+id() { echo 1000; }
 bootc() { if [[ "$1" == --version ]]; then printf 'bootc 1.0'; else printf '%s' "$STATUS"; fi; }
 """ + ("" if bootc_present else 'command() { if [[ "$2" == bootc ]]; then return 1; fi; builtin command "$@"; }\n') + creation + "\n" + 'printf "%s" "$CHECK_SH"'
     generated = subprocess.run(["bash", "-c", script], env={**os.environ, "STATUS": status},
@@ -311,6 +350,11 @@ bootc() { if [[ "$1" == --version ]]; then printf 'bootc 1.0'; else printf '%s' 
     assert f"FIRN_QA__CHECK bootc={'bootc_1.0' if bootc_present else 'absent'}" in guest.stdout
     assert "FIRN_QA__CHECK rootfs=overlay" in guest.stdout
     assert "FIRN_QA__CHECK sysroot=btrfs" in guest.stdout
+    # snosi#1130 probes: no /sysroot/composefs here, a clean log, and a non-root canary.
+    assert "FIRN_QA__CHECK cfs_compressed_objects=unknown" in guest.stdout
+    assert "FIRN_QA__CHECK fsverity_errors=0" in guest.stdout
+    assert "FIRN_QA__CHECK kernel_btrfs_verity_canary=skipped" in guest.stdout
+    assert re.search(r"^FIRN_QA__CHECK kernel=\S+$", guest.stdout, re.MULTILINE)
 
 
 def test_guest_check_login_poll_has_safe_unit_budget(lane):
@@ -335,7 +379,12 @@ def test_guest_check_login_poll_has_safe_unit_budget(lane):
     # calls), then up to 120s for bootc status, then the bounded 30s serial
     # getty wait (its last iteration makes two 10s calls), the 2s replay delay
     # and additional startup margin.
-    assert 300 + 3 * 10 + 120 + 30 + 2 * 10 + 10 < int(budget.group(1))
+    # The fs-verity probe adds the composefs scan (180s), the journal read (20s)
+    # and the canary (60s plus a few seconds of cleanup).
+    assert 300 + 3 * 10 + 120 + 180 + 20 + 60 + 15 + 30 + 2 * 10 + 10 < int(budget.group(1))
+    assert "timeout 180 xargs" in check and "timeout 20 journalctl" in check and "timeout -k 5 60 bash" in check
+    params = {p["name"]: p for p in lane["inputs"]["parameters"]}
+    assert int(params["installed-boot-timeout-seconds"]["value"]) >= int(budget.group(1))
 
 
 @pytest.mark.parametrize("display,getty,serial,bound,expected,login_unit,iterations", [
@@ -662,3 +711,146 @@ def test_console_collection_preserves_underscore_check_keys(lane, tmp_path):
     assert (tmp_path / "checks.txt").read_text() == (
         "bootc_digest=sha256:aaa\nbootc_image=ghcr.io/frostyard/floe:latest\n"
     )
+
+
+def _probe_functions(lane):
+    generated = _render_check(lane)
+    return generated.split("fsverity_count() {", 1)[0], "fsverity_count() {" + generated.split(
+        "fsverity_count() {", 1)[1].split("emit cfs_compressed_objects", 1)[0]
+
+
+@pytest.mark.parametrize("journal,expected", [
+    ("kernel: boot\n", "0"),
+    ("kernel: fs-verity (dm-0, inode 1): FILE CORRUPTED! pos=0, level=-1\n"
+     "kernel: fs-verity (dm-0, inode 2): FILE CORRUPTED! pos=4096, level=-1\n", "2"),
+    ("kernel: fsverity_msg: 5 callbacks suppressed\n"
+     "kernel: fs-verity (dm-0, inode 2): FILE CORRUPTED! pos=0, level=-1\n"
+     "kernel: net: 9 callbacks suppressed\n", "6"),
+])
+def test_fsverity_count_adds_corrupted_lines_and_suppressed_callbacks(lane, tmp_path, journal, expected):
+    _, functions = _probe_functions(lane)
+    script = 'timeout() { shift; "$@"; }\njournalctl() { printf "%s" "$JOURNAL"; }\n' + functions + "\nfsverity_count"
+    result = subprocess.run(["bash", "-c", script], env={**os.environ, "JOURNAL": journal},
+                            capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == expected
+
+
+@pytest.mark.parametrize("journal_script", [
+    "return 1", "true",
+    "echo '-- No entries --'",          # exit 0 and a banner: no kernel entry was read
+    "printf '\\n-- No entries --  \\n\\n'",
+])
+def test_fsverity_count_is_unknown_when_the_kernel_log_is_unreadable_or_empty(lane, journal_script):
+    assert "journalctl -q -k -b --no-pager" in _render_check(lane)
+    _, functions = _probe_functions(lane)
+    script = ('timeout() { shift; "$@"; }\njournalctl() { ' + journal_script + '; }\n' + functions
+              + '\necho "$(fsverity_count || echo unknown)"')
+    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
+    assert result.stdout.strip() == "unknown"
+
+
+FILEFRAG = r"""#!/bin/bash
+# Fake `filefrag -v`: an object whose name starts with "c" has an encoded extent.
+shift
+for f in "$@"; do
+  echo "Filesystem type is: 9123683e"
+  echo "File size of $f is 8192 (2 blocks of 4096 bytes)"
+  echo " ext:     logical_offset:        physical_offset: length:   expected: flags:"
+  case "$(basename "$f")" in
+    c*) echo "   0:        0..       1:      100..       101:      2:             last,encoded,eof" ;;
+    m*) echo "   0:        0..       0:      100..       100:      1:"
+        echo "   1:        1..       1:      200..       200:      1:             encoded"
+        echo "   2:        2..       2:      300..       300:      1:             last,encoded,eof" ;;
+    *) echo "   0:        0..       1:      100..       101:      2:             last,eof" ;;
+  esac
+  echo "$f: 1 extent found"
+done
+"""
+
+
+def _run_cfs(lane, tmp_path, sysroot_fs="btrfs", with_filefrag=True, with_dir=True, names=(), findmnt_rc=0):
+    _, functions = _probe_functions(lane)
+    objects = tmp_path / "objects"
+    if with_dir:
+        objects.mkdir()
+        for name in names:
+            (objects / name[:2]).mkdir(parents=True, exist_ok=True)
+            (objects / name[:2] / name).write_text("x")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    if with_filefrag:
+        (bin_dir / "filefrag").write_text(FILEFRAG)
+        (bin_dir / "filefrag").chmod(0o755)
+    body = functions[functions.index("cfs_compressed_objects() {"):].replace("/sysroot/composefs/objects", str(objects))
+    script = (f'PATH="{bin_dir}:$PATH"\nfindmnt() {{ printf "%s" "$SYSROOT_FS"; return {findmnt_rc}; }}\n'
+              + ("" if with_filefrag else 'command() { if [[ "$2" == filefrag ]]; then return 1; fi; builtin command "$@"; }\n')
+              + body + "\ncfs_compressed_objects")
+    return subprocess.run(["bash", "-c", script], env={**os.environ, "SYSROOT_FS": sysroot_fs},
+                          capture_output=True, text=True, check=False)
+
+
+@pytest.mark.parametrize("names,expected", [
+    ((), "0"),
+    (("aa11", "bb22"), "0"),
+    (("aa11", "cc33", "cd44", "mm55", "zz66"), "3"),  # an object counts once, however many encoded extents
+])
+def test_cfs_compressed_objects_counts_files_with_an_encoded_extent(lane, tmp_path, names, expected):
+    result = _run_cfs(lane, tmp_path, names=names)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == expected
+
+
+@pytest.mark.parametrize("kwargs,expected", [
+    ({"sysroot_fs": "ext4", "names": ("cc33",)}, "n/a"),
+    ({"with_filefrag": False, "names": ("cc33",)}, "unknown"),
+    ({"with_dir": False}, "unknown"),
+    # findmnt itself failing (or printing nothing) is not proof that /sysroot is not btrfs.
+    ({"findmnt_rc": 1, "sysroot_fs": "", "names": ("cc33",)}, "unknown"),
+    ({"findmnt_rc": 1, "sysroot_fs": "ext4", "names": ("cc33",)}, "unknown"),
+    ({"sysroot_fs": "", "names": ("cc33",)}, "unknown"),
+])
+def test_cfs_compressed_objects_reports_na_or_unknown(lane, tmp_path, kwargs, expected):
+    result = _run_cfs(lane, tmp_path, **kwargs)
+    assert result.stdout.strip() == expected
+
+
+@pytest.mark.parametrize("counts,body_rc,expected", [
+    (("0", "0"), 0, "clean"),
+    (("0", "0"), 1, "skipped"),    # a step failed (a tool is missing, mount denied, timeout)
+    (("0", "2"), 0, "defect"),
+    (("0", "2"), 124, "defect"),   # the log message wins even if the read itself failed
+    (("unknown", "unknown"), 0, "skipped"),
+    (("3", "3"), 0, "clean"),      # earlier errors in the log do not count
+])
+def test_kernel_canary_verdict_is_defect_clean_or_skipped(lane, tmp_path, counts, body_rc, expected):
+    generated = _render_check(lane)
+    block = generated[generated.index("CANARY=skipped"):generated.index("# --- END fsverity-probe ---")]
+    state = tmp_path / "calls"
+    state.write_text("0")
+    script = (
+        'timeout() { return "$BODY_RC"; }\nsleep() { :; }\ncanary_body() { :; }\n'
+        'canary_cleanup() { echo cleaned >> "$LOG"; }\n'
+        'emit() { echo "$1=$2"; }\n'
+        'dmesg_count() { n=$(<"$STATE"); echo $((n + 1)) > "$STATE"; IFS=, read -ra c <<< "$COUNTS"; echo "${c[$n]}"; }\n'
+        + block
+    )
+    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False,
+                            env={**os.environ, "BODY_RC": str(body_rc), "STATE": str(state),
+                                 "COUNTS": ",".join(counts), "LOG": str(tmp_path / "log")})
+    assert result.returncode == 0, result.stderr
+    assert f"kernel_btrfs_verity_canary={expected}" in result.stdout.splitlines()
+    assert (tmp_path / "log").read_text() == "cleaned\n"   # always cleans up
+
+
+def test_kernel_canary_runs_after_the_error_count_and_never_judges(lane):
+    source = lane["script"]["source"]
+    check = _render_check(lane)
+    assert check.index("emit fsverity_errors") < check.index("canary_body()")
+    assert check.index("emit kernel_btrfs_verity_canary") < check.index("SERIAL_WAIT_SECONDS=30")
+    judge = source[source.index("judge() {"):source.index("\n}", source.index("judge() {"))]
+    assert "kernel_btrfs_verity_canary" not in judge
+    # The canary only reads the kernel log, and cleans up what it made.
+    assert "dmesg -c" not in check and "dmesg -C" not in check and "journalctl --rotate" not in check
+    assert "compress-force=zstd" in check and "0x40806685" in check and "hash-alg=sha512" in check
+    assert "echo 3 > /proc/sys/vm/drop_caches" in check
