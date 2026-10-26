@@ -949,7 +949,10 @@ data:
       # deployment at shutdown (a forced stop would skip it). Wait, bounded, for
       # the VM to stop; never force-stop between phases.
       shutdown_budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["reboot"])' "$WORK/normalized.json") || fail manifest_read
-      shutdown_end=$((SECONDS + shutdown_budget))
+      # The guest replays its record (qa.py PUBLISH_WAIT, inside its
+      # PUBLISH_MARGIN of 150 s) before it requests poweroff: that margin comes
+      # on top of the manifest shutdown allowance.
+      shutdown_end=$((SECONDS + shutdown_budget + 150))
       until vm_stopped; do
         (( SECONDS < shutdown_end )) || fail guest_shutdown
         sleep 5

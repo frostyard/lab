@@ -1158,7 +1158,7 @@ def test_host_waits_bounded_for_guest_shutdown_and_never_force_stops_between_pha
     assert "--force" not in loop and "incus stop" not in loop
     assert 'fail guest_stop' not in script
     assert re.search(r'shutdown_budget=\$\(python3 -c .*\["timeouts"\]\["reboot"\]\).*\|\| fail manifest_read', loop)
-    assert "shutdown_end=$((SECONDS + shutdown_budget))" in loop
+    assert "shutdown_end=$((SECONDS + shutdown_budget + 150))" in loop
     assert re.search(r"until vm_stopped; do\n\s+\(\( SECONDS < shutdown_end \)\) \|\| fail guest_shutdown\n\s+sleep 5\n\s+done", loop)
     assert "while true" not in loop and "while :" not in loop
     # The wait follows the accepted record and precedes the next phase's baseline snapshot.
@@ -2673,8 +2673,8 @@ def test_workflow_deadline_covers_maximum_guest_windows_and_host_margins(qa):
     # iteration is one bounded `incus info` plus a 5s sleep; the deadline check follows an
     # iteration, so the overshoot is at most one more info and sleep.
     info_timeout = re.search(r"info=\$\(timeout (\d+) incus info", script)
-    assert info_timeout and 'shutdown_end=$((SECONDS + shutdown_budget))' in script
-    shutdown_waits = 5 * (limits["reboot"] + 2 * int(info_timeout[1]) + 5)
+    assert info_timeout and 'shutdown_end=$((SECONDS + shutdown_budget + 150))' in script
+    shutdown_waits = 5 * (limits["reboot"] + 150 + 2 * int(info_timeout[1]) + 5)
     worst_case = shutdown_waits + guest_windows + iso_downloads + preflight + apt + tag_checks + vm_ops + serial_polling
     assert entry["activeDeadlineSeconds"] * 10 >= worst_case * 11
 
@@ -2827,8 +2827,8 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
         # Keep the actual await loop; cap its clock only in offline timeout tests.
         assert 'end=$((SECONDS + $2))' in script
         script = script.replace('end=$((SECONDS + $2))', 'end=$((SECONDS + 1))')
-        assert 'shutdown_end=$((SECONDS + shutdown_budget))' in script
-        script = script.replace('shutdown_end=$((SECONDS + shutdown_budget))', 'shutdown_end=$((SECONDS + 1))')
+        assert 'shutdown_end=$((SECONDS + shutdown_budget + 150))' in script
+        script = script.replace('shutdown_end=$((SECONDS + shutdown_budget + 150))', 'shutdown_end=$((SECONDS + 1))')
         script = script.replace('sleep 5', 'sleep 0.01')
     if scenario == "evidence_write":
         script = script.replace('local source="$1" dest="$2"',
@@ -3229,3 +3229,11 @@ def test_guest_publish_margin_matches_unit_timeout_and_bounds_the_replay(qa, mon
     qa.publish("SNOW_QA_V1 abc")
     assert now[0] <= qa.PUBLISH_WAIT + 1
     assert all(1 <= value <= 10 for value in timeouts)
+
+
+def test_host_shutdown_wait_includes_the_guest_publish_margin(qa):
+    # The host starts its shutdown deadline at the first record; the guest may
+    # still replay for up to PUBLISH_WAIT before it requests poweroff.
+    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    assert f"shutdown_end=$((SECONDS + shutdown_budget + {qa.PUBLISH_MARGIN}))" in script
+    assert qa.PUBLISH_MARGIN >= qa.PUBLISH_WAIT + 20
