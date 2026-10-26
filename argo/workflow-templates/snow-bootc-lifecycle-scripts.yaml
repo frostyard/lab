@@ -338,7 +338,9 @@ data:
     import re, sys
     from pathlib import Path
     lines = Path(sys.argv[1]).read_bytes().split(b'\n')
-    errors = [line for line in lines if b'SNOW_QA_ERR' in line]
+    # The guest repeats its one line after serial-getty's TTY setup:
+    # identical copies are one marker.
+    errors = sorted({line.rstrip(b'\r') for line in lines if b'SNOW_QA_ERR' in line})
     if len(errors) != 1 or any(b'SNOW_QA_V1' in line for line in lines):
         sys.exit(1)
     match = re.fullmatch(rb'SNOW_QA_ERR ([a-z_]{1,40})\r?', errors[0])
@@ -992,6 +994,7 @@ data:
     import subprocess
     import sys
     import tempfile
+    import time
     import zlib
     from contextlib import contextmanager
     from pathlib import Path
@@ -1440,8 +1443,11 @@ data:
         raw = Path(serial).read_bytes()
         require(len(raw) <= 1024 * 1024, "serial_size")
         lines = raw.splitlines()
-        markers = [line for line in lines if b"SNOW_QA_V1" in line]
+        # The guest writes its one record more than once (to ttyS0 and again
+        # after serial-getty's TTY setup); identical copies are one record.
+        markers = {line.rstrip(b"\r") for line in lines if b"SNOW_QA_V1" in line}
         require(len(markers) == 1, "record_count")
+        markers = sorted(markers)
         match = re.fullmatch(rb"SNOW_QA_V1 ([A-Za-z0-9_-]{1,4096})", markers[0])
         require(match is not None, "record_encoding")
         encoded = match[1]
@@ -1716,6 +1722,41 @@ data:
         return "SNOW_QA_V1 " + base64.urlsafe_b64encode(canonical(record).strip()).decode().rstrip("=")
 
 
+    # On Snow, /dev/console is tty0 (graphical); the host reads only ttyS0
+    # (run-snow-bootc-lifecycle-2tnjh: the installed N booted, but its record
+    # never reached the serial log). serial-getty@ttyS0 runs vhangup and may
+    # flush output during its TTY setup, so the line is written to a fresh
+    # ttyS0 handle now and again once agetty runs (as the Firn lane does,
+    # frostyard/snosi#1123). The host treats identical copies as one line.
+    GUEST_CONSOLES = ("/dev/ttyS0", "/dev/console")
+
+
+    def emit(line):
+        for target in GUEST_CONSOLES:
+            try:
+                with open(target, "a") as stream:
+                    print(line, file=stream, flush=True)
+            except OSError:
+                pass
+
+
+    def serial_getty_ready():
+        try:
+            pid = subprocess.run(["systemctl", "show", "-p", "MainPID", "--value", "serial-getty@ttyS0.service"],
+                                 capture_output=True, timeout=10, check=False).stdout.strip()
+            return pid.isdigit() and pid != b"0" and Path("/proc", pid.decode(), "comm").read_text().strip() == "agetty"
+        except (OSError, subprocess.SubprocessError, ValueError):
+            return False
+
+
+    def publish(line, wait=90):
+        emit(line)
+        deadline = time.monotonic() + wait
+        while time.monotonic() < deadline and not serial_getty_ready():
+            time.sleep(2)
+        emit(line)
+
+
     def main(argv):
         try:
             require(len(argv) in (2, 3, 4, 7), "usage")
@@ -1734,8 +1775,7 @@ data:
                 print("kernel=" + attested["kernel"])
             elif argv[0] == "guest" and len(argv) == 2:
                 # The one-line record is emitted only after all probes and actions succeed.
-                with open("/dev/console", "w") as serial:
-                    print(guest(argv[1]), file=serial, flush=True)
+                publish(guest(argv[1]))
             else:
                 raise GateError("usage")
             return 0
@@ -1744,11 +1784,7 @@ data:
             if argv[:1] == ["guest"] and isinstance(exc, GateError) and code != "io_error":
                 # An observed fixed-code failure is distinct from an absent
                 # channel. Never print arbitrary tool stderr or credentials.
-                try:
-                    with open("/dev/console", "w") as serial:
-                        print("SNOW_QA_ERR " + code, file=serial, flush=True)
-                except OSError:
-                    pass
+                publish("SNOW_QA_ERR " + code)
             print("qa_failed:" + code, file=sys.stderr)
             return 1
 

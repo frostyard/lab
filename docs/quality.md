@@ -253,7 +253,10 @@ previous boot's log (kept unchanged for the whole boot) is such a new log and
 is searched whole (the fresh nonce and boot ID still bind the record). The
 searched bytes must never contain that previous log: a changed log that still
 carries it cannot be split safely and makes lineage ambiguous (`BLOCKED`), not
-a fresh proof. Limit: a guest error printed before such a restart and not yet
+a fresh proof. The guest writes its one record line (or `SNOW_QA_ERR` code) to a fresh
+`/dev/ttyS0` handle, because `/dev/console` is the graphical tty0 on Snow, and
+writes it again once serial-getty's agetty runs; the runner treats identical
+copies as one line. Limit: a guest error printed before such a restart and not yet
 seen by the runner is lost with the old log; a later attempt in the same phase
 must then still produce a complete, valid record, so a phase result means the
 final attempt passed, not every attempt. The full snapshots and per-boot slices are transient only. Raw

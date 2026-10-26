@@ -765,6 +765,38 @@ def test_phase_accepts_one_attested_fresh_boot(qa, tmp_path, capsys, phase):
                                                      "fsverity_errors=0", "kernel=" + KERNEL]
 
 
+def test_phase_accepts_identical_copies_of_one_record(qa, tmp_path, capsys):
+    # The guest writes its record to ttyS0 and again after serial-getty's TTY
+    # setup; ONLCR may add a CR. Identical copies are one record.
+    normalized, checks = phase_files(tmp_path, qa)
+    record = serial_record(phase_record("stage"))
+    serial = tmp_path / "serial"
+    serial.write_bytes(record.encode() + record.replace("\n", "\r\n").encode())
+    assert qa.main(["phase", str(normalized), "stage", NONCE,
+                    "none", str(serial), str(checks)]) == 0
+    assert capsys.readouterr().out.splitlines()[0] == "12345678-1234-4234-8234-123456789abc"
+
+
+def test_guest_publishes_to_serial_and_replays_after_getty(qa, tmp_path, monkeypatch):
+    # /dev/console is tty0 on Snow: the record must reach ttyS0, and again after
+    # serial-getty's TTY setup (run-snow-bootc-lifecycle-2tnjh).
+    ttys0, console = tmp_path / "ttyS0", tmp_path / "console"
+    monkeypatch.setattr(qa, "GUEST_CONSOLES", (str(ttys0), str(console)))
+    states = iter([False, False, True])
+    monkeypatch.setattr(qa, "serial_getty_ready", lambda: next(states))
+    monkeypatch.setattr(qa.time, "sleep", lambda _: None)
+    monkeypatch.setattr(qa, "guest", lambda _: "SNOW_QA_V1 abc")
+    assert qa.main(["guest", "/irrelevant"]) == 0
+    assert ttys0.read_text() == "SNOW_QA_V1 abc\n" * 2
+    assert console.read_text() == "SNOW_QA_V1 abc\n" * 2
+    # A missing ttyS0 is not fatal, and the wait for agetty is bounded.
+    monkeypatch.setattr(qa, "GUEST_CONSOLES", (str(tmp_path / "missing" / "ttyS0"),))
+    monkeypatch.setattr(qa, "serial_getty_ready", lambda: False)
+    clock = iter(range(0, 1000, 10))
+    monkeypatch.setattr(qa.time, "monotonic", lambda: next(clock))
+    assert qa.main(["guest", "/irrelevant"]) == 0
+
+
 @pytest.mark.parametrize("damage", [
     "missing", "duplicate", "malformed", "stale", "old_phase", "ambiguous", "no_reboot",
     "staged_missing", "staged_wrong", "signature_missing", "policy_missing", "wrong_spec",
@@ -827,7 +859,8 @@ def test_phase_rejects_untrustworthy_serial_or_state(qa, tmp_path, capsys, damag
     if damage == "missing":
         text = "unrelated serial\n"
     elif damage == "duplicate":
-        text += serial_record(record)
+        # Two different records for one phase (the guest repeats only an identical line).
+        text += serial_record(dict(record, boot_id="87654321-1234-4234-8234-123456789abc"))
     elif damage == "malformed":
         text = "unrelated serial\nSNOW_QA_V1 not-base64!\n"
     elif damage == "extra_record":
@@ -2278,9 +2311,12 @@ def test_guest_failure_console_reports_only_safe_gate_code(qa, monkeypatch, caps
         return console if path == "/dev/console" else original_open(path, *args, **kwargs)
 
     monkeypatch.setattr("builtins.open", safe_open)
+    monkeypatch.setattr(qa, "GUEST_CONSOLES", ("/dev/console",))
+    monkeypatch.setattr(qa, "serial_getty_ready", lambda: True)
     monkeypatch.setattr(qa, "guest", lambda _: (_ for _ in ()).throw(qa.GateError(reason)))
     assert qa.main(["guest", "/irrelevant"]) == 1
-    assert console.getvalue() == marker
+    # Written once at once, and once more after serial-getty's TTY setup.
+    assert console.getvalue() == marker * 2
     assert "SNOW_QA_V1" not in console.getvalue()
 
 
