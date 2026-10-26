@@ -791,6 +791,7 @@ def test_guest_publishes_to_serial_and_replays_after_getty(qa, tmp_path, monkeyp
     # serial-getty's TTY setup (run-snow-bootc-lifecycle-2tnjh).
     ttys0, console = tmp_path / "ttyS0", tmp_path / "console"
     monkeypatch.setattr(qa, "GUEST_CONSOLES", (str(ttys0), str(console)))
+    monkeypatch.setattr(qa, "PUBLISH_HOLD", 0)  # the hold has its own test
     states = iter([False, False, True])
     monkeypatch.setattr(qa, "serial_getty_ready", lambda **_: next(states))
     monkeypatch.setattr(qa.time, "sleep", lambda _: None)
@@ -2327,6 +2328,7 @@ def test_guest_failure_console_reports_only_safe_gate_code(qa, monkeypatch, caps
 
     monkeypatch.setattr("builtins.open", safe_open)
     monkeypatch.setattr(qa, "GUEST_CONSOLES", ("/dev/console",))
+    monkeypatch.setattr(qa, "PUBLISH_HOLD", 0)
     monkeypatch.setattr(qa, "serial_getty_ready", lambda **_: True)
     monkeypatch.setattr(qa, "guest", lambda _: (_ for _ in ()).throw(qa.GateError(reason)))
     assert qa.main(["guest", "/irrelevant"]) == 1
@@ -2825,7 +2827,7 @@ def test_runner_failure_never_initializes_vm_and_does_not_expose_inputs(tmp_path
     assert (tmp_path / "results/result-summary.txt").read_text().strip() == expected
 
 
-@pytest.mark.parametrize("scenario", ["pass", "stage", "stage_keep", "iso_add_partial_keep", "iso_add_partial_detach_failed", "no_reboot", "tag_drift", "evidence_write", "output_write", "stage_teardown", "teardown", "serial_oversize", "serial_unreadable", "blocked_teardown", "phase_missing", "phase_malformed", "guest_error", "guest_error_crlf", "updater_error_crlf", "rollback_error_crlf", "duplicate_error_crlf", "conflicting_error_crlf", "install_missing", "install_failed", "install_firn_v2", "install_firn_hash", "install_fake_code", "install_disk_detect", "install_disk_byid", "install_progress", "install_bad_progress", "install_secret_code", "install_fallback", "install_empty_stream", "install_validate_secret", "install_validate_unknown", "install_validate_unclassified", "install_validate_fake", "cumulative_pass", "cumulative_stale", "cumulative_reset", "cumulative_prefix", "fsverity", "fsverity_known", "guest_shutdown", "nvram_escape", "console_reset_each_start", "reset_mid_boot", "reset_twice", "reset_then_truncate", "empty_then_reset", "installer_restart", "reset_then_stale", "reset_then_stale_error"])
+@pytest.mark.parametrize("scenario", ["pass", "stage", "stage_keep", "iso_add_partial_keep", "iso_add_partial_detach_failed", "no_reboot", "tag_drift", "evidence_write", "output_write", "stage_teardown", "teardown", "serial_oversize", "serial_unreadable", "blocked_teardown", "phase_missing", "phase_malformed", "guest_error", "guest_error_crlf", "updater_error_crlf", "rollback_error_crlf", "duplicate_error_crlf", "conflicting_error_crlf", "install_missing", "install_failed", "install_firn_v2", "install_firn_hash", "install_fake_code", "install_disk_detect", "install_disk_byid", "install_progress", "install_bad_progress", "install_secret_code", "install_fallback", "install_empty_stream", "install_validate_secret", "install_validate_unknown", "install_validate_unclassified", "install_validate_fake", "cumulative_pass", "cumulative_stale", "cumulative_reset", "cumulative_prefix", "fsverity", "fsverity_known", "guest_shutdown", "nvram_escape", "console_reset_each_start", "reset_mid_boot", "reset_twice", "reset_then_truncate", "empty_then_reset", "installer_restart", "reset_then_stale", "reset_then_stale_error", "stopped_without_record"])
 def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario):
     script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
     for old, new in (("ROOT=/var/lib/snosi-lab/snow-bootc-evidence", f"ROOT={tmp_path}/evidence"),
@@ -2967,7 +2969,7 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
                     content = f'SNOW_QA_ERR updater\\r\\nSNOW_QA_V1 {phase} {nonce} {count - 1}\\n'
                 elif os.environ['SCENARIO'] == 'phase_malformed' and count == 3:
                     content = 'SNOW_QA_V1 malformed\\n'
-                elif (os.environ['SCENARIO'] not in ('phase_missing', 'cumulative_stale') or count != 3):
+                elif (os.environ['SCENARIO'] not in ('phase_missing', 'cumulative_stale', 'stopped_without_record') or count != 3):
                     content = f'SNOW_QA_V1 {phase} {nonce} {count - 1}\\n'
             previous = (root / 'console-log').read_bytes() if (root / 'console-log').exists() else b''
             if os.environ['SCENARIO'] in ('cumulative_reset', 'console_reset_each_start', 'reset_twice', 'reset_then_truncate', 'empty_then_reset') and count >= 2:
@@ -3016,9 +3018,15 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
                 (root / 'console-count').write_text(str(count))
             sys.stdout.buffer.write((root / 'console-log').read_bytes())
         elif args[0] == 'info':
-            # The guest powers itself off after its record; a stuck guest stays RUNNING.
-            stuck = os.environ['SCENARIO'] == 'guest_shutdown' and int((root / 'count').read_text()) == 3
-            print('Name: ' + args[1]); print('Status: ' + ('RUNNING' if stuck else 'STOPPED'))
+            # The guest powers itself off only after the host verified its record
+            # (count 2 is installed-n, the first phase); a stuck guest stays RUNNING.
+            count = int((root / 'count').read_text())
+            verified = sum(1 for e in (root / 'events').read_text().splitlines() if e.startswith('phase '))
+            stuck = os.environ['SCENARIO'] == 'guest_shutdown' and count == 3
+            running = stuck or (count >= 2 and verified < count - 1)
+            if os.environ['SCENARIO'] == 'stopped_without_record' and count == 3:
+                running = False   # powered off, record never captured
+            print('Name: ' + args[1]); print('Status: ' + ('RUNNING' if running else 'STOPPED'))
         elif args[0] == 'delete' and os.environ['SCENARIO'] in ('stage_teardown', 'teardown', 'blocked_teardown'):
             sys.exit(1)
     ''' ).lstrip())
@@ -3075,7 +3083,10 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
         assert len([e for e in events if e.startswith('incus start')]) == 6
         # Only the installer ISO is force-stopped; each phase waits for the guest's own poweroff.
         assert [e for e in events if e.startswith('incus stop')] == ['incus stop snow-qa-mock-run --force']
-        assert len([e for e in events if e.startswith('incus info')]) == 5
+        # One shutdown check per phase; scenarios that read the console several
+        # times in a boot also ask once per extra poll whether the guest stopped.
+        infos = len([e for e in events if e.startswith('incus info')])
+        assert infos == 5 if scenario in ('pass', 'cumulative_pass', 'fsverity_known') else infos >= 5
         # Incus 7: the pool comes from `incus query`, and the MOK goes into the
         # varstore file that the qemu.nvram symlink names, not the link itself.
         assert 'incus query /1.0/instances/snow-qa-mock-run' in events
@@ -3161,6 +3172,7 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
                                     'cumulative_stale': 'BLOCKED: phase_timeout',
                                     'cumulative_prefix': 'BLOCKED: channel_lineage',
                                     'reset_then_stale': 'BLOCKED: channel_lineage',
+                                    'stopped_without_record': 'BLOCKED: guest_stopped_without_record',
                                     'reset_then_stale_error': 'BLOCKED: channel_lineage',
                                     'guest_shutdown': 'FAILED: guest_shutdown',
                                     'nvram_escape': 'BLOCKED: host_storage_unsupported',
@@ -3224,7 +3236,7 @@ def test_firn_install_has_no_file_size_limit_and_bounded_outputs(tmp_path, firn_
 def test_guest_publish_margin_matches_unit_timeout_and_bounds_the_replay(qa, monkeypatch):
     script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
     assert f"TimeoutStartSec=$((budget + {qa.PUBLISH_MARGIN}))" in script
-    assert qa.PUBLISH_WAIT + 20 <= qa.PUBLISH_MARGIN  # room for the last query, the emit and poweroff
+    assert qa.PUBLISH_WAIT + qa.PUBLISH_HOLD + 20 <= qa.PUBLISH_MARGIN  # last query, the hold, poweroff
     # A getty that never comes, with slow queries: the whole wait stays bounded,
     # and no query may run past the deadline.
     now = [0.0]
@@ -3240,7 +3252,7 @@ def test_guest_publish_margin_matches_unit_timeout_and_bounds_the_replay(qa, mon
     monkeypatch.setattr(qa, "serial_getty_ready", slow_query)
     monkeypatch.setattr(qa, "emit", lambda line: None)
     qa.publish("SNOW_QA_V1 abc")
-    assert now[0] <= qa.PUBLISH_WAIT + 1
+    assert now[0] <= qa.PUBLISH_WAIT + qa.PUBLISH_HOLD + 1
     assert all(1 <= value <= 10 for value in timeouts)
 
 
@@ -3249,7 +3261,7 @@ def test_host_shutdown_wait_includes_the_guest_publish_margin(qa):
     # still replay for up to PUBLISH_WAIT before it requests poweroff.
     script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
     assert f"shutdown_end=$((SECONDS + shutdown_budget + {qa.PUBLISH_MARGIN}))" in script
-    assert qa.PUBLISH_MARGIN >= qa.PUBLISH_WAIT + 20
+    assert qa.PUBLISH_MARGIN >= qa.PUBLISH_WAIT + qa.PUBLISH_HOLD + 20
 
 
 @pytest.mark.parametrize("change", [
@@ -3292,3 +3304,20 @@ def test_guest_accepts_both_tpm_pubkey_spellings_and_bootctl_double_slash(qa, mo
     assert qa.status_uki_paths(status) == {UKI_PATH.encode()}
     # A doubled slash without the ESP prefix is still not a UKI path token.
     assert qa.status_uki_paths(("uki: x//" + UKI_PATH.lstrip("/") + "\n").encode()) == set()
+
+
+def test_guest_holds_its_record_for_several_host_polls(qa, monkeypatch):
+    # The host reads the console every 5 s and Incus keeps only what it read:
+    # the record must stay on the line, repeated, for at least 3 polls.
+    now = [0.0]
+    monkeypatch.setattr(qa.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(qa.time, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds))
+    monkeypatch.setattr(qa, "serial_getty_ready", lambda **_: True)
+    emitted = []
+    monkeypatch.setattr(qa, "emit", lambda line: emitted.append((now[0], line)))
+    qa.publish("SNOW_QA_V1 abc")
+    assert qa.PUBLISH_HOLD >= 15
+    assert emitted[-1][0] >= qa.PUBLISH_HOLD and len(emitted) >= 4
+    assert {line for _, line in emitted} == {"SNOW_QA_V1 abc"}
+    gaps = [b[0] - a[0] for a, b in zip(emitted, emitted[1:])]
+    assert max(gaps) <= 10

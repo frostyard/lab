@@ -411,6 +411,14 @@ data:
           fail install_failed
         fi
         if grep -qF "$needle" "$WORK/serial"; then return 0; fi
+        if [[ "$needle" == SNOW_QA_V1 ]] && vm_stopped; then
+          # The guest powered itself off and its record is not on the line
+          # (run-snow-bootc-lifecycle-5g2w5). Read once more, then stop now
+          # instead of waiting out the whole phase window.
+          serial
+          if grep -qF "$needle" "$WORK/serial"; then return 0; fi
+          blocked guest_stopped_without_record
+        fi
         sleep 5
       done
       blocked phase_timeout
@@ -1783,10 +1791,17 @@ data:
     # adds PUBLISH_MARGIN seconds beyond the phase budget for it and the
     # poweroff request, so it never eats the probes' own margin.
     PUBLISH_WAIT = 90
+    # Incus keeps console output only when the host reads it (every 5 s); a
+    # VM that powers off right after its record loses it
+    # (run-snow-bootc-lifecycle-5g2w5: guest-shutdown 1 s after the record).
+    # Hold the line, repeated, for several host polls before returning.
+    PUBLISH_HOLD = 30
     PUBLISH_MARGIN = 150
 
 
-    def publish(line, wait=PUBLISH_WAIT):
+    def publish(line, wait=None, hold=None):
+        wait = PUBLISH_WAIT if wait is None else wait
+        hold = PUBLISH_HOLD if hold is None else hold
         emit(line)
         deadline = time.monotonic() + wait
         while True:
@@ -1795,6 +1810,10 @@ data:
                 break
             time.sleep(max(0, min(2, deadline - time.monotonic())))
         emit(line)
+        held = time.monotonic() + hold
+        while time.monotonic() < held:
+            time.sleep(max(0, min(10, held - time.monotonic())))
+            emit(line)
 
 
     def main(argv):
