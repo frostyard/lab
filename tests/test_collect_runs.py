@@ -400,3 +400,41 @@ def test_main_writes_distinct_product_lanes(tmp_path, monkeypatch):
     assert lanes["image-poll-floe-latest"]["everGreen"] is True
     assert lanes["image-poll-snow-latest"]["everGreen"] is False
     assert lanes["image-poll-snow-latest"]["latest"]["qaOutcome"] == "failed"
+
+
+def test_dev_trigger_runs_stay_out_of_the_run_data_and_lanes(tmp_path, monkeypatch):
+    # A dev submit (label snosi.io/trigger=dev) tests a lane fix from an
+    # unmerged branch (AGENTS.md, T237f): it is not lane evidence, so neither
+    # runs.json nor any lane may carry it, even when it is the newest run.
+    workflows = [
+        make_workflow(
+            name="dev-snow-bootc-lifecycle-abc12",
+            template_ref="run-snow-bootc-lifecycle",
+            phase="Failed",
+            trigger="dev",
+            started="2026-10-26T12:00:00Z",
+            finished="2026-10-26T12:01:00Z",
+        ),
+        make_workflow(
+            name="run-snow-bootc-lifecycle-xyz34",
+            template_ref="run-snow-bootc-lifecycle",
+            phase="Succeeded",
+            started="2026-10-25T12:00:00Z",
+            finished="2026-10-25T12:01:00Z",
+        ),
+    ]
+    monkeypatch.setattr(
+        collect_runs, "kubectl", lambda *args: json.dumps({"items": workflows})
+    )
+    output = tmp_path / "runs.json"
+    monkeypatch.setattr(sys, "argv", ["collect_runs.py", str(output)])
+
+    assert collect_runs.main() == 0
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert [run["name"] for run in payload["runs"]] == ["run-snow-bootc-lifecycle-xyz34"]
+    assert [lane["laneKey"] for lane in payload["lanes"]] == ["run-snow-bootc-lifecycle"]
+    lane = payload["lanes"][0]
+    assert lane["runs"] == 1
+    assert lane["latest"]["name"] == "run-snow-bootc-lifecycle-xyz34"
+    assert all(run["trigger"] != "dev" for run in payload["runs"])
