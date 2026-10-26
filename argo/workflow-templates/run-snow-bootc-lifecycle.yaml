@@ -7,13 +7,13 @@ metadata:
     description: Manually invoked advisory Snow lifecycle probe; never a release gate.
 spec:
   entrypoint: run
-  # Includes semaphore queue time before the 16h entrypoint deadline starts.
-  activeDeadlineSeconds: 61200
+  # Includes semaphore queue time before the 17h entrypoint deadline starts.
+  activeDeadlineSeconds: 64800
   templates:
   - name: run
     # Max guest windows plus host margins, two ISO downloads, preflight,
-    # provisioning and teardown; 16h leaves >10% headroom.
-    activeDeadlineSeconds: 57600
+    # provisioning, five bounded shutdown waits and teardown; 17h leaves >10% headroom.
+    activeDeadlineSeconds: 61200
     nodeSelector:
       node-role.kubernetes.io/control-plane: "true"
     synchronization:

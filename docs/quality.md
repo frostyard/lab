@@ -241,7 +241,8 @@ N+1 boot and rollback; `checks.txt` records manifest hash, target-tag check
 timestamps and fresh boot IDs for `installed-n`, `stage`, `boot-n-plus-1`,
 `rollback`, `boot-n`. Workflow outputs `result` and `checks` are non-secret
 sanitized summaries; a missing file/check is not a pass. Each stopped VM's
-bounded console snapshot becomes the byte-exact baseline before its next start;
+bounded console snapshot, taken after the guest powers itself off, becomes the
+byte-exact baseline before its next start;
 only newly appended bytes are checked for that boot's nonce and record. A
 truncated, reset or changed prefix makes lineage ambiguous (`BLOCKED`), not
 a fresh proof. The full snapshots and per-boot slices are transient only. Raw
@@ -251,7 +252,20 @@ deleted. Redacted diagnostics and serial may be incomplete and must not be
 treated as a secret-safe substitute for inspecting the retained VM.
 
 `PASS` requires every preflight, tag, install, fresh-boot, signature-policy,
-state/action and cleanup check. `BLOCKED` is nonzero for unavailable publication,
+state/action and cleanup check. The guest contract is the one the real Firn
+installer and Snow updater produce: the bootc spec image is `target_ref` in
+every phase (Firn `--target-imgref`), with transport `registry` for
+`installed-n` and the `stage` pre-action check, and `registry` or
+`containers-storage` afterwards (the updater switches to `containers-storage`;
+the record keeps the observed `spec_transport`, and any other transport
+fails `target_transport`). `/run/snosi/update-staged` must carry
+`digest=sha256:<N+1 digest>` and `image=<target_ref>` (`stage_marker`). Phases
+end by a guest `systemctl --no-block poweroff` so bootc finalizes the staged
+deployment; the runner never force-stops between phases and fails
+`guest_shutdown` if the VM does not stop within the `reboot` timeout. A
+per-boot drop-in condition keeps the image's hourly update timer from staging
+N+1 early. The composefs spec rule for the staged and booted deployments has no
+live proof here. `BLOCKED` is nonzero for unavailable publication,
 host support or tools, or for a missing/unreadable/oversize serial capture or
 timeout with no authenticated phase record, or an observed bounded `SNOW_QA_ERR`
 guest probe/tool code (not itself proof of a product failure). Observed `SNOW_QA_ERR`

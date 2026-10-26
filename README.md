@@ -416,7 +416,23 @@ verification. Both immutable version tags are checked once in preflight; the
 controlled mutable target tag is rechecked before install and each phase, and
 after stage, N+1 boot and rollback. The lane attempts a secure UEFI
 vTPM Firn v1 encrypted-btrfs install, then five distinct fresh boots:
-`installed-n`, `stage`, `boot-n-plus-1`, `rollback`, `boot-n`. See
+`installed-n`, `stage`, `boot-n-plus-1`, `rollback`, `boot-n`. The guest
+contract follows the real Firn installer and Snow updater. Firn installs with
+`--target-imgref`, so every phase must report `target_ref` as the bootc spec
+image (never `image_n`): `installed-n` and the pre-`stage` boot must be
+transport `registry`; after the Snow updater (`bootc switch --transport
+containers-storage`) later phases may report `containers-storage` or
+`registry`, and the observed value is kept in the record. Any other transport
+fails. The `stage` phase runs `/usr/libexec/bootc-update-stage` and parses
+`/run/snosi/update-staged` (`image=`, `digest=`, `staged_at=` lines; bounded,
+no duplicate keys) requiring `digest=sha256:<N+1 digest>` and `image=target_ref`.
+Every phase boot also injects a drop-in that skips `bootc-update-stage.service`
+(`ConditionPathExists=/run/snow-qa-timer-disabled`), so the image's hourly
+timer cannot stage N+1 early. After a phase record, the guest unit runs
+`systemctl --no-block poweroff` and the runner waits (bounded by the
+`reboot` timeout) for the VM to stop, never `--force`, so bootc finalizes the
+staged deployment at shutdown; a VM that does not stop fails with
+`guest_shutdown`. See
 [private evidence and verdict limits](docs/quality.md#manual-snow-bootc-lifecycle-evidence)
 before treating any result as evidence.
 On failure, private evidence may also include `install-diagnostic.txt` (a
