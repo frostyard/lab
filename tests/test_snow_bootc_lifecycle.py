@@ -797,8 +797,8 @@ def test_guest_publishes_to_serial_and_replays_after_getty(qa, tmp_path, monkeyp
     monkeypatch.setattr(qa.time, "sleep", lambda _: None)
     monkeypatch.setattr(qa, "guest", lambda _: "SNOW_QA_V1 abc")
     assert qa.main(["guest", "/irrelevant"]) == 0
-    assert ttys0.read_text() == "SNOW_QA_V1 abc\n" * 2
-    assert console.read_text() == "SNOW_QA_V1 abc\n" * 2
+    assert ttys0.read_text() == "\nSNOW_QA_V1 abc\n" * 2
+    assert console.read_text() == "\nSNOW_QA_V1 abc\n" * 2
     # A missing ttyS0 is not fatal, and the wait for agetty is bounded.
     monkeypatch.setattr(qa, "GUEST_CONSOLES", (str(tmp_path / "missing" / "ttyS0"),))
     monkeypatch.setattr(qa, "serial_getty_ready", lambda **_: False)
@@ -2333,7 +2333,7 @@ def test_guest_failure_console_reports_only_safe_gate_code(qa, monkeypatch, caps
     monkeypatch.setattr(qa, "guest", lambda _: (_ for _ in ()).throw(qa.GateError(reason)))
     assert qa.main(["guest", "/irrelevant"]) == 1
     # Written once at once, and once more after serial-getty's TTY setup.
-    assert console.getvalue() == marker * 2
+    assert console.getvalue() == ("\n" + marker if marker else "") * 2
     assert "SNOW_QA_V1" not in console.getvalue()
 
 
@@ -3336,3 +3336,34 @@ def test_guest_holds_its_record_for_several_host_polls(qa, monkeypatch):
     assert {line for _, line in emitted} == {"SNOW_QA_V1 abc"}
     gaps = [b[0] - a[0] for a, b in zip(emitted, emitted[1:])]
     assert max(gaps) <= 10
+
+
+@pytest.mark.parametrize(("prefix", "ok"), [
+    ("snow-qa login: ", True),    # observed: the getty prompt has no newline (run fhhk4)
+    ("", True),
+    ("x", False),                  # never a mid-word marker
+])
+def test_phase_reads_a_record_after_the_getty_prompt(qa, tmp_path, capsys, prefix, ok):
+    normalized, checks = phase_files(tmp_path, qa)
+    record = serial_record(phase_record("installed-n"))
+    copy = record.split("\n")[1]
+    serial = tmp_path / "serial"
+    serial.write_text("Debian GNU/Linux 13 snow-qa ttyS0\n\n" + prefix + copy + "\r\n" + copy + "\r\n")
+    result = qa.main(["phase", str(normalized), "installed-n", NONCE, "none", str(serial), str(checks)])
+    assert result == (0 if ok else 1)
+    if not ok:
+        assert capsys.readouterr().err.strip() == "qa_failed:record_count"
+
+
+def test_runner_reads_a_guest_error_after_the_getty_prompt(tmp_path):
+    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    parser = re.search(r"code=\$\(python3 - \"\$WORK/serial\" <<'PY'\n(.*?)\nPY\n", script, re.S)
+    assert parser
+    path = tmp_path / "parse.py"
+    path.write_text(parser.group(1))
+    for text, expected in ((b"snow-qa login: SNOW_QA_ERR updater\r\nSNOW_QA_ERR updater\r\n", "updater"),
+                           (b"xSNOW_QA_ERR updater\r\nSNOW_QA_ERR updater\r\n", None)):
+        serial = tmp_path / "serial"
+        serial.write_bytes(text)
+        result = subprocess.run(["python3", str(path), str(serial)], capture_output=True, text=True)
+        assert (result.stdout.strip() if result.returncode == 0 else None) == expected
