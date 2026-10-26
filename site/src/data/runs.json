@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-26T01:00:19Z",
+  "generated": "2026-10-26T01:30:18Z",
   "lanes": [
     {
       "laneKey": "run-firn-install-tests",
@@ -68,9 +68,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1792976400",
+        "name": "publish-results-1792978200",
         "phase": "Running",
-        "started": "2026-10-26T01:00:00Z",
+        "started": "2026-10-26T01:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -93,25 +93,25 @@
       "label": "run-snow-bootc-lifecycle",
       "kind": "other",
       "latest": {
-        "name": "run-snow-bootc-lifecycle-6hvn6",
+        "name": "run-snow-bootc-lifecycle-46lqr",
         "phase": "Failed",
-        "started": "2026-09-26T10:48:21Z",
-        "finished": "2026-09-26T10:52:17Z",
-        "durationSeconds": 236,
+        "started": "2026-10-26T01:20:13Z",
+        "finished": "2026-10-26T01:24:11Z",
+        "durationSeconds": 238,
         "template": "run-snow-bootc-lifecycle",
         "laneKey": "run-snow-bootc-lifecycle",
         "qaOutcome": "unknown",
         "kind": "other",
         "label": "run-snow-bootc-lifecycle",
-        "trigger": "scheduled",
-        "result": "FAILED: install_failed:firn_install:unknown:step_failed",
+        "trigger": "manual",
+        "result": "FAILED: install_failed:firn_v2",
         "digest": null,
         "checks": [
-          "manifest_sha256=bc4128fcd6cbfc0669da668aa0a928401e0fa7b6f266eb0fd91cbb85187c448a",
-          "tag=before-install timestamp=2026-09-26T10:49:21.360729+00:00"
+          "manifest_sha256=43df99b1a080db2d878b3f1fd77c5193b741b724c0ba8deba7e52b64c3a4f335",
+          "tag=before-install timestamp=2026-10-26T01:21:18.530511+00:00"
         ]
       },
-      "runs": 1,
+      "runs": 2,
       "everGreen": false,
       "qaRun": null
     },
@@ -234,11 +234,46 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1792976400",
+      "name": "publish-results-1792978200",
       "phase": "Running",
-      "started": "2026-10-26T01:00:00Z",
+      "started": "2026-10-26T01:30:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": null,
+      "checks": []
+    },
+    {
+      "name": "run-snow-bootc-lifecycle-46lqr",
+      "phase": "Failed",
+      "started": "2026-10-26T01:20:13Z",
+      "finished": "2026-10-26T01:24:11Z",
+      "durationSeconds": 238,
+      "template": "run-snow-bootc-lifecycle",
+      "laneKey": "run-snow-bootc-lifecycle",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "run-snow-bootc-lifecycle",
+      "trigger": "manual",
+      "result": "FAILED: install_failed:firn_v2",
+      "digest": null,
+      "checks": [
+        "manifest_sha256=43df99b1a080db2d878b3f1fd77c5193b741b724c0ba8deba7e52b64c3a4f335",
+        "tag=before-install timestamp=2026-10-26T01:21:18.530511+00:00"
+      ]
+    },
+    {
+      "name": "publish-results-1792976400",
+      "phase": "Succeeded",
+      "started": "2026-10-26T01:00:00Z",
+      "finished": "2026-10-26T01:00:32Z",
+      "durationSeconds": 32,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -350,22 +385,6 @@
       "phase": "Succeeded",
       "started": "2026-10-26T00:00:00Z",
       "finished": "2026-10-26T00:00:31Z",
-      "durationSeconds": 31,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1792971000",
-      "phase": "Succeeded",
-      "started": "2026-10-25T23:30:00Z",
-      "finished": "2026-10-25T23:30:31Z",
       "durationSeconds": 31,
       "template": "publish",
       "laneKey": "publish",
