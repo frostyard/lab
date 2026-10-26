@@ -259,7 +259,10 @@ carries it cannot be split safely and makes lineage ambiguous (`BLOCKED`), not
 a fresh proof. The guest writes its one record line (or `SNOW_QA_ERR` code) to a fresh
 `/dev/ttyS0` handle, because `/dev/console` is the graphical tty0 on Snow, and
 writes it again once serial-getty's agetty runs; the runner treats identical
-copies as one line. Limit: a guest error printed before such a restart and not yet
+copies as one line. Incus keeps console output only when the host reads it,
+so the guest repeats the line for 30 s before it powers off; a guest that
+powers off without a captured record ends the phase at once as
+`BLOCKED: guest_stopped_without_record`. Limit: a guest error printed before such a restart and not yet
 seen by the runner is lost with the old log; a later attempt in the same phase
 must then still produce a complete, valid record, so a phase result means the
 final attempt passed, not every attempt. The full snapshots and per-boot slices are transient only. Raw
