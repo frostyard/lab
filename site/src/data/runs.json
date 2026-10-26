@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-26T02:30:18Z",
+  "generated": "2026-10-26T03:00:17Z",
   "lanes": [
     {
       "laneKey": "run-firn-install-tests",
@@ -68,9 +68,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1792981800",
+        "name": "publish-results-1792983600",
         "phase": "Running",
-        "started": "2026-10-26T02:30:00Z",
+        "started": "2026-10-26T03:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -93,26 +93,51 @@
       "label": "run-snow-bootc-lifecycle",
       "kind": "other",
       "latest": {
-        "name": "run-snow-bootc-lifecycle-46lqr",
+        "name": "run-snow-bootc-lifecycle-lnzgv",
         "phase": "Failed",
-        "started": "2026-10-26T01:20:13Z",
-        "finished": "2026-10-26T01:24:11Z",
-        "durationSeconds": 238,
+        "started": "2026-10-26T02:46:39Z",
+        "finished": "2026-10-26T02:50:42Z",
+        "durationSeconds": 243,
         "template": "run-snow-bootc-lifecycle",
         "laneKey": "run-snow-bootc-lifecycle",
         "qaOutcome": "unknown",
         "kind": "other",
         "label": "run-snow-bootc-lifecycle",
         "trigger": "manual",
-        "result": "FAILED: install_failed:firn_v2",
+        "result": "FAILED: install_failed:firn_install:format-boot:step_failed",
         "digest": null,
         "checks": [
           "manifest_sha256=43df99b1a080db2d878b3f1fd77c5193b741b724c0ba8deba7e52b64c3a4f335",
-          "tag=before-install timestamp=2026-10-26T01:21:18.530511+00:00"
+          "tag=before-install timestamp=2026-10-26T02:47:46.009173+00:00"
         ]
       },
-      "runs": 2,
+      "runs": 3,
       "everGreen": false,
+      "qaRun": null
+    },
+    {
+      "laneKey": "image-poll-snow-latest",
+      "template": "image-poller",
+      "label": "Registry digest poll",
+      "kind": "poll",
+      "latest": {
+        "name": "image-poll-snow-latest-1792983600",
+        "phase": "Running",
+        "started": "2026-10-26T03:00:00Z",
+        "finished": null,
+        "durationSeconds": null,
+        "template": "image-poller",
+        "laneKey": "image-poll-snow-latest",
+        "qaOutcome": "unknown",
+        "kind": "poll",
+        "label": "Registry digest poll",
+        "trigger": "scheduled",
+        "result": null,
+        "digest": null,
+        "checks": []
+      },
+      "runs": 5,
+      "everGreen": true,
       "qaRun": null
     },
     {
@@ -201,44 +226,66 @@
         "finished": "2026-10-25T21:21:38Z",
         "result": "14 passed, 9 skipped"
       }
-    },
-    {
-      "laneKey": "image-poll-snow-latest",
-      "template": "image-poller",
-      "label": "Registry digest poll",
-      "kind": "poll",
-      "latest": {
-        "name": "image-poll-snow-latest-1792972800",
-        "phase": "Succeeded",
-        "started": "2026-10-26T00:00:00Z",
-        "finished": "2026-10-26T00:00:20Z",
-        "durationSeconds": 20,
-        "template": "image-poller",
-        "laneKey": "image-poll-snow-latest",
-        "qaOutcome": "carried",
-        "kind": "poll",
-        "label": "Registry digest poll",
-        "trigger": "scheduled",
-        "result": null,
-        "digest": "sha256:2a51013c012d0c1def2e8fee8c532ace3d8e3f320404df14af384fa2143b57e5",
-        "checks": []
-      },
-      "runs": 4,
-      "everGreen": true,
-      "qaRun": {
-        "name": "image-poll-snow-latest-1792962000",
-        "finished": "2026-10-25T21:01:46Z",
-        "result": "20 passed, 3 skipped"
-      }
     }
   ],
   "runs": [
     {
-      "name": "publish-results-1792981800",
+      "name": "image-poll-snow-latest-1792983600",
       "phase": "Running",
-      "started": "2026-10-26T02:30:00Z",
+      "started": "2026-10-26T03:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "image-poller",
+      "laneKey": "image-poll-snow-latest",
+      "qaOutcome": "unknown",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1792983600",
+      "phase": "Running",
+      "started": "2026-10-26T03:00:00Z",
+      "finished": null,
+      "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": null,
+      "checks": []
+    },
+    {
+      "name": "run-snow-bootc-lifecycle-lnzgv",
+      "phase": "Failed",
+      "started": "2026-10-26T02:46:39Z",
+      "finished": "2026-10-26T02:50:42Z",
+      "durationSeconds": 243,
+      "template": "run-snow-bootc-lifecycle",
+      "laneKey": "run-snow-bootc-lifecycle",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "run-snow-bootc-lifecycle",
+      "trigger": "manual",
+      "result": "FAILED: install_failed:firn_install:format-boot:step_failed",
+      "digest": null,
+      "checks": [
+        "manifest_sha256=43df99b1a080db2d878b3f1fd77c5193b741b724c0ba8deba7e52b64c3a4f335",
+        "tag=before-install timestamp=2026-10-26T02:47:46.009173+00:00"
+      ]
+    },
+    {
+      "name": "publish-results-1792981800",
+      "phase": "Succeeded",
+      "started": "2026-10-26T02:30:00Z",
+      "finished": "2026-10-26T02:30:30Z",
+      "durationSeconds": 30,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -299,22 +346,6 @@
         "manifest_sha256=43df99b1a080db2d878b3f1fd77c5193b741b724c0ba8deba7e52b64c3a4f335",
         "tag=before-install timestamp=2026-10-26T01:21:18.530511+00:00"
       ]
-    },
-    {
-      "name": "publish-results-1792976400",
-      "phase": "Succeeded",
-      "started": "2026-10-26T01:00:00Z",
-      "finished": "2026-10-26T01:00:32Z",
-      "durationSeconds": 32,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": null,
-      "checks": []
     },
     {
       "name": "image-poll-sundog-latest-1792975800",
