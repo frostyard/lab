@@ -505,8 +505,13 @@ data:
       exit 1
     fi
     # Firn's progress stream contains the literal recovery key. Keep it only
-    # in the private guest /run; bound both outputs before invoking Firn.
-    if (ulimit -f 1024; firn install /run/snow-recipe.toml --confirm "$disk" --uefi on --secure-boot on --tpm on --json-progress >/run/snow-install.ndjson 2>/run/snow-install.log); then
+    # in the private guest /run. Bound both outputs at their sinks, never with
+    # RLIMIT_FSIZE on Firn: podman and bootc inherit that limit and fail to
+    # store any image blob above it (EFBIG, run-snow-bootc-lifecycle-6prlx).
+    # Each sink keeps the first 1 MiB and drains the rest, so Firn never sees
+    # a broken pipe; pipefail keeps Firn's exit status.
+    bounded() { { head -c 1048576; cat >/dev/null; } > "$1"; }
+    if { firn install /run/snow-recipe.toml --confirm "$disk" --uefi on --secure-boot on --tpm on --json-progress 2>&1 1>&3 3>&- | bounded /run/snow-install.log; } 3>&1 | bounded /run/snow-install.ndjson; then
       printf 'SNOW_INSTALL_OK\n' > /dev/ttyS0
     else
       summary=unknown:unparsed
