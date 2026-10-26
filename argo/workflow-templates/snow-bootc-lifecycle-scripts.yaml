@@ -338,7 +338,9 @@ data:
     import re, sys
     from pathlib import Path
     lines = Path(sys.argv[1]).read_bytes().split(b'\n')
-    errors = [line for line in lines if b'SNOW_QA_ERR' in line]
+    # The guest repeats its one line after serial-getty's TTY setup:
+    # identical copies are one marker.
+    errors = sorted({line.rstrip(b'\r') for line in lines if b'SNOW_QA_ERR' in line})
     if len(errors) != 1 or any(b'SNOW_QA_V1' in line for line in lines):
         sys.exit(1)
     match = re.fullmatch(rb'SNOW_QA_ERR ([a-z_]{1,40})\r?', errors[0])
@@ -907,7 +909,7 @@ data:
     Wants=network-online.target
     [Service]
     Type=oneshot
-    TimeoutStartSec=$budget
+    TimeoutStartSec=$((budget + 150))
     StandardOutput=null
     StandardError=null
     ExecStart=/bin/bash -ec 'install -d -m 0700 /run/snow-credentials; cut -d\" \" -f1 /proc/uptime > /run/snow-credentials/unit_started; install -d -m 0700 /opt/snow-qa; echo $qa_b64 | base64 -d > /run/snow-qa.z; python3 -c \"import zlib,sys;sys.stdout.buffer.write(zlib.decompress(sys.stdin.buffer.read()))\" < /run/snow-qa.z > /opt/snow-qa/qa.py; echo $manifest_b64 | base64 -d > /opt/snow-qa/normalized.json; printf %%s $phase > /run/snow-credentials/phase; printf %%s $nonce > /run/snow-credentials/nonce; printf %%s $n > /run/snow-credentials/image_n; printf %%s $next > /run/snow-credentials/image_n_plus_1; printf %%s $target > /run/snow-credentials/target_ref; python3 /opt/snow-qa/qa.py guest /run/snow-credentials; systemctl --no-block poweroff'"
@@ -947,7 +949,10 @@ data:
       # deployment at shutdown (a forced stop would skip it). Wait, bounded, for
       # the VM to stop; never force-stop between phases.
       shutdown_budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["reboot"])' "$WORK/normalized.json") || fail manifest_read
-      shutdown_end=$((SECONDS + shutdown_budget))
+      # The guest replays its record (qa.py PUBLISH_WAIT, inside its
+      # PUBLISH_MARGIN of 150 s) before it requests poweroff: that margin comes
+      # on top of the manifest shutdown allowance.
+      shutdown_end=$((SECONDS + shutdown_budget + 150))
       until vm_stopped; do
         (( SECONDS < shutdown_end )) || fail guest_shutdown
         sleep 5
@@ -992,6 +997,7 @@ data:
     import subprocess
     import sys
     import tempfile
+    import time
     import zlib
     from contextlib import contextmanager
     from pathlib import Path
@@ -1440,8 +1446,11 @@ data:
         raw = Path(serial).read_bytes()
         require(len(raw) <= 1024 * 1024, "serial_size")
         lines = raw.splitlines()
-        markers = [line for line in lines if b"SNOW_QA_V1" in line]
+        # The guest writes its one record more than once (to ttyS0 and again
+        # after serial-getty's TTY setup); identical copies are one record.
+        markers = {line.rstrip(b"\r") for line in lines if b"SNOW_QA_V1" in line}
         require(len(markers) == 1, "record_count")
+        markers = sorted(markers)
         match = re.fullmatch(rb"SNOW_QA_V1 ([A-Za-z0-9_-]{1,4096})", markers[0])
         require(match is not None, "record_encoding")
         encoded = match[1]
@@ -1523,7 +1532,8 @@ data:
         # even one malformed/prefixed lookalike; repeated identical paths in
         # current and default blocks are normal, different digests are not.
         esp_prefix = re.escape(str(GUEST_PATHS["esp"]).encode())
-        pattern = (rb"(?<![A-Za-z0-9_./$-])(?:\$BOOT|/boot/efi|" + esp_prefix + rb")?"
+        # bootctl --esp-path=X prints "uki: X//EFI/..." (a doubled slash).
+        pattern = (rb"(?<![A-Za-z0-9_./$-])(?:(?:\$BOOT|/boot/efi|" + esp_prefix + rb")/?)?"
                    rb"(?P<path>/EFI/Linux/bootc/bootc_composefs-[0-9a-f]{128}\.efi)"
                    rb"(?![A-Za-z0-9_./-])")
         matches = list(re.finditer(pattern, status))
@@ -1606,6 +1616,31 @@ data:
         require(len(matching) == 1, "uki_bls")
 
 
+    SNOW_POLICY = [{"type": "sigstoreSigned", "keyPath": "/usr/lib/snosi/cosign.pub",
+                    "signedIdentity": {"type": "matchRepository"}}]
+    LOCAL_TRANSPORTS = ("containers-storage", "tarball", "docker-archive", "oci-archive", "dir", "oci")
+
+
+    def policy_ok(policy):
+        # The shipped snosi policy (shared/bootc-secure/tree/etc/containers/policy.json):
+        # reject by default; every registry repository it names is sigstore-signed
+        # with the pinned key, Snow exactly so; only local transports accept
+        # anything (run-snow-bootc-lifecycle-2tnjh audit, Snow 20261026105903).
+        if type(policy) is not dict or set(policy) != {"default", "transports"}:
+            return False
+        transports = policy["transports"]
+        if policy["default"] != [{"type": "reject"}] or type(transports) is not dict:
+            return False
+        docker = transports.get("docker")
+        if type(docker) is not dict or docker.get(REPO) != SNOW_POLICY or "" in docker:
+            return False
+        if not all(type(name) is str and name.startswith("ghcr.io/frostyard/") and rules == SNOW_POLICY
+                   for name, rules in docker.items()):
+            return False
+        return all(name == "docker" or (name in LOCAL_TRANSPORTS and rules == {"": [{"type": "insecureAcceptAnything"}]})
+                   for name, rules in transports.items())
+
+
     def guest(credentials):
         # Credentials are installed by the VM's systemd unit from SMBIOS, not
         # echoed to serial. The normalized manifest is a private host-provided file.
@@ -1648,8 +1683,7 @@ data:
             parsed = json.loads(policy, object_pairs_hook=pairs)
         except (ValueError, UnicodeError) as exc:
             raise GateError("policy") from exc
-        require(parsed == {"default": [{"type": "reject"}], "transports": {"docker": {
-            REPO: [{"type": "sigstoreSigned", "keyPath": "/usr/lib/snosi/cosign.pub"}]}}}, "policy")
+        require(policy_ok(parsed), "policy")
         key = GUEST_PATHS["key"].read_bytes()
         require(0 < len(key) <= 16384 and sha(key) == m["cosign_key_sha256"], "policy_key")
         # No --signature-policy, --tls-verify=false or bypass of the installed root policy.
@@ -1665,7 +1699,8 @@ data:
         require(b"/dev/mapper/root is active" in luks_status, "root_luks")
         devices = re.findall(rb"(?m)^\s*device:\s+(/dev/[a-zA-Z0-9/_-]+)\s*$", luks_status)
         require(len(devices) == 1 and b".." not in devices[0], "root_luks")
-        require(guest_command(["findmnt", "-n", "-o", "FSTYPE", "/"], "root_btrfs").strip() == b"btrfs", "root_btrfs")
+        # A composefs boot mounts / as overlay; the btrfs root filesystem is /sysroot.
+        require(guest_command(["findmnt", "-n", "-o", "FSTYPE", "/sysroot"], "root_btrfs").strip() == b"btrfs", "root_btrfs")
         with mounted_esp(adjacent_esp(devices[0].decode())) as esp:
             esp_uki(esp, guest_command(["bootctl", "--esp-path=" + str(esp), "--no-pager", "status"], "uki"))
         # Inspect LUKS metadata without exporting tokens, sealed blobs or recovery material.
@@ -1675,7 +1710,8 @@ data:
             type(token) is dict and token.get("type") == "systemd-tpm2" and
             token.get("tpm2-pcrs") == [] and token.get("tpm2_pubkey_pcrs") == [11] and
             "tpm2-pcrlock" not in token and
-            type(token.get("tpm2-pubkey")) is str and len(token["tpm2-pubkey"]) > 0
+            # systemd names the signed-policy public key "tpm2_pubkey" (older: "tpm2-pubkey").
+            any(type(token.get(name)) is str and len(token[name]) > 0 for name in ("tpm2_pubkey", "tpm2-pubkey"))
             for token in entries.values()), "tpm_token")
         spec, transport, booted, version, staged, rollback = status_fields(guest_status())
         action = marker = None
@@ -1716,6 +1752,51 @@ data:
         return "SNOW_QA_V1 " + base64.urlsafe_b64encode(canonical(record).strip()).decode().rstrip("=")
 
 
+    # On Snow, /dev/console is tty0 (graphical); the host reads only ttyS0
+    # (run-snow-bootc-lifecycle-2tnjh: the installed N booted, but its record
+    # never reached the serial log). serial-getty@ttyS0 runs vhangup and may
+    # flush output during its TTY setup, so the line is written to a fresh
+    # ttyS0 handle now and again once agetty runs (as the Firn lane does,
+    # frostyard/snosi#1123). The host treats identical copies as one line.
+    GUEST_CONSOLES = ("/dev/ttyS0", "/dev/console")
+
+
+    def emit(line):
+        for target in GUEST_CONSOLES:
+            try:
+                with open(target, "a") as stream:
+                    print(line, file=stream, flush=True)
+            except OSError:
+                pass
+
+
+    def serial_getty_ready(timeout=10):
+        try:
+            pid = subprocess.run(["systemctl", "show", "-p", "MainPID", "--value", "serial-getty@ttyS0.service"],
+                                 capture_output=True, timeout=timeout, check=False).stdout.strip()
+            return pid.isdigit() and pid != b"0" and Path("/proc", pid.decode(), "comm").read_text().strip() == "agetty"
+        except (OSError, subprocess.SubprocessError, ValueError):
+            return False
+
+
+    # The replay wait is bounded as a whole; the guest unit's TimeoutStartSec
+    # adds PUBLISH_MARGIN seconds beyond the phase budget for it and the
+    # poweroff request, so it never eats the probes' own margin.
+    PUBLISH_WAIT = 90
+    PUBLISH_MARGIN = 150
+
+
+    def publish(line, wait=PUBLISH_WAIT):
+        emit(line)
+        deadline = time.monotonic() + wait
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or serial_getty_ready(timeout=max(1, min(10, remaining))):
+                break
+            time.sleep(max(0, min(2, deadline - time.monotonic())))
+        emit(line)
+
+
     def main(argv):
         try:
             require(len(argv) in (2, 3, 4, 7), "usage")
@@ -1734,8 +1815,7 @@ data:
                 print("kernel=" + attested["kernel"])
             elif argv[0] == "guest" and len(argv) == 2:
                 # The one-line record is emitted only after all probes and actions succeed.
-                with open("/dev/console", "w") as serial:
-                    print(guest(argv[1]), file=serial, flush=True)
+                publish(guest(argv[1]))
             else:
                 raise GateError("usage")
             return 0
@@ -1744,11 +1824,7 @@ data:
             if argv[:1] == ["guest"] and isinstance(exc, GateError) and code != "io_error":
                 # An observed fixed-code failure is distinct from an absent
                 # channel. Never print arbitrary tool stderr or credentials.
-                try:
-                    with open("/dev/console", "w") as serial:
-                        print("SNOW_QA_ERR " + code, file=serial, flush=True)
-                except OSError:
-                    pass
+                publish("SNOW_QA_ERR " + code)
             print("qa_failed:" + code, file=sys.stderr)
             return 1
 

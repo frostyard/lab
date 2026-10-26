@@ -237,7 +237,10 @@ full Firn installed compatibility. Before install, real-recipe validation report
 an allowlisted Firn issue code or `unclassified`, never its diagnostic text. The ISO `SHA256SUMS.gpg`
 authenticates the ISO index only, not an A/B update index. Registry tag
 resolution is read-only (`skopeo inspect`), not a signature check: cosign
-verification and exact guest policy plus signed pull checks are separate.
+verification and the guest policy check (the shipped snosi policy: reject by
+default, every registry repository sigstore-signed with the pinned key, only
+local transports open) plus signed pull checks are separate. On a composefs
+boot `/` is an overlay, so the btrfs root check reads `/sysroot`.
 `checks.json` records the preflight checks of both immutable version tags and
 controlled target-tag rechecks before install and each phase and after stage,
 N+1 boot and rollback; `checks.txt` records manifest hash, target-tag check
@@ -253,7 +256,10 @@ previous boot's log (kept unchanged for the whole boot) is such a new log and
 is searched whole (the fresh nonce and boot ID still bind the record). The
 searched bytes must never contain that previous log: a changed log that still
 carries it cannot be split safely and makes lineage ambiguous (`BLOCKED`), not
-a fresh proof. Limit: a guest error printed before such a restart and not yet
+a fresh proof. The guest writes its one record line (or `SNOW_QA_ERR` code) to a fresh
+`/dev/ttyS0` handle, because `/dev/console` is the graphical tty0 on Snow, and
+writes it again once serial-getty's agetty runs; the runner treats identical
+copies as one line. Limit: a guest error printed before such a restart and not yet
 seen by the runner is lost with the old log; a later attempt in the same phase
 must then still produce a complete, valid record, so a phase result means the
 final attempt passed, not every attempt. The full snapshots and per-boot slices are transient only. Raw

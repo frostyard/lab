@@ -695,6 +695,15 @@ def test_success_preflight_and_tag_recheck(qa, tmp_path, monkeypatch):
 
 
 PHASES = ("installed-n", "stage", "boot-n-plus-1", "rollback", "boot-n")
+# As shipped by snosi (shared/bootc-secure/tree/etc/containers/policy.json) and
+# observed on Snow 20261026105903.
+SIGNED = [{"type": "sigstoreSigned", "keyPath": "/usr/lib/snosi/cosign.pub", "signedIdentity": {"type": "matchRepository"}}]
+SHIPPED_POLICY = {"default": [{"type": "reject"}], "transports": {
+    "docker": {f"ghcr.io/frostyard/{name}": SIGNED for name in ("cayo", "floe", "snow", "snowfield", "sundog")},
+    **{name: {"": [{"type": "insecureAcceptAnything"}]} for name in
+       ("containers-storage", "tarball", "docker-archive", "oci-archive", "dir", "oci")}}}
+# systemd-cryptenroll's signed-policy token as observed on Snow (no secrets).
+TPM_TOKEN = {"type": "systemd-tpm2", "tpm2-pcrs": [], "tpm2_pubkey_pcrs": [11], "tpm2_pubkey": "public"}
 NONCE = "0123456789abcdef0123456789abcdef"
 UKI_PATH = "/EFI/Linux/bootc/bootc_composefs-" + "d" * 128 + ".efi"
 BLOCKS = {"blockdevices": [{"path": "/dev/vda3", "pkname": "/dev/vda", "partn": "3", "fstype": "crypto_LUKS"},
@@ -765,6 +774,38 @@ def test_phase_accepts_one_attested_fresh_boot(qa, tmp_path, capsys, phase):
                                                      "fsverity_errors=0", "kernel=" + KERNEL]
 
 
+def test_phase_accepts_identical_copies_of_one_record(qa, tmp_path, capsys):
+    # The guest writes its record to ttyS0 and again after serial-getty's TTY
+    # setup; ONLCR may add a CR. Identical copies are one record.
+    normalized, checks = phase_files(tmp_path, qa)
+    record = serial_record(phase_record("stage"))
+    serial = tmp_path / "serial"
+    serial.write_bytes(record.encode() + record.replace("\n", "\r\n").encode())
+    assert qa.main(["phase", str(normalized), "stage", NONCE,
+                    "none", str(serial), str(checks)]) == 0
+    assert capsys.readouterr().out.splitlines()[0] == "12345678-1234-4234-8234-123456789abc"
+
+
+def test_guest_publishes_to_serial_and_replays_after_getty(qa, tmp_path, monkeypatch):
+    # /dev/console is tty0 on Snow: the record must reach ttyS0, and again after
+    # serial-getty's TTY setup (run-snow-bootc-lifecycle-2tnjh).
+    ttys0, console = tmp_path / "ttyS0", tmp_path / "console"
+    monkeypatch.setattr(qa, "GUEST_CONSOLES", (str(ttys0), str(console)))
+    states = iter([False, False, True])
+    monkeypatch.setattr(qa, "serial_getty_ready", lambda **_: next(states))
+    monkeypatch.setattr(qa.time, "sleep", lambda _: None)
+    monkeypatch.setattr(qa, "guest", lambda _: "SNOW_QA_V1 abc")
+    assert qa.main(["guest", "/irrelevant"]) == 0
+    assert ttys0.read_text() == "SNOW_QA_V1 abc\n" * 2
+    assert console.read_text() == "SNOW_QA_V1 abc\n" * 2
+    # A missing ttyS0 is not fatal, and the wait for agetty is bounded.
+    monkeypatch.setattr(qa, "GUEST_CONSOLES", (str(tmp_path / "missing" / "ttyS0"),))
+    monkeypatch.setattr(qa, "serial_getty_ready", lambda **_: False)
+    clock = iter(range(0, 1000, 10))
+    monkeypatch.setattr(qa.time, "monotonic", lambda: next(clock))
+    assert qa.main(["guest", "/irrelevant"]) == 0
+
+
 @pytest.mark.parametrize("damage", [
     "missing", "duplicate", "malformed", "stale", "old_phase", "ambiguous", "no_reboot",
     "staged_missing", "staged_wrong", "signature_missing", "policy_missing", "wrong_spec",
@@ -827,7 +868,8 @@ def test_phase_rejects_untrustworthy_serial_or_state(qa, tmp_path, capsys, damag
     if damage == "missing":
         text = "unrelated serial\n"
     elif damage == "duplicate":
-        text += serial_record(record)
+        # Two different records for one phase (the guest repeats only an identical line).
+        text += serial_record(dict(record, boot_id="87654321-1234-4234-8234-123456789abc"))
     elif damage == "malformed":
         text = "unrelated serial\nSNOW_QA_V1 not-base64!\n"
     elif damage == "extra_record":
@@ -881,11 +923,11 @@ def test_guest_stage_probes_and_emits_allowlisted_single_record(qa, tmp_path, mo
     root = tmp_path / "root"
     root.mkdir()
     (root / "boot_id").write_text("12345678-1234-4234-8234-123456789abc\n")
-    (root / "policy.json").write_text(json.dumps({"default": [{"type": "reject"}], "transports": {"docker": {REPO: [{"type": "sigstoreSigned", "keyPath": "/usr/lib/snosi/cosign.pub"}]}}}))
+    (root / "policy.json").write_text(json.dumps(SHIPPED_POLICY))
     (root / "key").write_bytes(b"public-key")
     (root / "update-check").write_text("outcome=staged\n")
     (root / "update-staged").write_text(STAGED_FILE)
-    (root / "tokens.json").write_text(json.dumps({"tokens": {"0": {"type": "systemd-tpm2", "tpm2-pcrs": [], "tpm2_pubkey_pcrs": [11], "tpm2-pubkey": "public"}}}))
+    (root / "tokens.json").write_text(json.dumps({"tokens": {"0": TPM_TOKEN}}))
     (root / "uptime").write_text("1000.00 500.00\n")
     (root / "osrelease").write_text(KERNEL + "\n")
     esp = root / "esp"
@@ -930,8 +972,12 @@ def test_guest_stage_probes_and_emits_allowlisted_single_record(qa, tmp_path, mo
             return subprocess.CompletedProcess(args, 0, b"", b"")
         if args == ["journalctl", "-q", "-k", "-b", "--no-pager"]:
             return subprocess.CompletedProcess(args, 0, journal, b"")
-        responses = {"mokutil": b"SecureBoot enabled", "bootctl": ("  Secure Boot: enabled (user)\n  Measured UKI: yes\n  Current: $BOOT" + UKI_PATH + " (on the EFI System Partition)\n  Default: /boot/efi" + UKI_PATH + "\n").encode(),
-                      "findmnt": b"btrfs", "cryptsetup": b"/dev/mapper/root is active and is in use.\n  device:   /dev/vda3"}
+        # bootctl 262 as observed on Snow: a Stub tree line and "uki: <esp>//EFI/...".
+        responses = {"mokutil": b"SecureBoot enabled", "bootctl": ("  Secure Boot: enabled (user)\n  Measured UKI: yes\n           Stub: \u2514\u2500" + UKI_PATH + "\n  Current: $BOOT" + UKI_PATH + " (on the EFI System Partition)\n          uki: " + str(esp) + "/" + UKI_PATH + "\n").encode(),
+                      "cryptsetup": b"/dev/mapper/root is active and is in use.\n  device:   /dev/vda3"}
+        if args == ["findmnt", "-n", "-o", "FSTYPE", "/sysroot"]:
+            # A composefs boot: / is overlay, the btrfs root is /sysroot.
+            return subprocess.CompletedProcess(args, 0, b"btrfs\n", b"")
         if args[0] in responses:
             return subprocess.CompletedProcess(args, 0, responses[args[0]], b"")
         pytest.fail(f"unexpected guest tool {args}")
@@ -1125,7 +1171,7 @@ def test_host_waits_bounded_for_guest_shutdown_and_never_force_stops_between_pha
     assert "--force" not in loop and "incus stop" not in loop
     assert 'fail guest_stop' not in script
     assert re.search(r'shutdown_budget=\$\(python3 -c .*\["timeouts"\]\["reboot"\]\).*\|\| fail manifest_read', loop)
-    assert "shutdown_end=$((SECONDS + shutdown_budget))" in loop
+    assert "shutdown_end=$((SECONDS + shutdown_budget + 150))" in loop
     assert re.search(r"until vm_stopped; do\n\s+\(\( SECONDS < shutdown_end \)\) \|\| fail guest_shutdown\n\s+sleep 5\n\s+done", loop)
     assert "while true" not in loop and "while :" not in loop
     # The wait follows the accepted record and precedes the next phase's baseline snapshot.
@@ -2219,7 +2265,8 @@ def test_run_guest_unit_uses_manifest_phase_budget_without_systemd_specifiers(tm
                                "n": f"{REPO}@sha256:{N}", "next": f"{REPO}@sha256:{NEXT}",
                                "target": f"{REPO}:qa-controlled"},
                           capture_output=True, check=True, text=True).stdout
-    assert unit.splitlines().count(f'TimeoutStartSec={manifest()["timeouts"][key]}') == 1
+    # The phase budget plus qa.py PUBLISH_MARGIN for the record replay and poweroff.
+    assert unit.splitlines().count(f'TimeoutStartSec={manifest()["timeouts"][key] + 150}') == 1
     assert "%" not in unit.replace("%%", "")
 
 
@@ -2242,8 +2289,9 @@ def test_host_wait_outlives_guest_unit_budget(tmp_path, phase, key):
                             env={**os.environ, "WORK": str(work), "phase": phase})
     unit_budget = int(re.search(r"(?m)^TimeoutStartSec=(\d+)$", result.stdout).group(1))
     host_wait = int(re.search(r"(?m)^HOST_WAIT=(\d+)$", result.stdout).group(1))
-    assert unit_budget == manifest()["timeouts"][key]
-    assert host_wait >= unit_budget + 300
+    assert unit_budget == manifest()["timeouts"][key] + 150
+    # The record is first written within the phase budget; its replay within the unit budget.
+    assert host_wait >= unit_budget + 150
 
 
 def test_host_install_wait_outlives_install_unit_budget():
@@ -2278,9 +2326,12 @@ def test_guest_failure_console_reports_only_safe_gate_code(qa, monkeypatch, caps
         return console if path == "/dev/console" else original_open(path, *args, **kwargs)
 
     monkeypatch.setattr("builtins.open", safe_open)
+    monkeypatch.setattr(qa, "GUEST_CONSOLES", ("/dev/console",))
+    monkeypatch.setattr(qa, "serial_getty_ready", lambda **_: True)
     monkeypatch.setattr(qa, "guest", lambda _: (_ for _ in ()).throw(qa.GateError(reason)))
     assert qa.main(["guest", "/irrelevant"]) == 1
-    assert console.getvalue() == marker
+    # Written once at once, and once more after serial-getty's TTY setup.
+    assert console.getvalue() == marker * 2
     assert "SNOW_QA_V1" not in console.getvalue()
 
 
@@ -2301,7 +2352,7 @@ def test_guest_never_emits_evidence_for_failed_probe_or_action(qa, tmp_path, mon
     (creds / "unit_started").write_text("1000.00\n")
     (tmp_path / "uptime").write_text("1000.00 50.00\n")
     for key, value in {"boot_id": "12345678-1234-4234-8234-123456789abc",
-                       "policy": json.dumps({"default": [{"type": "reject"}], "transports": {"docker": {REPO: [{"type": "sigstoreSigned", "keyPath": "/usr/lib/snosi/cosign.pub"}]}}}),
+                       "policy": json.dumps(SHIPPED_POLICY),
                        "key": "public-key", "update_check": "outcome=staged\n", "update_staged": STAGED_FILE,
                        "osrelease": KERNEL + "\n"}.items():
         (tmp_path / key).write_text(value)
@@ -2344,9 +2395,9 @@ def test_guest_never_emits_evidence_for_failed_probe_or_action(qa, tmp_path, mon
         elif args[:2] == ["podman", "image"]:
             data = ("sha256:" + (N if damage == "pull_mismatch" else NEXT)).encode()
         elif args[:2] == ["cryptsetup", "luksDump"]:
-            token = {"type": "systemd-tpm2", "tpm2-pcrs": [], "tpm2_pubkey_pcrs": [11], "tpm2-pubkey": "public"}
+            token = dict(TPM_TOKEN)
             if damage == "tpm_unsigned":
-                token.pop("tpm2-pubkey")
+                token.pop("tpm2_pubkey")
             if damage == "tpm_pcrlock":
                 token["tpm2-pcrlock"] = "enabled"
             if damage == "tpm_wrong_pcrs":
@@ -2635,8 +2686,8 @@ def test_workflow_deadline_covers_maximum_guest_windows_and_host_margins(qa):
     # iteration is one bounded `incus info` plus a 5s sleep; the deadline check follows an
     # iteration, so the overshoot is at most one more info and sleep.
     info_timeout = re.search(r"info=\$\(timeout (\d+) incus info", script)
-    assert info_timeout and 'shutdown_end=$((SECONDS + shutdown_budget))' in script
-    shutdown_waits = 5 * (limits["reboot"] + 2 * int(info_timeout[1]) + 5)
+    assert info_timeout and 'shutdown_end=$((SECONDS + shutdown_budget + 150))' in script
+    shutdown_waits = 5 * (limits["reboot"] + 150 + 2 * int(info_timeout[1]) + 5)
     worst_case = shutdown_waits + guest_windows + iso_downloads + preflight + apt + tag_checks + vm_ops + serial_polling
     assert entry["activeDeadlineSeconds"] * 10 >= worst_case * 11
 
@@ -2789,8 +2840,8 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
         # Keep the actual await loop; cap its clock only in offline timeout tests.
         assert 'end=$((SECONDS + $2))' in script
         script = script.replace('end=$((SECONDS + $2))', 'end=$((SECONDS + 1))')
-        assert 'shutdown_end=$((SECONDS + shutdown_budget))' in script
-        script = script.replace('shutdown_end=$((SECONDS + shutdown_budget))', 'shutdown_end=$((SECONDS + 1))')
+        assert 'shutdown_end=$((SECONDS + shutdown_budget + 150))' in script
+        script = script.replace('shutdown_end=$((SECONDS + shutdown_budget + 150))', 'shutdown_end=$((SECONDS + 1))')
         script = script.replace('sleep 5', 'sleep 0.01')
     if scenario == "evidence_write":
         script = script.replace('local source="$1" dest="$2"',
@@ -3168,3 +3219,76 @@ def test_firn_install_has_no_file_size_limit_and_bounded_outputs(tmp_path, firn_
     log = run / "snow-install.log"
     assert log.stat().st_size == 1048576 and log.stat().st_mode & 0o777 == 0o600
     assert (run / "snow-install.ndjson").read_text() == '{"event":"start","steps":[]}\n'
+
+
+def test_guest_publish_margin_matches_unit_timeout_and_bounds_the_replay(qa, monkeypatch):
+    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    assert f"TimeoutStartSec=$((budget + {qa.PUBLISH_MARGIN}))" in script
+    assert qa.PUBLISH_WAIT + 20 <= qa.PUBLISH_MARGIN  # room for the last query, the emit and poweroff
+    # A getty that never comes, with slow queries: the whole wait stays bounded,
+    # and no query may run past the deadline.
+    now = [0.0]
+    monkeypatch.setattr(qa.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(qa.time, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds))
+    timeouts = []
+
+    def slow_query(timeout=10):
+        timeouts.append(timeout)
+        now[0] += timeout
+        return False
+
+    monkeypatch.setattr(qa, "serial_getty_ready", slow_query)
+    monkeypatch.setattr(qa, "emit", lambda line: None)
+    qa.publish("SNOW_QA_V1 abc")
+    assert now[0] <= qa.PUBLISH_WAIT + 1
+    assert all(1 <= value <= 10 for value in timeouts)
+
+
+def test_host_shutdown_wait_includes_the_guest_publish_margin(qa):
+    # The host starts its shutdown deadline at the first record; the guest may
+    # still replay for up to PUBLISH_WAIT before it requests poweroff.
+    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    assert f"shutdown_end=$((SECONDS + shutdown_budget + {qa.PUBLISH_MARGIN}))" in script
+    assert qa.PUBLISH_MARGIN >= qa.PUBLISH_WAIT + 20
+
+
+@pytest.mark.parametrize("change", [
+    lambda p: None,
+    lambda p: p["transports"]["docker"].pop("ghcr.io/frostyard/cayo"),   # fewer signed repos is fine
+])
+def test_guest_policy_accepts_the_shipped_snosi_policy(qa, change):
+    policy = json.loads(json.dumps(SHIPPED_POLICY))
+    change(policy)
+    assert qa.policy_ok(policy)
+
+
+@pytest.mark.parametrize("change", [
+    lambda p: p.__setitem__("default", [{"type": "insecureAcceptAnything"}]),
+    lambda p: p["transports"]["docker"].pop(REPO),
+    lambda p: p["transports"]["docker"][REPO][0].__setitem__("keyPath", "/etc/other.pub"),
+    lambda p: p["transports"]["docker"][REPO][0].pop("signedIdentity"),
+    lambda p: p["transports"]["docker"].__setitem__("", [{"type": "insecureAcceptAnything"}]),
+    lambda p: p["transports"]["docker"].__setitem__("docker.io/library/debian", [{"type": "insecureAcceptAnything"}]),
+    lambda p: p["transports"]["docker"].__setitem__("ghcr.io/frostyard/x", [{"type": "insecureAcceptAnything"}]),
+    lambda p: p["transports"].__setitem__("docker-daemon", {"": [{"type": "insecureAcceptAnything"}]}),
+    lambda p: p["transports"]["oci"].__setitem__("", [{"type": "reject"}, {"type": "insecureAcceptAnything"}]),
+    lambda p: p.__setitem__("extra", True),
+])
+def test_guest_policy_rejects_weakened_policies(qa, change):
+    policy = json.loads(json.dumps(SHIPPED_POLICY))
+    change(policy)
+    assert not qa.policy_ok(policy)
+
+
+def test_guest_accepts_both_tpm_pubkey_spellings_and_bootctl_double_slash(qa, monkeypatch, tmp_path):
+    # systemd writes "tpm2_pubkey" (observed on Snow); older releases "tpm2-pubkey".
+    script = yaml.safe_load(SOURCE.read_text())["data"]["qa.py"]
+    assert '("tpm2_pubkey", "tpm2-pubkey")' in script
+    assert '["findmnt", "-n", "-o", "FSTYPE", "/sysroot"]' in script
+    esp = tmp_path / "esp"
+    monkeypatch.setattr(qa, "GUEST_PATHS", {"esp": esp})
+    status = ("Secure Boot: enabled (user)\nMeasured UKI: yes\nStub: \u2514\u2500" + UKI_PATH +
+              "\nuki: " + str(esp) + "/" + UKI_PATH + "\n").encode()
+    assert qa.status_uki_paths(status) == {UKI_PATH.encode()}
+    # A doubled slash without the ESP prefix is still not a UKI path token.
+    assert qa.status_uki_paths(("uki: x//" + UKI_PATH.lstrip("/") + "\n").encode()) == set()

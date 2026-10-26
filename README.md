@@ -414,7 +414,9 @@ secure-assembly labels, `bootc-1.16.8-storage-digest-v1` or
 N and N+1, so an N to N+1 run may cross a bootc version. The disposable
 installer VM then checks the Firn hash and narrow Firn v2 recipe validation
 before install (validator only, not full installed compatibility). Installed
-guest checks enforce exact signature policy and signed pulls; read-only
+guest checks enforce the shipped signature policy (reject by default; every
+registry repository sigstore-signed with the pinned key, Snow exactly so) and
+signed pulls; read-only
 `skopeo inspect` tag resolution alone is **not** signature verification. Both
 immutable version tags are checked once in preflight; the
 controlled mutable target tag is rechecked before install and each phase, and
