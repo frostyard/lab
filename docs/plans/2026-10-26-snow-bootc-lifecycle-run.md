@@ -238,6 +238,36 @@ run, and #158 dev submits so later lane fixes are proven before a merge.
 It proves nothing about recovery, key rotation, Snowfield hardware or release
 readiness.
 
+### Result (2026-10-26): bootc 1.16.8 → 1.17.1 PASS
+
+As Brian chose (F28b), snosi draft #1151 (never merged) built Snow with the
+bootc 1.17.1 / libostree 2026.5 candidate pair and published one signed
+version tag from a branch dispatch (run `40370164077`); `latest` did not
+move. `qa-controlled` then pointed at it (Brian).
+
+`run-snow-bootc-lifecycle-l6596` (main lane, submitted 18:19:00Z, ended
+18:33:01Z), N `20261025113924` (`bootc-1.16.8-storage-digest-v1`) → N+1
+`20261026133822` (`sha256:008bfa69…`, `bootc-1.17.1-storage-digest-v1`), ISO
+`snosi-installer_20261026173508` (Firn 0.9.1, hash `bc6a19ad…`), manifest
+`manifest_sha256` `bd0cdef6…bbee`:
+
+```
+PASS: verified_five_fresh_boots;fsverity_known_defect=7.2.11+deb14-amd64
+```
+
+| Phase | Boot ID | Kernel | fs-verity errors |
+| --- | --- | --- | --- |
+| `installed-n` | `e56d30e0-8f1c-4bfe-8edd-21663daf6934` | `7.2.11+deb14-amd64` | 0 |
+| `stage` | `adc83fdc-8708-4657-b600-8852d581bbdb` | `7.2.11+deb14-amd64` | 2 |
+| `boot-n-plus-1` | `2df556fc-90e0-422c-a1d1-8fdb21dc5b54` | `7.2.12+deb14-amd64` | 0 |
+| `rollback` | `63d25721-1801-465b-9891-6fee5293a9ff` | `7.2.12+deb14-amd64` | 0 |
+| `boot-n` | `d58061ef-638c-4b14-bb99-5cc377758feb` | `7.2.11+deb14-amd64` | 0 |
+
+The 1.16.8 updater staged the 1.17.1 image, 1.17.1 booted with the full guest
+contract, `bootc rollback` ran on 1.17.1, and N booted again. This is lane
+evidence for the candidate pair, not a release decision: moving snosi main to
+1.17.1 is a separate change.
+
 ## Open questions
 
 - **Spec transport after stage:** bootc reports the staged or booted
@@ -253,9 +283,8 @@ readiness.
   `7.2.12+deb14-amd64`) it records them (`fsverity_known_defect=`) and does
   not fail; on any other kernel a count above 0 fails the run
   (`fsverity_errors`). A pass says nothing about the resolution of #1130.
-- **Assembly pin per image:** needed before an N → N+1 run that crosses a
-  bootc version (see the bootc 1.17.1 section). Decide when snosi moves to
-  1.17.1.
+- **Assembly pin per image:** done in lab #153; the cross-version run above
+  used it.
 
 ## References
 
