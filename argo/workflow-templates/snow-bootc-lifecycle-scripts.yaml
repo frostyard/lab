@@ -328,7 +328,7 @@ data:
       grep -qx 'Status: STOPPED' <<<"$info"
     }
     await() {
-      local needle="$1" observed_failure="${3:-}" end=$((SECONDS + $2))
+      local needle="$1" observed_failure="${3:-}" end=$((SECONDS + $2)) final=0
       while (( SECONDS < end )); do
         serial
         if [[ "$needle" == SNOW_QA_V1 ]] && grep -qF 'SNOW_QA_ERR' "$WORK/serial"; then
@@ -411,14 +411,12 @@ data:
           fail install_failed
         fi
         if grep -qF "$needle" "$WORK/serial"; then return 0; fi
-        if [[ "$needle" == SNOW_QA_V1 ]] && vm_stopped; then
-          # The guest powered itself off and its record is not on the line
-          # (run-snow-bootc-lifecycle-5g2w5). Read once more, then stop now
-          # instead of waiting out the whole phase window.
-          serial
-          if grep -qF "$needle" "$WORK/serial"; then return 0; fi
-          blocked guest_stopped_without_record
-        fi
+        # The guest powered itself off with no record captured yet
+        # (run-snow-bootc-lifecycle-5g2w5). Take exactly one more full pass,
+        # with the same error and record checks, then stop now instead of
+        # waiting out the whole phase window.
+        if [[ "$final" == 1 ]]; then blocked guest_stopped_without_record; fi
+        if [[ "$needle" == SNOW_QA_V1 ]] && vm_stopped; then final=1; continue; fi
         sleep 5
       done
       blocked phase_timeout
