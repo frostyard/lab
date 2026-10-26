@@ -409,13 +409,13 @@ VM pool. Do not enable this option without arranging cleanup.
 Preflight authenticates the ISO and embedded public keys, records Firn provenance
 and its hash, verifies signed OCI images with the pinned cosign key and checks
 version/tag mapping. The disposable installer VM then checks the Firn hash and
-narrow Firn v1/v2 recipe validation before install (validator only, not full
+narrow Firn v2 recipe validation before install (validator only, not full
 installed compatibility). Installed guest checks enforce exact signature policy and signed
 pulls; read-only `skopeo inspect` tag resolution alone is **not** signature
 verification. Both immutable version tags are checked once in preflight; the
 controlled mutable target tag is rechecked before install and each phase, and
 after stage, N+1 boot and rollback. The lane attempts a secure UEFI
-vTPM Firn v1 encrypted-btrfs install, then five distinct fresh boots:
+vTPM Firn v2 encrypted-btrfs install, then five distinct fresh boots:
 `installed-n`, `stage`, `boot-n-plus-1`, `rollback`, `boot-n`. The guest
 contract follows the real Firn installer and Snow updater. Firn installs with
 `--target-imgref`, so every phase must report `target_ref` as the bootc spec
