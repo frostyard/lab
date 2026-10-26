@@ -51,9 +51,14 @@ same index_key_fingerprint "$fpr" "$(j .trust_fingerprint)" "$fpr"
 # 3. Signed ISO index: signature by the pinned primary key, then the entry.
 if curl -fsSL --max-time 60 -o "$T/SHA256SUMS" "$iso_base/SHA256SUMS" &&
    curl -fsSL --max-time 60 -o "$T/SHA256SUMS.gpg" "$iso_base/SHA256SUMS.gpg"; then
-  signer=$(gpgv --status-fd=1 --keyring "$T/index.gpg" "$T/SHA256SUMS.gpg" "$T/SHA256SUMS" 2>/dev/null |
-    awk '$2 == "VALIDSIG" {print $NF}')
-  same iso_index_signature "$signer" "$(j .trust_fingerprint)" "VALIDSIG primary=$signer"
+  # gpgv must succeed as a whole (one bad extra signature fails it), and the
+  # only valid signer must be the pinned primary key.
+  if gpgv --status-fd=1 --keyring "$T/index.gpg" "$T/SHA256SUMS.gpg" "$T/SHA256SUMS" > "$T/gpgv.status" 2>/dev/null; then
+    signer=$(awk '$2 == "VALIDSIG" {print $NF}' "$T/gpgv.status")
+    same iso_index_signature "$signer" "$(j .trust_fingerprint)" "gpgv ok, VALIDSIG primary=$signer"
+  else
+    check iso_index_signature FAIL "gpgv rejected SHA256SUMS.gpg"
+  fi
   name=$(basename "$(j .iso_url)")
   entry=$(awk -v n="$name" '$2 == n || $2 == "*" n {print $1}' "$T/SHA256SUMS")
   same iso_index_entry "$entry" "$(j .iso_sha256)" "$name $entry ($(wc -l < "$T/SHA256SUMS") entries in the index)"
@@ -114,7 +119,10 @@ EOF
   if [[ $release == *"$(j .iso_version)"* ]]; then check iso_release PASS "$release"; else check iso_release FAIL "$release"; fi
   firn_version=$(strings "$T/x/usr/bin/firn" 2>/dev/null | grep -m1 -E '^v?[0-9]+\.[0-9]+\.[0-9]+$')
   check iso_firn INFO "sha256=$(sha256sum "$T/x/usr/bin/firn" | cut -c1-64) version=${firn_version:-unknown}"
-  if cpio -it < "$T/initrd.cpio" 2>/dev/null | grep -qE '(^|/)usr/bin/bootc$'; then
+  # Save the listing first: grep -q closing a pipe early must not look like absence.
+  if ! cpio -it < "$T/initrd.cpio" > "$T/members" 2>/dev/null; then
+    check iso_bootc FAIL "cannot list the installer initramfs"
+  elif grep -qE '(^|/)usr/bin/bootc$' "$T/members"; then
     check iso_bootc INFO "bootc is in the installer initramfs: Firn runs it natively"
   else
     check iso_bootc INFO "no bootc in the installer initramfs: Firn runs bootc from image N with podman"

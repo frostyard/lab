@@ -1,9 +1,9 @@
 {
   "family": "snow",
   "product": "snow",
-  "iso_url": "https://repository.frostyard.org/isos/native/v1/snosi-installer_20261025233920_x86-64.iso",
-  "iso_sha256": "664047bccf58483ecee7a89404d91969b1f97e544e3a5d046a0308d9849e3a7e",
-  "iso_version": "20261025233920",
+  "iso_url": "https://repository.frostyard.org/isos/native/v1/snosi-installer_20261026003253_x86-64.iso",
+  "iso_sha256": "e70df1a4fe3e1cdcc888e578cc2abd7ad3a58520abf68aebf7b64a7307cc2a2a",
+  "iso_version": "20261026003253",
   "image_n": "ghcr.io/frostyard/snow@sha256:01a5af1b51676474adaf4eca5ec88948e6ad2980a64086f39389b72b2f78cb2b",
   "version_n": "20261025113924",
   "version_tag_n": "ghcr.io/frostyard/snow:20261025113924",

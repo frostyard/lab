@@ -16,12 +16,12 @@ run reaches `PASS: verified_five_fresh_boots`. The field contract is in the
 ## Selected inputs
 
 The manifest is [`manifest.json`](snow-bootc-lifecycle-run-2026-10-26/manifest.json)
-(file SHA-256 `7298395e…c829a`; canonical lane `manifest_sha256`
-`a68f5c54…fdf4dd`). Every value is public.
+(file SHA-256 `bdb86a01…368409`; canonical lane `manifest_sha256`
+`43df99b1…a4f335`). Every value is public.
 
 | Input | Value | Why |
 | --- | --- | --- |
-| ISO | `snosi-installer_20261025233920_x86-64.iso`, SHA-256 `664047bc…9e3a7e` | The only entry in the signed `SHA256SUMS` index on 2026-10-26. Firn 0.9.0, hash `a37d9d07…6013f`. The initramfs has no `bootc`, so Firn runs `bootc install` from image N through podman. |
+| ISO | `snosi-installer_20261026003253_x86-64.iso`, SHA-256 `e70df1a4…cc2a2a` | The only entry in the signed `SHA256SUMS` index at 01:03Z on 2026-10-26 (built from snosi `0a7c519c`). The index had rotated away from `20261025233920` within 40 minutes, so expect step 2 to refresh it again. Firn 0.9.0, hash `a37d9d07…6013f`. The initramfs has no `bootc`, so Firn runs `bootc install` from image N through podman. |
 | N | `20261025113924`, `sha256:01a5af1b…f78cb2b` | Signed, `bootc-1.16.8-storage-digest-v1`, version annotation present (snosi#1126). Built after snosi main `6b0e980e` (2026-10-25 07:58 UTC). |
 | N+1 | `20261025201457`, `sha256:2a51013c…143b57e5` | Signed, same assembly. The newest Snow image and `:latest` at selection time. Same snosi source as N, so the update changes packages, not the updater. |
 | Target | `ghcr.io/frostyard/snow:qa-controlled` | Operator-owned. No snosi workflow writes it. It does not exist yet; Brian creates it at N+1 (step 3). |
@@ -39,11 +39,15 @@ is from the 2026-09-26 attempt `run-snow-bootc-lifecycle-6hvn6`
 bootc 1.17.1`: the secure assembly pins bootc 1.16.8
 (`shared/bootc-secure/tree/usr/lib/snosi/bootc-secure.json`), and changing it
 requires the revalidation in snosi's
-`docs/bootc-secure-assembly-compatibility.md`. No 1.17.1 Snow image exists.
+`docs/bootc-secure-assembly-compatibility.md`. snosi#1150 (2026-10-26 00:50 UTC)
+then pinned the known-good bootc/libostree pair, so new Snow builds stay on
+1.16.8. No 1.17.1 Snow image exists.
 When one exists it carries `bootc-1.17.1-storage-digest-v1`, and this lane
 rejects it in preflight (`oci_assembly`), because `qa.py` pins
-`bootc-1.16.8-storage-digest-v1`. So N+1 = `20261025201457` (the last 1.16.8
-image) is the right choice now. An N (1.16.8) → N+1 (1.17.1) run is the more
+`bootc-1.16.8-storage-digest-v1`. So waiting gains nothing, and N+1 =
+`20261025201457` (the newest 1.16.8 image at selection) stays. A newer 1.16.8
+build from snosi `37b042bb` (#1144, #1150) is also a valid N+1; keep this one
+unless Brian wants those changes in the update. An N (1.16.8) → N+1 (1.17.1) run is the more
 valuable later proof; it needs a lab change to pin the assembly per image.
 
 ## Phase 1 — Correct the lane's guest contract (lab PR [#146](https://github.com/frostyard/lab/pull/146))
@@ -81,7 +85,8 @@ It never writes to a registry, a tag or the cluster.
 
 - **Done when:** the [record](snow-bootc-lifecycle-run-2026-10-26/preflight-record.txt)
   shows every check `PASS`, `target_ref PENDING`, `lane_preflight PASS` and
-  `failures=0`. Met at 2026-10-26T00:25:46Z.
+  `failures=0`. Met at 2026-10-26T00:25:46Z (ISO `20261025233920`) and again
+  at 2026-10-26T01:03:41Z (ISO `20261026003253`).
 
 ## Phase 3 — Submit (Brian)
 
@@ -136,13 +141,15 @@ lab cluster. Steps 3 and 5 are publications and stay with Brian.
 4. **Final preflight.** Run step 2 again. Expect `target_ref PASS`,
    `lane_preflight PASS full qa.py preflight` and `failures=0`.
 
-5. **Submit (publication of a run).** Use the README interface unchanged,
-   with `keep-vm-on-failure` at its default `false`:
+5. **Submit (publication of a run).** Use the README interface, with
+   `keep-vm-on-failure` at its default `false`, and keep the exact workflow
+   name: `@latest` can name another workflow in the namespace.
 
    ```bash
    if [[ -n ${MANIFEST_FILE:-} && -s "$MANIFEST_FILE" ]]; then
-     argo submit --namespace argo --from workflowtemplate/run-snow-bootc-lifecycle \
-       -p "manifest-json=$(<"$MANIFEST_FILE")"
+     WF=$(argo submit --namespace argo --from workflowtemplate/run-snow-bootc-lifecycle \
+       -p "manifest-json=$(<"$MANIFEST_FILE")" -o name)
+     printf 'workflow=%s\n' "$WF"
    else
      printf '%s\n' 'Set MANIFEST_FILE to a reviewed nonempty public JSON file' >&2
      false
@@ -153,11 +160,11 @@ lab cluster. Steps 3 and 5 are publications and stay with Brian.
    `qa-controlled` before install, before each phase, and after stage, N+1
    boot and rollback. Any move fails the run (`tag_drift`).
 
-7. **Watch and read the result.**
+7. **Watch and read the result of that workflow only.**
 
    ```bash
-   argo watch -n argo @latest
-   argo get -n argo @latest -o json | jq -r '.status.nodes[] | .outputs.parameters[]? | "\(.name)=\(.value)"'
+   argo watch -n argo "$WF"
+   argo get -n argo "$WF" -o json | jq -r '.status.nodes[] | .outputs.parameters[]? | "\(.name)=\(.value)"'
    ```
 
    Private evidence is under
@@ -176,8 +183,10 @@ lab cluster. Steps 3 and 5 are publications and stay with Brian.
 
 ## Phase 4 — Record the result
 
-- Add the workflow name, `result`, `checks` and the observed
-  `spec_transport` per phase to this plan. A `FAILED` or `BLOCKED` result is
+- Add the workflow name (`$WF`), `result` and `checks` to this plan. The
+  retained `checks` hold boot IDs, kernels and fs-verity counts per phase, not
+  the observed `spec_transport`: that value travels only in the transient
+  serial record. A `FAILED` or `BLOCKED` result is
   evidence too: record the code, then fix forward.
 - **Done when:** the result is recorded here and the run data shows the run.
 
@@ -185,12 +194,17 @@ lab cluster. Steps 3 and 5 are publications and stay with Brian.
 
 - **Spec transport after stage:** bootc reports the staged or booted
   deployment's spec. #146 requires `registry` at `installed-n` and before
-  stage, and accepts `registry` or `containers-storage` after it. Decide the
-  exact per-phase value from this run's records, by the next lifecycle change.
+  stage, and accepts `registry` or `containers-storage` after it. A `PASS`
+  does not retain which value each phase saw, so this run cannot settle it.
+  Decide by the next lifecycle change: persist the validated transport in
+  `checks.txt`, then tighten the rule from a run's evidence.
 - **fs-verity noise during stage:** [snosi#1130](https://github.com/frostyard/snosi/issues/1130)
   (btrfs kernel 7.2 defect) can log `FILE CORRUPTED!` during staging on a
-  Firn btrfs install. The lane does not judge kernel logs; a pass here says
-  nothing about #1130.
+  Firn btrfs install. The lane counts fs-verity errors in each boot's kernel
+  log. On a listed known-defect kernel (`7.2.11+deb14-amd64`,
+  `7.2.12+deb14-amd64`) it records them (`fsverity_known_defect=`) and does
+  not fail; on any other kernel a count above 0 fails the run
+  (`fsverity_errors`). A pass says nothing about the resolution of #1130.
 - **Assembly pin per image:** needed before an N → N+1 run that crosses a
   bootc version (see the bootc 1.17.1 section). Decide when snosi moves to
   1.17.1.
