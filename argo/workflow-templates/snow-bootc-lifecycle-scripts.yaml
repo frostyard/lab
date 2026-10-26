@@ -340,7 +340,13 @@ data:
     lines = Path(sys.argv[1]).read_bytes().split(b'\n')
     # The guest repeats its one line after serial-getty's TTY setup:
     # identical copies are one marker.
-    errors = sorted({line.rstrip(b'\r') for line in lines if b'SNOW_QA_ERR' in line})
+    # A copy can follow the getty prompt on its line: keep the text from the
+    # marker on, after a prefix that ends in whitespace (never mid-word).
+    def token(line):
+        line = line.rstrip(b'\r')
+        index = line.find(b'SNOW_QA_ERR')
+        return line if index > 0 and not line[index - 1:index].isspace() else line[index:]
+    errors = sorted({token(line) for line in lines if b'SNOW_QA_ERR' in line})
     if len(errors) != 1 or any(b'SNOW_QA_V1' in line for line in lines):
         sys.exit(1)
     match = re.fullmatch(rb'SNOW_QA_ERR ([a-z_]{1,40})\r?', errors[0])
@@ -1451,10 +1457,14 @@ data:
         # marker must be valid: never pick a convenient record from a union.
         raw = Path(serial).read_bytes()
         require(len(raw) <= 1024 * 1024, "serial_size")
-        lines = raw.splitlines()
+        # Lines end at LF only, as in the runner's error parser: a CR inside a
+        # line never ends a marker (trailing CRs from ONLCR are stripped).
+        lines = raw.split(b"\n")
         # The guest writes its one record more than once (to ttyS0 and again
         # after serial-getty's TTY setup); identical copies are one record.
-        markers = {line.rstrip(b"\r") for line in lines if b"SNOW_QA_V1" in line}
+        # A copy can follow the getty prompt on its line ("snow-qa login: "
+        # has no newline; run-snow-bootc-lifecycle-fhhk4).
+        markers = {marker_token(line, b"SNOW_QA_V1") for line in lines if b"SNOW_QA_V1" in line}
         require(len(markers) == 1, "record_count")
         markers = sorted(markers)
         match = re.fullmatch(rb"SNOW_QA_V1 ([A-Za-z0-9_-]{1,4096})", markers[0])
@@ -1469,6 +1479,16 @@ data:
             raise GateError("record_encoding") from exc
         verdict(m, phase, nonce, prior, record)
         return record
+
+
+    def marker_token(line, name):
+        # The marker from its name to the end of the line, after an optional
+        # prefix that ends in whitespace (the getty prompt); never mid-word.
+        line = line.rstrip(b"\r")
+        index = line.find(name)
+        if index > 0 and not line[index - 1:index].isspace():
+            return line
+        return line[index:]
 
 
     def phase_verdict(m, phase, nonce, prior, serial, checks):
@@ -1771,7 +1791,8 @@ data:
         for target in GUEST_CONSOLES:
             try:
                 with open(target, "a") as stream:
-                    print(line, file=stream, flush=True)
+                    # Start on a new line: the getty prompt has no trailing newline.
+                    print("\n" + line, file=stream, flush=True)
             except OSError:
                 pass
 
