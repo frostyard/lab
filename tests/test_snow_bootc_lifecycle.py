@@ -3010,3 +3010,46 @@ def test_installer_gives_firn_the_canonical_disk_not_the_by_id_link():
     assert '--confirm "$disk"' in install and '--confirm "$byid"' not in install
     # The by-id discovery still fails closed when no stable link exists.
     assert "SNOW_INSTALL_FAILED disk_byid" in install
+
+
+@pytest.mark.parametrize("firn_rc,sink", [(0, "ok"), (1, "ok"), (0, "log_fails"), (0, "stream_fails")])
+def test_firn_install_has_no_file_size_limit_and_bounded_outputs(tmp_path, firn_rc, sink):
+    # RLIMIT_FSIZE on Firn is inherited by podman/bootc: any image blob above
+    # it fails with EFBIG (run-snow-bootc-lifecycle-6prlx). The outputs are
+    # bounded at their sinks instead, and Firn's exit status survives.
+    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    install = script[script.index('cat > "$WORK/install.sh"'):script.index("\nGUEST\n")]
+    line = next(l for l in install.splitlines() if "firn install " in l and l.lstrip().startswith("if "))
+    assert "ulimit" not in line
+    bounded = next(l for l in install.splitlines() if l.lstrip().startswith("bounded()"))
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    run = tmp_path / "run"
+    run.mkdir()
+    (bin_dir / "firn").write_text(
+        "#!/bin/bash\n"
+        # A 3 MiB 'blob' write, as podman does during the image copy.
+        f"head -c 3145728 /dev/zero > {tmp_path}/blob || exit 7\n"
+        "for i in $(seq 1 40000); do printf 'Copying blob sha256:%064d\\n' $i >&2; done\n"
+        "printf '{\"event\":\"start\",\"steps\":[]}\\n'\n"
+        f"touch {tmp_path}/finished\n"
+        f"exit {firn_rc}\n")
+    (bin_dir / "firn").chmod(0o755)
+    body = (bounded.strip() + "\n" + line.strip().replace("/run/", str(run) + "/")
+            + "\n  echo OK\nelse\n  echo FAILED\nfi\n")
+    if sink != "ok":
+        # A sink that cannot be written (here: its path is a directory) must
+        # fail the install, even when Firn itself succeeds.
+        (run / ("snow-install.log" if sink == "log_fails" else "snow-install.ndjson")).mkdir()
+    env = {**os.environ, "PATH": str(bin_dir) + ":" + os.environ["PATH"], "disk": "/dev/example-disk"}
+    result = subprocess.run(["bash", "-Eeuo", "pipefail", "-c", "umask 077\n" + body],
+                            env=env, capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ("OK" if firn_rc == 0 and sink == "ok" else "FAILED")
+    # The producer always runs to completion: no SIGPIPE from a failed sink.
+    assert (tmp_path / "blob").stat().st_size == 3145728 and (tmp_path / "finished").exists()
+    if sink != "ok":
+        return
+    log = run / "snow-install.log"
+    assert log.stat().st_size == 1048576 and log.stat().st_mode & 0o777 == 0o600
+    assert (run / "snow-install.ndjson").read_text() == '{"event":"start","steps":[]}\n'
