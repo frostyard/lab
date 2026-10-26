@@ -2570,7 +2570,7 @@ def test_workflow_deadline_covers_maximum_guest_windows_and_host_margins(qa):
     tag_checks = 9 * 120  # One bounded skopeo resolve for every tag invocation.
     vm_ops = (host_timeout(r"incus init") + 2 * host_timeout(r"incus config device add") +
               6 * host_timeout(r"incus config set") + 6 * host_timeout(r"incus start") +
-              host_timeout(r"incus stop") + host_timeout(r"incus config show") +
+              host_timeout(r"incus stop") + host_timeout(r"incus query") +
               host_timeout(r"curl") + host_timeout(r"virt-fw-vars --inplace") +
               host_timeout(r"virt-fw-vars -i") + host_timeout(r"incus config device remove") +
               host_timeout(r"incus delete"))
@@ -2721,7 +2721,7 @@ def test_runner_failure_never_initializes_vm_and_does_not_expose_inputs(tmp_path
     assert (tmp_path / "results/result-summary.txt").read_text().strip() == expected
 
 
-@pytest.mark.parametrize("scenario", ["pass", "stage", "stage_keep", "iso_add_partial_keep", "iso_add_partial_detach_failed", "no_reboot", "tag_drift", "evidence_write", "output_write", "stage_teardown", "teardown", "serial_oversize", "serial_unreadable", "blocked_teardown", "phase_missing", "phase_malformed", "guest_error", "guest_error_crlf", "updater_error_crlf", "rollback_error_crlf", "duplicate_error_crlf", "conflicting_error_crlf", "install_missing", "install_failed", "install_firn_v2", "install_firn_hash", "install_fake_code", "install_disk_detect", "install_disk_byid", "install_progress", "install_bad_progress", "install_secret_code", "install_fallback", "install_empty_stream", "install_validate_secret", "install_validate_unknown", "install_validate_unclassified", "install_validate_fake", "cumulative_pass", "cumulative_stale", "cumulative_reset", "cumulative_prefix", "fsverity", "fsverity_known", "guest_shutdown"])
+@pytest.mark.parametrize("scenario", ["pass", "stage", "stage_keep", "iso_add_partial_keep", "iso_add_partial_detach_failed", "no_reboot", "tag_drift", "evidence_write", "output_write", "stage_teardown", "teardown", "serial_oversize", "serial_unreadable", "blocked_teardown", "phase_missing", "phase_malformed", "guest_error", "guest_error_crlf", "updater_error_crlf", "rollback_error_crlf", "duplicate_error_crlf", "conflicting_error_crlf", "install_missing", "install_failed", "install_firn_v2", "install_firn_hash", "install_fake_code", "install_disk_detect", "install_disk_byid", "install_progress", "install_bad_progress", "install_secret_code", "install_fallback", "install_empty_stream", "install_validate_secret", "install_validate_unknown", "install_validate_unclassified", "install_validate_fake", "cumulative_pass", "cumulative_stale", "cumulative_reset", "cumulative_prefix", "fsverity", "fsverity_known", "guest_shutdown", "nvram_escape"])
 def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario):
     script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
     for old, new in (("ROOT=/var/lib/snosi-lab/snow-bootc-evidence", f"ROOT={tmp_path}/evidence"),
@@ -2788,8 +2788,12 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
         from pathlib import Path
         root = Path(os.environ['MOCK_ROOT']); args = sys.argv[1:]
         with (root / 'events').open('a') as out: out.write('incus ' + ' '.join(args[:3] if args[:2] == ['config', 'set'] else args[:4]) + '\\n')
-        if args[0] == 'config' and args[1] == 'show':
-            print(json.dumps({'expanded_devices': {'root': {'pool': 'qa-pool', 'type': 'disk', 'path': '/'}}}))
+        if args[0] == 'config' and args[1] == 'show' and '--format=json' in args:
+            sys.exit(1)  # Incus 7: "unknown flag: --format".
+        elif args[0] == 'query' and args[1].startswith('/1.0/instances/'):
+            # The instance object; its config holds the large raw.qemu payload.
+            print(json.dumps({'name': args[1].rsplit('/', 1)[-1], 'config': {'raw.qemu': 'x' * 70000},
+                              'expanded_devices': {'root': {'pool': 'qa-pool', 'type': 'disk', 'path': '/'}}}))
         elif args[:3] == ['config', 'device', 'add'] and args[4] == 'installer':
             (root / 'installer-attached').write_text('yes')
             if os.environ['SCENARIO'] in ('iso_add_partial_keep', 'iso_add_partial_detach_failed'):
@@ -2805,8 +2809,18 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
         elif args[0] == 'start':
             count = int((root / 'count').read_text()) + 1 if (root / 'count').exists() else 1
             (root / 'count').write_text(str(count))
-            nvram = root / 'pools' / 'qa-pool' / 'virtual-machines' / args[1] / 'qemu.nvram'
-            nvram.parent.mkdir(parents=True, exist_ok=True); nvram.write_text('nvram')
+            # Like Incus 7: qemu.nvram is a relative symlink to the varstore file.
+            vmdir = root / 'pools' / 'qa-pool' / 'virtual-machines' / args[1]
+            vmdir.mkdir(parents=True, exist_ok=True)
+            varstore = vmdir / 'OVMF_VARS.4MB.ms.fd'
+            if not varstore.exists(): varstore.write_text('nvram')
+            link = vmdir / 'qemu.nvram'
+            if not link.is_symlink():
+                if os.environ['SCENARIO'] == 'nvram_escape':
+                    (root / 'outside.fd').write_text('nvram')
+                    link.symlink_to(root / 'outside.fd')
+                else:
+                    link.symlink_to('OVMF_VARS.4MB.ms.fd')
         elif args[0] == 'console':
             count = int((root / 'count').read_text())
             if os.environ['SCENARIO'] == 'serial_oversize' and count == 3:
@@ -2867,7 +2881,7 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
     ''' ).lstrip())
     (tools / 'incus').chmod(0o755)
     (tools / 'curl').write_text('#!/bin/sh\nwhile [ "$#" -gt 0 ]; do if [ "$1" = -o ]; then shift; case "$1" in *.crt) printf mok-cert > "$1";; *) printf iso-data > "$1";; esac; exit 0; fi; shift; done\nexit 1\n')
-    (tools / 'virt-fw-vars').write_text('#!/bin/sh\nprintf MokList\n')
+    (tools / 'virt-fw-vars').write_text('#!/bin/sh\nprintf "virt-fw-vars %s\\n" "$*" >> "$MOCK_ROOT/events"\nprintf MokList\n')
     for tool in ('curl', 'virt-fw-vars'):
         (tools / tool).chmod(0o755)
     for tool in ('gpg', 'gpgv', 'skopeo', 'cosign', 'mcopy', 'bwrap', 'zstd', 'cpio', 'apt-get', 'pip', 'pip3'):
@@ -2918,6 +2932,12 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
         # Only the installer ISO is force-stopped; each phase waits for the guest's own poweroff.
         assert [e for e in events if e.startswith('incus stop')] == ['incus stop snow-qa-mock-run --force']
         assert len([e for e in events if e.startswith('incus info')]) == 5
+        # Incus 7: the pool comes from `incus query`, and the MOK goes into the
+        # varstore file that the qemu.nvram symlink names, not the link itself.
+        assert 'incus query /1.0/instances/snow-qa-mock-run' in events
+        fw = [e for e in events if e.startswith('virt-fw-vars ')]
+        assert fw and all('/virtual-machines/snow-qa-mock-run/OVMF_VARS.4MB.ms.fd ' in e for e in fw)
+        assert (tmp_path / 'pools/qa-pool/virtual-machines/snow-qa-mock-run/qemu.nvram').is_symlink()
         assert len(set(e.split()[2] for e in events if e.startswith('phase '))) == 5
         assert next(i for i, e in enumerate(events) if e.startswith('incus config device remove')) < next(i for i, e in enumerate(events) if e.startswith('phase installed-n '))
         assert events.index('tag after-stage') > next(i for i, e in enumerate(events) if e.startswith('phase stage '))
@@ -2938,7 +2958,7 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
             assert result.returncode != 0
             assert not summary.startswith('PASS')
             assert len([e for e in events if e.startswith('incus start')]) >= (
-                0 if scenario.startswith('iso_add_partial_') else 1 if scenario.startswith('install_') else 3)
+                0 if scenario.startswith('iso_add_partial_') else 1 if scenario.startswith('install_') or scenario == 'nvram_escape' else 3)
             if scenario.startswith('iso_add_partial_'):
                 assert len([e for e in events if e.startswith('incus config device remove')]) == 1
                 assert (tmp_path / 'installer-attached').exists() is (scenario == 'iso_add_partial_detach_failed')
@@ -2998,6 +3018,7 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
                                     'cumulative_reset': 'BLOCKED: channel_lineage',
                                     'cumulative_prefix': 'BLOCKED: channel_lineage',
                                     'guest_shutdown': 'FAILED: guest_shutdown',
+                                    'nvram_escape': 'BLOCKED: host_storage_unsupported',
                                     'fsverity': 'FAILED: fsverity_errors'}[scenario]
 
 

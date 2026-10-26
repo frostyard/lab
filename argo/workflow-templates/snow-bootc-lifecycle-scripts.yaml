@@ -827,20 +827,27 @@ data:
     timeout 120 incus stop "$VM" --force >/dev/null 2>&1 || fail iso_stop
     # MOK enrollment is a varstore stand-in for a human interaction and only
     # follows firn's successful secure install; never treat it as human proof.
-    timeout 30 incus config show "$VM" --expanded --format=json > "$WORK/vm-config" 2>/dev/null || blocked host_storage_unsupported
+    # Incus 7 has no `config show --format=json`; the instance API object holds
+    # expanded_devices (as the other VM lanes read it). Its config carries the
+    # SMBIOS raw.qemu payload, so allow up to 1 MiB.
+    timeout 30 incus query "/1.0/instances/$VM" > "$WORK/vm-config" 2>/dev/null || blocked host_storage_unsupported
     pool=$(python3 - "$WORK/vm-config" <<'PY'
     import json, re, sys
     try:
-        raw = open(sys.argv[1], 'rb').read(16385)
+        raw = open(sys.argv[1], 'rb').read(1048577)
         node = json.loads(raw)['expanded_devices']['root']
         pool = node['pool']
-        if len(raw) > 16384 or node['type'] != 'disk' or node['path'] != '/' or not isinstance(pool, str) or not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_-]{0,50}', pool): raise ValueError()
+        if len(raw) > 1048576 or node['type'] != 'disk' or node['path'] != '/' or not isinstance(pool, str) or not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_-]{0,50}', pool): raise ValueError()
         print(pool)
     except (ValueError, KeyError, TypeError, UnicodeError): sys.exit(1)
     PY
     ) || blocked host_storage_unsupported
-    nvram="/var/lib/incus/storage-pools/$pool/virtual-machines/$VM/qemu.nvram"
-    [[ -f "$nvram" && ! -L "$nvram" ]] || blocked host_storage_unsupported
+    # Incus keeps qemu.nvram as a relative symlink to the varstore file in the
+    # same VM directory (for example OVMF_VARS.4MB.ms.fd). Edit that resolved
+    # regular file; refuse a link that leaves the VM directory.
+    vmdir=$(readlink -e -- "/var/lib/incus/storage-pools/$pool/virtual-machines/$VM") || blocked host_storage_unsupported
+    nvram=$(readlink -e -- "$vmdir/qemu.nvram") || blocked host_storage_unsupported
+    [[ "$(dirname -- "$nvram")" == "$vmdir" && -f "$nvram" && ! -L "$nvram" ]] || blocked host_storage_unsupported
     commit=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["snosi_commit"])' "$WORK/normalized.json") || fail manifest_read
     base="https://raw.githubusercontent.com/frostyard/snosi/$commit/"
     timeout 90 curl -fsSL --max-time 60 -o "$WORK/mok.crt" "${base}shared/native-ab/keys/mok-2026.crt" >/dev/null 2>&1 || blocked mok_unavailable
