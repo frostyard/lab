@@ -290,16 +290,26 @@ data:
       # The instance may retain prior boots' console lines. Compare the entire
       # bounded snapshot byte-for-byte with the pre-start baseline, and hand
       # only the newly appended region to the marker search and phase verifier.
-      # A reset/truncation/changed prefix cannot establish boot lineage.
-      python3 - "$WORK/serial-baseline" "$WORK/serial-full" "$WORK/serial" <<'PY' || blocked channel_lineage
+      # Incus 7 instead starts a new console log at each instance start
+      # (run-snow-bootc-lifecycle-g7kvk). Accept that only at the first capture
+      # after a start, and only when no byte of the previous log survives: the
+      # new log then stands alone and becomes this boot's baseline-free view.
+      # A reset later in a boot, a truncation, or a changed prefix that still
+      # carries the old log cannot establish boot lineage.
+      python3 - "$WORK/serial-baseline" "$WORK/serial-full" "$WORK/serial" "${SERIAL_FRESH_START:-0}" <<'PY' || blocked channel_lineage
     import sys
     from pathlib import Path
     baseline = Path(sys.argv[1]).read_bytes()
     snapshot = Path(sys.argv[2]).read_bytes()
-    if not snapshot.startswith(baseline):
+    if snapshot.startswith(baseline):
+        Path(sys.argv[3]).write_bytes(snapshot[len(baseline):])
+    elif sys.argv[4] == "1" and (not baseline.strip() or baseline not in snapshot):
+        Path(sys.argv[1]).write_bytes(b"")
+        Path(sys.argv[3]).write_bytes(snapshot)
+    else:
         sys.exit(1)
-    Path(sys.argv[3]).write_bytes(snapshot[len(baseline):])
     PY
+      SERIAL_FRESH_START=0
     }
     vm_stopped() {
       # Capture first: grep -q closing the pipe early must not make incus fail under pipefail.
@@ -897,6 +907,7 @@ data:
       [[ ${#gd} -lt 60000 && ${#td} -lt 60000 ]] || fail unit_size
       timeout 60 incus config set "$VM" raw.qemu="-smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.snow-guest.service=$gb -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.multi-user.target=$gd -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.bootc-update-stage.service=$td" >/dev/null 2>&1 || fail phase_injection
       timeout 120 incus start "$VM" >/dev/null 2>&1 || fail guest_start
+      SERIAL_FRESH_START=1
       await SNOW_QA_V1 "$((budget + 300))"
       python3 /opt/snow-qa/qa.py phase "$WORK/normalized.json" "$phase" "$nonce" "$prior" "$WORK/serial" "$WORK/checks.json" > "$WORK/boot-id" 2>/dev/null || fail phase_mismatch
       [[ -s "$WORK/boot-id" ]] || fail phase_mismatch
