@@ -460,6 +460,11 @@ data:
       byid="$item"; break
     done
     [[ -n "$byid" && -b "$byid" ]] || { printf 'SNOW_INSTALL_FAILED disk_byid\n' > /dev/ttyS0; exit 1; }
+    # Give Firn the canonical device, not the by-id link: Firn 0.9.0 names
+    # partitions by appending the number to the path it gets, so
+    # /dev/disk/by-id/...root becomes ...root1 (no such node; the link is
+    # ...root-part1) and format-boot fails (run-snow-bootc-lifecycle-lnzgv).
+    # The by-id link above still proves one stable whole disk exists.
     openssl rand -hex 32 > /run/snow-passphrase
     openssl rand -hex 16 > /run/snow-mok-password
     chmod 0600 /run/snow-passphrase /run/snow-mok-password
@@ -471,7 +476,7 @@ data:
     target_ref = "@TARGET@"
     cosign_pub_key = "/usr/lib/snosi/cosign.pub"
     [target]
-    disk = "$byid"
+    disk = "$disk"
     filesystem = "btrfs"
     bootloader = "systemd"
     [security]
@@ -501,7 +506,7 @@ data:
     fi
     # Firn's progress stream contains the literal recovery key. Keep it only
     # in the private guest /run; bound both outputs before invoking Firn.
-    if (ulimit -f 1024; firn install /run/snow-recipe.toml --confirm "$byid" --uefi on --secure-boot on --tpm on --json-progress >/run/snow-install.ndjson 2>/run/snow-install.log); then
+    if (ulimit -f 1024; firn install /run/snow-recipe.toml --confirm "$disk" --uefi on --secure-boot on --tpm on --json-progress >/run/snow-install.ndjson 2>/run/snow-install.log); then
       printf 'SNOW_INSTALL_OK\n' > /dev/ttyS0
     else
       summary=unknown:unparsed

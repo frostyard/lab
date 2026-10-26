@@ -1659,8 +1659,8 @@ def test_installer_vm_checks_firn_before_install(tmp_path, scenario, marker, ins
                                         'for item in "$TEST_ROOT/no-byid/"*; do')
     else:
         guest_text = re.sub(r"mapfile -t disks .*?\[\[ -n \"\$byid\" && -b \"\$byid\" \]\] \|\| (?:exit 1|\{.*?exit 1; \})",
-                            'byid="/dev/example-disk"', guest_text, flags=re.S)
-        assert 'byid="/dev/example-disk"' in guest_text
+                            'disk="/dev/example-disk"; byid="/dev/disk/by-id/example"', guest_text, flags=re.S)
+        assert 'byid="/dev/disk/by-id/example"' in guest_text
     (tmp_path / "run").mkdir()
     (tmp_path / "bin").mkdir()
     firn = tmp_path / "bin/firn"
@@ -1869,8 +1869,8 @@ def run_installer_failure(tmp_path, stream, without_python, stderr='', base64_av
     guest_text = guest_text.replace("/run/", str(tmp_path / "run") + "/")
     guest_text = guest_text.replace("/dev/ttyS0", str(tmp_path / "serial"))
     guest_text = re.sub(r"mapfile -t disks .*?\[\[ -n \"\$byid\" && -b \"\$byid\" \]\] \|\| (?:exit 1|\{.*?exit 1; \})",
-                        'byid="/dev/example-disk"', guest_text, flags=re.S)
-    assert 'byid="/dev/example-disk"' in guest_text
+                        'disk="/dev/example-disk"; byid="/dev/disk/by-id/example"', guest_text, flags=re.S)
+    assert 'byid="/dev/disk/by-id/example"' in guest_text
     firn = bin_dir / "firn"
     firn.write_text('#!/bin/bash\nif [[ $1 == validate ]]; then\n'
                     '  if [[ $2 == */snow-recipe.toml ]] || grep -q "version = 2" "${@: -1}"; then exit 0; fi\n'
@@ -2999,3 +2999,14 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
                                     'cumulative_prefix': 'BLOCKED: channel_lineage',
                                     'guest_shutdown': 'FAILED: guest_shutdown',
                                     'fsverity': 'FAILED: fsverity_errors'}[scenario]
+
+
+def test_installer_gives_firn_the_canonical_disk_not_the_by_id_link():
+    # Firn 0.9.0 appends the partition number to the disk path it gets, so a
+    # by-id link makes it format a nonexistent ...root1 (run lnzgv, format-boot).
+    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    install = script[script.index("cat > \"$WORK/install.sh\""):script.index("\nGUEST\n")]
+    assert 'disk = "$disk"' in install and 'disk = "$byid"' not in install
+    assert '--confirm "$disk"' in install and '--confirm "$byid"' not in install
+    # The by-id discovery still fails closed when no stable link exists.
+    assert "SNOW_INSTALL_FAILED disk_byid" in install
