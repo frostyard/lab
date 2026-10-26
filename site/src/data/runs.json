@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-26T10:30:19Z",
+  "generated": "2026-10-26T11:00:17Z",
   "lanes": [
     {
       "laneKey": "run-firn-install-tests",
@@ -68,9 +68,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1793010600",
+        "name": "publish-results-1793012400",
         "phase": "Running",
-        "started": "2026-10-26T10:30:00Z",
+        "started": "2026-10-26T11:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -93,11 +93,11 @@
       "label": "run-snow-bootc-lifecycle",
       "kind": "other",
       "latest": {
-        "name": "run-snow-bootc-lifecycle-g7kvk",
+        "name": "run-snow-bootc-lifecycle-clvpb",
         "phase": "Failed",
-        "started": "2026-10-26T09:40:14Z",
-        "finished": "2026-10-26T09:46:03Z",
-        "durationSeconds": 349,
+        "started": "2026-10-26T10:52:02Z",
+        "finished": "2026-10-26T10:53:16Z",
+        "durationSeconds": 74,
         "template": "run-snow-bootc-lifecycle",
         "laneKey": "run-snow-bootc-lifecycle",
         "qaOutcome": "unknown",
@@ -108,8 +108,7 @@
         "digest": null,
         "checks": [
           "manifest_sha256=43df99b1a080db2d878b3f1fd77c5193b741b724c0ba8deba7e52b64c3a4f335",
-          "tag=before-install timestamp=2026-10-26T09:41:08.417883+00:00",
-          "tag=before-installed-n timestamp=2026-10-26T09:45:51.223550+00:00"
+          "tag=before-install timestamp=2026-10-26T10:52:57.380895+00:00"
         ]
       },
       "runs": 6,
@@ -235,11 +234,46 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1793010600",
+      "name": "publish-results-1793012400",
       "phase": "Running",
-      "started": "2026-10-26T10:30:00Z",
+      "started": "2026-10-26T11:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": null,
+      "checks": []
+    },
+    {
+      "name": "run-snow-bootc-lifecycle-clvpb",
+      "phase": "Failed",
+      "started": "2026-10-26T10:52:02Z",
+      "finished": "2026-10-26T10:53:16Z",
+      "durationSeconds": 74,
+      "template": "run-snow-bootc-lifecycle",
+      "laneKey": "run-snow-bootc-lifecycle",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "run-snow-bootc-lifecycle",
+      "trigger": "manual",
+      "result": "BLOCKED: channel_lineage",
+      "digest": null,
+      "checks": [
+        "manifest_sha256=43df99b1a080db2d878b3f1fd77c5193b741b724c0ba8deba7e52b64c3a4f335",
+        "tag=before-install timestamp=2026-10-26T10:52:57.380895+00:00"
+      ]
+    },
+    {
+      "name": "publish-results-1793010600",
+      "phase": "Succeeded",
+      "started": "2026-10-26T10:30:00Z",
+      "finished": "2026-10-26T10:30:32Z",
+      "durationSeconds": 32,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -383,22 +417,6 @@
       "trigger": "scheduled",
       "result": null,
       "digest": "sha256:ca3a01129a1e5a3482a623c41c02ffe19a708e53f4f13047c52dd829ec81e3b5",
-      "checks": []
-    },
-    {
-      "name": "publish-results-1793005200",
-      "phase": "Succeeded",
-      "started": "2026-10-26T09:00:00Z",
-      "finished": "2026-10-26T09:00:30Z",
-      "durationSeconds": 30,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": null,
       "checks": []
     },
     {
@@ -766,25 +784,6 @@
       "result": "FAILED: boot:no_report (bootc/snow/none/sb=true)",
       "digest": null,
       "checks": []
-    },
-    {
-      "name": "run-snow-bootc-lifecycle-6hvn6",
-      "phase": "Failed",
-      "started": "2026-09-26T10:48:21Z",
-      "finished": "2026-09-26T10:52:17Z",
-      "durationSeconds": 236,
-      "template": "run-snow-bootc-lifecycle",
-      "laneKey": "run-snow-bootc-lifecycle",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "run-snow-bootc-lifecycle",
-      "trigger": "scheduled",
-      "result": "FAILED: install_failed:firn_install:unknown:step_failed",
-      "digest": null,
-      "checks": [
-        "manifest_sha256=bc4128fcd6cbfc0669da668aa0a928401e0fa7b6f266eb0fd91cbb85187c448a",
-        "tag=before-install timestamp=2026-09-26T10:49:21.360729+00:00"
-      ]
     }
   ]
 }
