@@ -287,17 +287,19 @@ data:
     }
     serial() {
       capture_serial || blocked serial_capture
-      # Two files: serial-baseline is the slice offset (the pre-start snapshot,
-      # or empty after an accepted reset); serial-last is the last accepted
-      # snapshot. Every capture must extend serial-last byte for byte, so a
-      # reset, truncation or changed prefix inside one lineage is BLOCKED.
-      # Only the newly appended region reaches the marker search and verifier.
-      # Incus 7 starts a new console log at each instance start
-      # (run-snow-bootc-lifecycle-g7kvk). One exception covers that: at the
-      # first capture after a start, before anything of the new boot was
-      # accepted, a snapshot that does not contain the whole previous snapshot
-      # (or follows a blank one) starts a new lineage with an empty offset.
-      python3 - "$WORK/serial-baseline" "$WORK/serial-last" "$WORK/serial-full" "$WORK/serial" "${SERIAL_FRESH_START:-0}" <<'PY' || blocked channel_lineage
+      # serial-baseline is the slice offset: the previous boot's log as the
+      # stopped VM showed it before this start (empty for a new VM). serial-last
+      # is the last accepted snapshot. A capture that extends both is ordinary
+      # growth: only the bytes after the offset reach the marker search and the
+      # phase verifier, so nothing from an earlier boot is ever read.
+      # Incus 7 starts a new console log whenever QEMU starts: at each instance
+      # start and at a guest reboot inside a phase (run-snow-bootc-lifecycle-g7kvk,
+      # and -clvpb 20 s into the installer ISO boot). A capture that no longer
+      # contains the offset is such a new log: it holds no earlier boot's
+      # output, so it is searched whole and the offset becomes empty. A
+      # changed log that still carries the offset cannot be split safely and is
+      # BLOCKED. The fresh per-phase nonce and boot ID bind every record.
+      python3 - "$WORK/serial-baseline" "$WORK/serial-last" "$WORK/serial-full" "$WORK/serial" <<'PY' || blocked channel_lineage
     import sys
     from pathlib import Path
     offset_path, last_path = Path(sys.argv[1]), Path(sys.argv[2])
@@ -305,7 +307,7 @@ data:
     snapshot = Path(sys.argv[3]).read_bytes()
     if snapshot.startswith(last) and snapshot.startswith(offset):
         new = snapshot[len(offset):]
-    elif sys.argv[5] == "1" and last == offset and (not last.strip() or last not in snapshot):
+    elif not offset.strip() or offset not in snapshot:
         offset_path.write_bytes(b"")
         new = snapshot
     else:
@@ -313,7 +315,6 @@ data:
     Path(sys.argv[4]).write_bytes(new)
     last_path.write_bytes(snapshot)
     PY
-      SERIAL_FRESH_START=0
     }
     vm_stopped() {
       # Capture first: grep -q closing the pipe early must not make incus fail under pipefail.
@@ -913,7 +914,6 @@ data:
       [[ ${#gd} -lt 60000 && ${#td} -lt 60000 ]] || fail unit_size
       timeout 60 incus config set "$VM" raw.qemu="-smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.snow-guest.service=$gb -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.multi-user.target=$gd -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.bootc-update-stage.service=$td" >/dev/null 2>&1 || fail phase_injection
       timeout 120 incus start "$VM" >/dev/null 2>&1 || fail guest_start
-      SERIAL_FRESH_START=1
       await SNOW_QA_V1 "$((budget + 300))"
       python3 /opt/snow-qa/qa.py phase "$WORK/normalized.json" "$phase" "$nonce" "$prior" "$WORK/serial" "$WORK/checks.json" > "$WORK/boot-id" 2>/dev/null || fail phase_mismatch
       [[ -s "$WORK/boot-id" ]] || fail phase_mismatch
