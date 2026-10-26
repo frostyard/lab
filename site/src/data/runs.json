@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-26T14:00:17Z",
+  "generated": "2026-10-26T14:30:18Z",
   "lanes": [
     {
       "laneKey": "run-firn-install-tests",
@@ -68,9 +68,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1793023200",
+        "name": "publish-results-1793025000",
         "phase": "Running",
-        "started": "2026-10-26T14:00:00Z",
+        "started": "2026-10-26T14:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -93,26 +93,22 @@
       "label": "run-snow-bootc-lifecycle",
       "kind": "other",
       "latest": {
-        "name": "run-snow-bootc-lifecycle-2tnjh",
-        "phase": "Failed",
-        "started": "2026-10-26T12:15:34Z",
-        "finished": "2026-10-26T12:56:48Z",
-        "durationSeconds": 2474,
+        "name": "run-snow-bootc-lifecycle-5g2w5",
+        "phase": "Running",
+        "started": "2026-10-26T14:14:30Z",
+        "finished": null,
+        "durationSeconds": null,
         "template": "run-snow-bootc-lifecycle",
         "laneKey": "run-snow-bootc-lifecycle",
         "qaOutcome": "unknown",
         "kind": "other",
         "label": "run-snow-bootc-lifecycle",
         "trigger": "manual",
-        "result": "BLOCKED: phase_timeout",
+        "result": null,
         "digest": null,
-        "checks": [
-          "manifest_sha256=c4dda437a61de448666606e8740c4c3864aaebc60617f172ec4694c6e66d63e8",
-          "tag=before-install timestamp=2026-10-26T12:16:35.035637+00:00",
-          "tag=before-installed-n timestamp=2026-10-26T12:21:33.508216+00:00"
-        ]
+        "checks": []
       },
-      "runs": 7,
+      "runs": 8,
       "everGreen": false,
       "qaRun": null
     },
@@ -235,11 +231,43 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1793023200",
+      "name": "publish-results-1793025000",
       "phase": "Running",
-      "started": "2026-10-26T14:00:00Z",
+      "started": "2026-10-26T14:30:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": null,
+      "checks": []
+    },
+    {
+      "name": "run-snow-bootc-lifecycle-5g2w5",
+      "phase": "Running",
+      "started": "2026-10-26T14:14:30Z",
+      "finished": null,
+      "durationSeconds": null,
+      "template": "run-snow-bootc-lifecycle",
+      "laneKey": "run-snow-bootc-lifecycle",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "run-snow-bootc-lifecycle",
+      "trigger": "manual",
+      "result": null,
+      "digest": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1793023200",
+      "phase": "Succeeded",
+      "started": "2026-10-26T14:00:00Z",
+      "finished": "2026-10-26T14:00:32Z",
+      "durationSeconds": 32,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -312,22 +340,6 @@
       "trigger": "scheduled",
       "result": "20 passed, 3 skipped",
       "digest": "sha256:907fe3dc99a3eeb565c580e91c56d51eccb27d388b793f230fbf0ce1d7f5ec99",
-      "checks": []
-    },
-    {
-      "name": "publish-results-1793017800",
-      "phase": "Succeeded",
-      "started": "2026-10-26T12:30:00Z",
-      "finished": "2026-10-26T12:30:30Z",
-      "durationSeconds": 30,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": null,
       "checks": []
     },
     {
