@@ -227,7 +227,7 @@ console; neither file is a blanket guarantee against arbitrary secret text.
 Preflight checks the signed
 ISO index against the pinned fingerprint and records the ISO hash, key hashes,
 verified N/N+1 OCI digests, version mappings, and the extracted Firn binary's
-hash and provenance. The narrow Firn v1/v2 recipe validator runs inside the
+hash and provenance. The narrow Firn v2 recipe validator runs inside the
 disposable installer VM before `firn install`, after checking the guest Firn
 hash against preflight. This validator check alone does **not** prove full
 Firn installed compatibility. Before install, real-recipe validation reports

@@ -529,7 +529,7 @@ def test_preflight_records_vm_validator_contract_without_executing_firn(qa, tmp_
     data = json.loads(checks.read_text())
     assert data["firn_sha256"] == hashlib.sha256(EMBEDDED_FILES["usr/bin/firn"]).hexdigest()
     assert data["firn_provenance"] == "iso-esp-p2/firn-installer/initrd.img"
-    assert data["firn_compatibility"] == "installer-vm-v1-recipe-validator-only"
+    assert data["firn_compatibility"] == "installer-vm-v2-recipe-validator-only"
     qa.check_state(m, data)
 
 
@@ -596,7 +596,7 @@ def test_tag_rejects_forged_or_incomplete_checks_before_registry(qa, tmp_path, m
             "digest_n": N, "digest_n_plus_1": NEXT, "snosi_commit": COMMIT,
             "iso_sha256": m["iso_sha256"], "firn_sha256": "f" * 64,
             "firn_provenance": "iso-esp-p2/firn-installer/initrd.img",
-             "firn_compatibility": "installer-vm-v1-recipe-validator-only",
+             "firn_compatibility": "installer-vm-v2-recipe-validator-only",
             "index_key_sha256": m["index_key_sha256"],
             "cosign_key_sha256": m["cosign_key_sha256"],
             "mok_cert_sha256": m["mok_cert_sha256"], "tags": {}}
@@ -696,7 +696,7 @@ def phase_files(tmp_path, qa):
         version_n_plus_1=m["version_n_plus_1"], digest_n=N, digest_n_plus_1=NEXT,
         snosi_commit=COMMIT, iso_sha256=ISO, firn_sha256="f" * 64,
         firn_provenance="iso-esp-p2/firn-installer/initrd.img",
-        firn_compatibility="installer-vm-v1-recipe-validator-only", index_key_sha256="1" * 64,
+        firn_compatibility="installer-vm-v2-recipe-validator-only", index_key_sha256="1" * 64,
         cosign_key_sha256="2" * 64, mok_cert_sha256="3" * 64, tags={})))
     return normalized, checks
 
@@ -1623,9 +1623,7 @@ def test_run_install_unit_uses_manifest_install_budget_without_systemd_specifier
 
 @pytest.mark.parametrize(("scenario", "marker", "installed"), [
     ("pass", "SNOW_INSTALL_OK", True),
-    ("v1", "SNOW_INSTALL_FAILED firn_v1", False),
     ("v2", "SNOW_INSTALL_FAILED firn_v2", False),
-    ("v2_other_error", "SNOW_INSTALL_FAILED firn_v2", False),
     ("hash", "SNOW_INSTALL_FAILED firn_hash", False),
     ("disk_detect", "SNOW_INSTALL_FAILED disk_detect", False),
     ("disk_byid", "SNOW_INSTALL_FAILED disk_byid", False),
@@ -1677,10 +1675,8 @@ def test_installer_vm_checks_firn_before_install(tmp_path, scenario, marker, ins
                     "    esac\n"
                     "    exit 0\n"
                     "  fi\n"
-                    "  if grep -q 'version = 1' \"${@: -1}\"; then [[ $SCENARIO != v1 ]]; exit; fi\n"
-                    "  [[ $SCENARIO == v2 ]] && exit 0\n"
-                    "  [[ $SCENARIO == v2_other_error ]] && { printf 'other-error\\n' >&2; exit 1; }\n"
-                    "  printf 'bad-version\\n' >&2; exit 1\n"
+                    "  [[ $SCENARIO == v2 ]] && { printf 'bad-version\\n' >&2; exit 1; }\n"
+                    "  exit 0\n"
                     "fi\nexit 0\n")
     firn.chmod(0o755)
     sums = tmp_path / "bin/sha256sum"
@@ -1700,29 +1696,45 @@ def test_installer_vm_checks_firn_before_install(tmp_path, scenario, marker, ins
     assert (tmp_path / "serial").read_text().splitlines()[-1] == marker
     if scenario == "pass":
         recipe = (tmp_path / "run/snow-recipe.toml").read_text()
+        assert recipe.startswith("version = 2\n")
         assert '[system]\nhostname = "snow-qa"' in recipe
     if scenario != "hash":
-        recipe = (tmp_path / "run/snow-firn-v1.toml").read_text()
-        assert all(field in recipe for field in ('version = 1', 'disk = "/dev/example-disk"',
-                                                 'filesystem = "ext4"', 'encryption = "none"',
-                                                 'hostname = "snow-qa"'))
-        if scenario != "v1":
-            assert (tmp_path / "run/snow-firn-v2.toml").read_text() == recipe.replace("version = 1", "version = 2")
+        validator = (tmp_path / "run/snow-firn-v2.toml").read_text()
+        assert all(field in validator for field in ('version = 2', 'disk = "/dev/example-disk"',
+                                                    'filesystem = "ext4"', 'encryption = "none"',
+                                                    'hostname = "snow-qa"'))
+        assert not (tmp_path / "run/snow-firn-v1.toml").exists()
     calls = (tmp_path / "calls").read_text().splitlines() if (tmp_path / "calls").exists() else []
     assert ("install" in [line.split()[0] for line in calls]) == installed
-    if scenario not in ("hash", "v1"):
-        assert calls[:2] == [f"validate --secure-boot off --tpm off {tmp_path}/run/snow-firn-v1.toml",
-                            f"validate --secure-boot off --tpm off {tmp_path}/run/snow-firn-v2.toml"]
+    if scenario != "hash":
+        assert calls[:1] == [f"validate --secure-boot off --tpm off {tmp_path}/run/snow-firn-v2.toml"]
     if scenario in ("pass", "validate_secret", "validate_unknown", "validate_final_token", "validate_skip_unknown"):
-        assert calls[2] == f"validate {tmp_path}/run/snow-recipe.toml --secure-boot on --tpm on"
-        assert "--uefi" not in calls[2]
+        assert calls[1] == f"validate {tmp_path}/run/snow-recipe.toml --secure-boot on --tpm on"
+        assert "--uefi" not in calls[1]
         assert (tmp_path / "run/snow-validate.log").stat().st_mode & 0o777 == 0o600
         if scenario == "pass":
-            assert calls[3].startswith("install ")
+            assert calls[2].startswith("install ")
         else:
-            assert len(calls) == 3
+            assert len(calls) == 2
         assert b"private reason" not in (tmp_path / "serial").read_bytes() + result.stdout + result.stderr
         assert b"security.mok_password_file" not in (tmp_path / "serial").read_bytes() + result.stdout + result.stderr
+
+
+def test_installer_recipes_speak_firn_schema_version_2_only():
+    # Firn 0.9.0 uses schema version 2; version 1 is deprecated and is rejected
+    # from 2026-12-30 on, so both the validator and the install recipe say 2.
+    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    guest = re.search(r"(?ms)^cat > \"\$WORK/install.sh\" <<'GUEST'\n(.*?)^GUEST$", script)
+    assert guest
+    body = guest[1]
+    validator = re.search(r"(?ms)^cat > /run/snow-firn-v2\.toml <<'VALIDATOR'\n(.*?)^VALIDATOR$", body)
+    recipe = re.search(r"(?ms)^cat > /run/snow-recipe\.toml <<RECIPE\n(.*?)^RECIPE$", body)
+    assert validator and recipe
+    assert validator[1].splitlines()[0] == "version = 2"
+    assert recipe[1].splitlines()[0] == "version = 2"
+    assert not re.search(r"(?m)^\s*version = 1$", body)
+    assert "snow-firn-v1.toml" not in script
+    assert "SNOW_INSTALL_FAILED firn_v1" not in script
 
 
 INSTALL_FAILURE_CASES = [
@@ -1861,7 +1873,7 @@ def run_installer_failure(tmp_path, stream, without_python, stderr='', base64_av
     assert 'byid="/dev/example-disk"' in guest_text
     firn = bin_dir / "firn"
     firn.write_text('#!/bin/bash\nif [[ $1 == validate ]]; then\n'
-                    '  if [[ $2 == */snow-recipe.toml ]] || grep -q "version = 1" "${@: -1}"; then exit 0; fi\n'
+                    '  if [[ $2 == */snow-recipe.toml ]] || grep -q "version = 2" "${@: -1}"; then exit 0; fi\n'
                     '  printf "bad-version\\n" >&2; exit 1\nfi\n'
                     '[[ $1 == install && " $* " == *" --json-progress "* ]] || exit 3\n'
                     'cp "$TEST_ROOT/stream" /dev/stdout\n'
@@ -2709,7 +2721,7 @@ def test_runner_failure_never_initializes_vm_and_does_not_expose_inputs(tmp_path
     assert (tmp_path / "results/result-summary.txt").read_text().strip() == expected
 
 
-@pytest.mark.parametrize("scenario", ["pass", "stage", "stage_keep", "iso_add_partial_keep", "iso_add_partial_detach_failed", "no_reboot", "tag_drift", "evidence_write", "output_write", "stage_teardown", "teardown", "serial_oversize", "serial_unreadable", "blocked_teardown", "phase_missing", "phase_malformed", "guest_error", "guest_error_crlf", "updater_error_crlf", "rollback_error_crlf", "duplicate_error_crlf", "conflicting_error_crlf", "install_missing", "install_failed", "install_firn_v1", "install_firn_v2", "install_firn_hash", "install_fake_code", "install_disk_detect", "install_disk_byid", "install_progress", "install_bad_progress", "install_secret_code", "install_fallback", "install_empty_stream", "install_validate_secret", "install_validate_unknown", "install_validate_unclassified", "install_validate_fake", "cumulative_pass", "cumulative_stale", "cumulative_reset", "cumulative_prefix", "fsverity", "fsverity_known", "guest_shutdown"])
+@pytest.mark.parametrize("scenario", ["pass", "stage", "stage_keep", "iso_add_partial_keep", "iso_add_partial_detach_failed", "no_reboot", "tag_drift", "evidence_write", "output_write", "stage_teardown", "teardown", "serial_oversize", "serial_unreadable", "blocked_teardown", "phase_missing", "phase_malformed", "guest_error", "guest_error_crlf", "updater_error_crlf", "rollback_error_crlf", "duplicate_error_crlf", "conflicting_error_crlf", "install_missing", "install_failed", "install_firn_v2", "install_firn_hash", "install_fake_code", "install_disk_detect", "install_disk_byid", "install_progress", "install_bad_progress", "install_secret_code", "install_fallback", "install_empty_stream", "install_validate_secret", "install_validate_unknown", "install_validate_unclassified", "install_validate_fake", "cumulative_pass", "cumulative_stale", "cumulative_reset", "cumulative_prefix", "fsverity", "fsverity_known", "guest_shutdown"])
 def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario):
     script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
     for old, new in (("ROOT=/var/lib/snosi-lab/snow-bootc-evidence", f"ROOT={tmp_path}/evidence"),
@@ -2968,7 +2980,6 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
                                      'conflicting_error_crlf': 'FAILED: phase_mismatch',
                                     'install_missing': 'BLOCKED: phase_timeout',
                                      'install_failed': 'FAILED: install_failed:unparsed',
-                                     'install_firn_v1': 'FAILED: install_failed:firn_v1',
                                      'install_firn_v2': 'FAILED: install_failed:firn_v2',
                                      'install_firn_hash': 'FAILED: install_failed:firn_hash',
                                       'install_fake_code': 'FAILED: install_failed:unparsed',

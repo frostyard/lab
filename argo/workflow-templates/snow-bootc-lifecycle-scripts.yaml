@@ -338,7 +338,7 @@ data:
     import re, sys
     from pathlib import Path
     lines = Path(sys.argv[1]).read_bytes().split(b'\n')
-    matches = [re.fullmatch(rb'SNOW_INSTALL_FAILED (firn_v1|firn_v2|firn_hash|disk_detect|disk_byid|firn_validate:[a-z-]{1,20}|firn_install:[a-z0-9_-]{1,40}:[a-z_]{1,40})\r?', line)
+    matches = [re.fullmatch(rb'SNOW_INSTALL_FAILED (firn_v2|firn_hash|disk_detect|disk_byid|firn_validate:[a-z-]{1,20}|firn_install:[a-z0-9_-]{1,40}:[a-z_]{1,40})\r?', line)
                 for line in lines if b'SNOW_INSTALL_FAILED' in line]
     allowed = {'image_verification_failed', 'step_failed', 'cleanup_failed',
                'flatpak_unreachable', 'group_missing', 'no_core_set', 'no_tpm',
@@ -427,8 +427,11 @@ data:
       printf 'SNOW_INSTALL_FAILED firn_hash\n' > /dev/ttyS0
       exit 1
     fi
-    cat > /run/snow-firn-v1.toml <<'VALIDATOR'
-    version = 1
+    # Firn 0.9.0 reads schema version 2; version 1 is deprecated and rejected
+    # from 2026-12-30 on (firn ADR-0016: validate the bootc fields, then change
+    # only the version).
+    cat > /run/snow-firn-v2.toml <<'VALIDATOR'
+    version = 2
     [image]
     family = "bootc"
     ref = "ghcr.io/frostyard/snow@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -443,13 +446,8 @@ data:
     [system]
     hostname = "snow-qa"
     VALIDATOR
-    if ! (ulimit -f 1024; firn validate --secure-boot off --tpm off /run/snow-firn-v1.toml >/run/snow-firn-v1.log 2>&1); then
-      printf 'SNOW_INSTALL_FAILED firn_v1\n' > /dev/ttyS0
-      exit 1
-    fi
-    sed 's/^version = 1$/version = 2/' /run/snow-firn-v1.toml > /run/snow-firn-v2.toml
     # The validator diagnostic stays in the guest, bounded by RLIMIT_FSIZE.
-    if (ulimit -f 1024; firn validate --secure-boot off --tpm off /run/snow-firn-v2.toml > /run/snow-firn-v2.log 2>&1) || ! grep -qF 'bad-version' /run/snow-firn-v2.log; then
+    if ! (ulimit -f 1024; firn validate --secure-boot off --tpm off /run/snow-firn-v2.toml >/run/snow-firn-v2.log 2>&1); then
       printf 'SNOW_INSTALL_FAILED firn_v2\n' > /dev/ttyS0
       exit 1
     fi
@@ -466,7 +464,7 @@ data:
     openssl rand -hex 16 > /run/snow-mok-password
     chmod 0600 /run/snow-passphrase /run/snow-mok-password
     cat > /run/snow-recipe.toml <<RECIPE
-    version = 1
+    version = 2
     [image]
     family = "bootc"
     ref = "@N@"
@@ -1209,7 +1207,7 @@ data:
                     "cosign_key_sha256": m["cosign_key_sha256"],
                     "mok_cert_sha256": m["mok_cert_sha256"],
                     "firn_provenance": "iso-esp-p2/firn-installer/initrd.img",
-                    "firn_compatibility": "installer-vm-v1-recipe-validator-only"}
+                    "firn_compatibility": "installer-vm-v2-recipe-validator-only"}
         require(all(data[key] == value for key, value in expected.items()) and
                 full(r"[0-9a-f]{64}", data["firn_sha256"]) and timestamp(data["timestamp"]) and
                 type(data["tags"]) is dict and len(data["tags"]) <= 32, "checks_state")
@@ -1300,7 +1298,7 @@ data:
                            "digest_n_plus_1": m["image_n_plus_1"].rsplit(":", 1)[-1],
                            "snosi_commit": m["snosi_commit"], "iso_sha256": m["iso_sha256"],
                            "firn_sha256": firn_sha256, "firn_provenance": "iso-esp-p2/firn-installer/initrd.img",
-                           "firn_compatibility": "installer-vm-v1-recipe-validator-only",
+                           "firn_compatibility": "installer-vm-v2-recipe-validator-only",
                            "index_key_sha256": m["index_key_sha256"],
                            "cosign_key_sha256": m["cosign_key_sha256"],
                            "mok_cert_sha256": m["mok_cert_sha256"], "tags": {}})
