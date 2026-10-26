@@ -654,11 +654,19 @@ KERNEL = "7.3.1+deb14-amd64"   # not on the known-defect list
 KNOWN_DEFECT_KERNEL = "7.2.11+deb14-amd64"
 
 
+# Firn installs with --target-imgref (registry); the Snow updater then switches the
+# spec to containers-storage, which the staged and N+1 deployments keep reporting.
+SPEC_TRANSPORT = {"installed-n": "registry", "stage": "containers-storage",
+                  "boot-n-plus-1": "containers-storage", "rollback": "containers-storage",
+                  "boot-n": "registry"}
+# The three-line file the Snow updater writes (bootc-update-stage).
+STAGED_FILE = f"image={REPO}:qa-controlled\ndigest=sha256:{NEXT}\nstaged_at=2026-09-24T00:00:00+00:00\n"
+
+
 def phase_record(phase):
     newer = phase in ("boot-n-plus-1", "rollback")
     record = dict(phase=phase, nonce=NONCE, boot_id="12345678-1234-4234-8234-123456789abc",
-                  spec_image=f"{REPO}:qa-controlled" if phase != "installed-n" else f"{REPO}@sha256:{N}",
-                  spec_transport="registry", booted_digest=NEXT if newer else N,
+                  spec_image=f"{REPO}:qa-controlled", spec_transport=SPEC_TRANSPORT[phase], booted_digest=NEXT if newer else N,
                   booted_version="20260924000000" if newer else "20260923000000",
                   staged_digest=NEXT if phase == "stage" else None,
                    rollback_digest=N if phase in ("boot-n-plus-1", "rollback") else NEXT if phase == "boot-n" else None,
@@ -813,7 +821,7 @@ def test_guest_stage_probes_and_emits_allowlisted_single_record(qa, tmp_path, mo
         (credentials / key).write_text(value + "\n")
     (credentials / "unit_started").write_text("900.00\n")
     monkeypatch.setattr(qa, "GUEST_MANIFEST", normalized, raising=False)
-    status = {"spec": {"image": {"image": f"{REPO}@sha256:{N}" if phase == "stage" else f"{REPO}:qa-controlled", "transport": "registry"}},
+    status = {"spec": {"image": {"image": f"{REPO}:qa-controlled", "transport": "registry" if phase == "stage" else "containers-storage"}},
               "status": {"booted": {"image": {"imageDigest": "sha256:" + (N if phase == "stage" else NEXT),
                                               "version": "20260923000000" if phase == "stage" else "20260924000000"}},
                          "staged": None, "rollback": None if phase == "stage" else {"image": {"imageDigest": "sha256:" + N}}}}
@@ -823,7 +831,7 @@ def test_guest_stage_probes_and_emits_allowlisted_single_record(qa, tmp_path, mo
     (root / "policy.json").write_text(json.dumps({"default": [{"type": "reject"}], "transports": {"docker": {REPO: [{"type": "sigstoreSigned", "keyPath": "/usr/lib/snosi/cosign.pub"}]}}}))
     (root / "key").write_bytes(b"public-key")
     (root / "update-check").write_text("outcome=staged\n")
-    (root / "update-staged").write_text("sha256:" + NEXT + "\n")
+    (root / "update-staged").write_text(STAGED_FILE)
     (root / "tokens.json").write_text(json.dumps({"tokens": {"0": {"type": "systemd-tpm2", "tpm2-pcrs": [], "tpm2_pubkey_pcrs": [11], "tpm2-pubkey": "public"}}}))
     (root / "uptime").write_text("1000.00 500.00\n")
     (root / "osrelease").write_text(KERNEL + "\n")
@@ -855,7 +863,7 @@ def test_guest_stage_probes_and_emits_allowlisted_single_record(qa, tmp_path, mo
         if args[:2] == ["podman", "image"]:
             return subprocess.CompletedProcess(args, 0, ("sha256:" + NEXT).encode(), b"")
         if args[0] == "/usr/libexec/bootc-update-stage":
-            status["spec"]["image"]["image"] = f"{REPO}:qa-controlled"
+            status["spec"]["image"]["transport"] = "containers-storage"
             status["status"]["staged"] = {"image": {"imageDigest": "sha256:" + NEXT}}
             return subprocess.CompletedProcess(args, 0, b"", b"")
         if args == ["bootc", "rollback"]:
@@ -887,6 +895,8 @@ def test_guest_stage_probes_and_emits_allowlisted_single_record(qa, tmp_path, mo
     assert payload["action"] == ("staged" if phase == "stage" else "rolled-back")
     assert payload["booted_digest"] == (N if phase == "stage" else NEXT)
     assert payload["rollback_digest"] == (None if phase == "stage" else N)
+    assert payload["spec_image"] == f"{REPO}:qa-controlled"
+    assert payload["spec_transport"] == "containers-storage"   # observed, not normalized
     # snosi#1130: FILE CORRUPTED lines plus suppressed-callback counts, read after the action.
     assert payload["fsverity_errors"] == expected
     assert payload["kernel"] == KERNEL   # attested from /proc/sys/kernel/osrelease
@@ -906,6 +916,173 @@ def test_guest_stage_probes_and_emits_allowlisted_single_record(qa, tmp_path, mo
     assert qa.phase_verdict(m, phase, NONCE, "aaaaaaaa-1234-4234-8234-123456789abc", serial, checks) == payload["boot_id"]
     with pytest.raises(qa.GateError, match="^boot_identity$"):
         qa.phase_verdict(m, phase, NONCE, payload["boot_id"], serial, checks)
+
+
+def run_phase_verdict_error(qa, tmp_path, phase, record):
+    normalized, checks = phase_files(tmp_path, qa)
+    serial = tmp_path / "serial"
+    serial.write_text(serial_record(record))
+    with pytest.raises(qa.GateError) as error:
+        qa.phase_attest(manifest(), phase, NONCE, "none", serial, checks)
+    return str(error.value)
+
+
+@pytest.mark.parametrize("phase", PHASES)
+def test_record_spec_image_must_be_target_ref_in_every_phase(qa, tmp_path, phase):
+    record = phase_record(phase)
+    record["spec_image"] = f"{REPO}@sha256:{N}"   # image_n: what Firn does NOT record
+    assert run_phase_verdict_error(qa, tmp_path, phase, record) == "target_spec"
+    record["spec_image"] = f"{REPO}:latest"
+    assert run_phase_verdict_error(qa, tmp_path, phase, record) == "target_spec"
+
+
+@pytest.mark.parametrize(("phase", "allowed"), [
+    ("installed-n", {"registry"}),
+    ("stage", {"registry", "containers-storage"}),
+    ("boot-n-plus-1", {"registry", "containers-storage"}),
+    ("rollback", {"registry", "containers-storage"}),
+    ("boot-n", {"registry", "containers-storage"}),
+])
+@pytest.mark.parametrize("transport", ["registry", "containers-storage", "docker", "oci", "dir", "", None])
+def test_record_spec_transport_rules_per_phase(qa, tmp_path, phase, allowed, transport):
+    record = phase_record(phase)
+    record["spec_transport"] = transport
+    normalized, checks = phase_files(tmp_path, qa)
+    serial = tmp_path / "serial"
+    serial.write_text(serial_record(record))
+    if transport in allowed:
+        assert qa.phase_attest(manifest(), phase, NONCE, "none", serial, checks)["spec_transport"] == transport
+    else:
+        with pytest.raises(qa.GateError, match="^target_transport$"):
+            qa.phase_attest(manifest(), phase, NONCE, "none", serial, checks)
+
+
+def test_installed_n_record_is_exactly_what_firn_wrote(qa):
+    assert phase_record("installed-n")["spec_transport"] == "registry"
+    assert phase_record("installed-n")["spec_image"] == manifest()["target_ref"]
+    assert phase_record("stage")["spec_transport"] == "containers-storage"
+
+
+def marker(**changes):
+    fields = {"image": f"{REPO}:qa-controlled", "digest": "sha256:" + NEXT, "staged_at": "2026-09-24T00:00:00+00:00"}
+    fields.update(changes)
+    return "".join(f"{key}={value}\n" for key, value in fields.items() if value is not None).encode()
+
+
+def test_staged_marker_accepts_the_updater_file(qa):
+    qa.staged_marker(manifest(), STAGED_FILE.encode())
+    qa.staged_marker(manifest(), marker(staged_at=None))          # staged_at is optional
+    qa.staged_marker(manifest(), marker(staged_at="anything printable"))   # and ignored
+    qa.staged_marker(manifest(), marker().rstrip(b"\n"))          # no final newline
+
+
+@pytest.mark.parametrize("raw", [
+    marker(digest="sha256:" + N),                                  # wrong digest
+    marker(digest=NEXT),                                           # bare hash, not sha256:<hex>
+    marker(digest="sha256:" + NEXT.upper()),
+    marker(image=f"{REPO}@sha256:{N}"),                            # wrong image
+    marker(image=f"{REPO}:latest"),
+    marker(digest=None),                                           # missing digest
+    marker(image=None),                                            # missing image
+    marker() + b"digest=sha256:" + NEXT.encode() + b"\n",          # duplicate key
+    marker() + b"image=" + f"{REPO}:qa-controlled".encode() + b"\n",
+    marker() + b"staged_at=x\n",
+    marker() + b"extra=1\n",                                       # unknown key
+    marker() + b"no separator\n",
+    ("sha256:" + NEXT + "\n").encode(),                            # the old, wrong format
+    b"",
+    marker(staged_at="x" * 4100),                                  # oversize
+    marker(staged_at="x" * 257),                                   # oversize value
+    marker(staged_at="a\x00b"),
+    marker(staged_at="caf\u00e9").replace(b"caf\\u00e9", "caf\u00e9".encode()),
+    b"\xff\xfe",
+])
+def test_staged_marker_rejects_malformed_or_foreign_file(qa, raw):
+    with pytest.raises(qa.GateError, match="^stage_marker$"):
+        qa.staged_marker(manifest(), raw)
+
+
+def test_guest_reads_a_bounded_staged_marker(qa):
+    script = yaml.safe_load(SOURCE.read_text())["data"]["qa.py"]
+    assert 'source.read(4097)' in script
+
+
+def run_script():
+    return yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+
+
+def phase_loop(script):
+    loop = re.search(r"(?ms)^for phase in installed-n stage boot-n-plus-1 rollback boot-n; do\n.*?^done\n", script)
+    assert loop
+    return loop.group()
+
+
+def test_every_phase_boot_disables_the_update_timer_via_dropin_credential():
+    loop = phase_loop(run_script())
+    match = re.search(r"td=\$\(printf '(\[Unit\]\\nConditionPathExists=[^']*)' \| base64 -w0\)", loop)
+    assert match
+    assert match[1].replace("\\n", "\n") == "[Unit]\nConditionPathExists=/run/snow-qa-timer-disabled"
+    assert "systemd.unit-dropin.bootc-update-stage.service=$td" in loop
+    # Same pattern as the multi-user.target drop-in, in the one raw.qemu of the phase.
+    assert loop.count("systemd.unit-dropin.multi-user.target=$gd") == 1
+    assert loop.count("raw.qemu=") == 1
+    assert "${#td} -lt 60000" in loop
+    # Nothing in the lane creates that path (the stage phase runs the updater directly).
+    assert "snow-qa-timer-disabled" not in run_script().replace("ConditionPathExists=/run/snow-qa-timer-disabled", "")
+
+
+def guest_payload(tmp_path):
+    script = run_script()
+    assignment = re.search(r'(?m)^  guestunit="\[Unit\].*?^  gb=', script, re.S)
+    assert assignment
+    values = dict(phase="stage", nonce=NONCE, n=f"{REPO}@sha256:{N}", next=f"{REPO}@sha256:{NEXT}",
+                  target=f"{REPO}:qa-controlled", qa_b64=base64.b64encode(zlib.compress(b"x")).decode(),
+                  manifest_b64="e30=")
+    unit = subprocess.run(["bash", "-c", assignment.group().rsplit("  gb=", 1)[0] + '\nprintf "%s" "$guestunit"'],
+                          env={**os.environ, **values}, capture_output=True, check=True, text=True).stdout
+    command = next(line.removeprefix("ExecStart=") for line in unit.splitlines() if line.startswith("ExecStart="))
+    expanded = re.sub(r"%(%|s)", lambda m: "%" if m[1] == "%" else "/bin/bash", command)
+    payload = shlex.split(expanded)[2]
+    for path in ("/opt/snow-qa", "/run/snow-credentials", "/run/snow-qa.z"):
+        payload = payload.replace(path, str(tmp_path / path.lstrip("/")))
+    return payload
+
+
+@pytest.mark.parametrize("guest_rc", [0, 1])
+def test_guest_unit_powers_off_only_after_a_successful_guest_run(tmp_path, guest_rc):
+    payload = guest_payload(tmp_path)
+    assert payload.rstrip().endswith("systemctl --no-block poweroff")
+    assert payload.count("systemctl") == 1
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    (tools / "systemctl").write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$CALLS"\n')
+    (tools / "python3").write_text('#!/bin/sh\ncase "$*" in *" guest "*) exit "$GUEST_RC";; esac\nexec /usr/bin/python3 "$@"\n')
+    for tool in tools.iterdir():
+        tool.chmod(0o755)
+    calls = tmp_path / "calls"
+    result = subprocess.run(["bash", "-e", "-c", payload], capture_output=True,
+                            env={**os.environ, "PATH": f"{tools}:{os.environ['PATH']}", "GUEST_RC": str(guest_rc), "CALLS": str(calls)})
+    assert (result.returncode == 0) is (guest_rc == 0)
+    assert (calls.read_text() if calls.exists() else "") == ("--no-block poweroff\n" if guest_rc == 0 else "")
+
+
+def test_host_waits_bounded_for_guest_shutdown_and_never_force_stops_between_phases():
+    script = run_script()
+    loop = phase_loop(script)
+    assert "--force" not in loop and "incus stop" not in loop
+    assert 'fail guest_stop' not in script
+    assert re.search(r'shutdown_budget=\$\(python3 -c .*\["timeouts"\]\["reboot"\]\).*\|\| fail manifest_read', loop)
+    assert "shutdown_end=$((SECONDS + shutdown_budget))" in loop
+    assert re.search(r"until vm_stopped; do\n\s+\(\( SECONDS < shutdown_end \)\) \|\| fail guest_shutdown\n\s+sleep 5\n\s+done", loop)
+    assert "while true" not in loop and "while :" not in loop
+    # The wait follows the accepted record and precedes the next phase's baseline snapshot.
+    assert loop.index("qa.py phase") < loop.index("until vm_stopped")
+    assert loop.index("until vm_stopped") > loop.index("tag after-")
+    # Force remains only for teardown and the installer ISO stop after SNOW_INSTALL_OK.
+    stops = re.findall(r'(?m)^.*incus stop .*$', script)
+    assert len(stops) == 1 and "iso_stop" in stops[0]
+    assert script.index("SNOW_INSTALL_OK") < script.index(stops[0]) < script.index("for phase in installed-n")
+    assert "incus info" in script and "Status: STOPPED" in script
 
 
 def test_run_unit_survives_systemd_specifiers_and_delivers_guest_credentials(tmp_path):
@@ -933,7 +1110,8 @@ def test_run_unit_survives_systemd_specifiers_and_delivers_guest_credentials(tmp
     for path in ("/opt/snow-qa", "/run/snow-credentials", "/run/snow-qa.z"):
         payload = payload.replace(path, str(tmp_path / path.lstrip("/")))
     payload = payload.replace("python3 " + str(tmp_path / "opt/snow-qa/qa.py") + " guest " +
-                              str(tmp_path / "run/snow-credentials"), ":")
+                              str(tmp_path / "run/snow-credentials") + "; systemctl --no-block poweroff", ":")
+    assert "systemctl" not in payload   # never power off the test host
     assert subprocess.run(["bash", "-e", "-c", payload], capture_output=True, check=True).returncode == 0
     assert (tmp_path / "opt/snow-qa/qa.py").read_bytes() == b"test payload"
     for key, expected in (("phase", values["phase"]), ("nonce", values["nonce"]),
@@ -2042,7 +2220,7 @@ def test_guest_failure_console_reports_only_safe_gate_code(qa, monkeypatch, caps
 
 
 @pytest.mark.parametrize("damage", ["policy", "pull_failure", "pull_timeout", "pull_mismatch", "secure_boot", "tpm_unsigned", "tpm_pcrlock", "tpm_wrong_pcrs",
-                                    "marker", "outcome", "updater", "updater_timeout", "wrong_boot", "rollback_failure", "rollback_timeout", "pre_spec", "root_device_missing", "uki_other_entry", "uki_unmeasured", "uki_partial", "uki_prefixed", "esp_ambiguous", "esp_missing", "bls_wrong", "bls_linux"])
+                                    "marker", "outcome", "updater", "updater_timeout", "wrong_boot", "rollback_failure", "rollback_timeout", "pre_spec", "root_device_missing", "uki_other_entry", "uki_unmeasured", "uki_partial", "uki_prefixed", "esp_ambiguous", "esp_missing", "bls_wrong", "bls_linux", "pre_image_n", "pre_transport", "rollback_transport"])
 def test_guest_never_emits_evidence_for_failed_probe_or_action(qa, tmp_path, monkeypatch, damage):
     m = manifest()
     m["cosign_key_sha256"] = hashlib.sha256(b"public-key").hexdigest()
@@ -2051,7 +2229,7 @@ def test_guest_never_emits_evidence_for_failed_probe_or_action(qa, tmp_path, mon
     monkeypatch.setattr(qa, "GUEST_MANIFEST", normalized)
     creds = tmp_path / "creds"
     creds.mkdir()
-    phase = "rollback" if damage in ("rollback_failure", "rollback_timeout") else "stage"
+    phase = "rollback" if damage in ("rollback_failure", "rollback_timeout", "rollback_transport") else "stage"
     for key, value in {"phase": phase, "nonce": NONCE, "image_n": m["image_n"],
                         "image_n_plus_1": m["image_n_plus_1"], "target_ref": m["target_ref"]}.items():
         (creds / key).write_text(value)
@@ -2059,7 +2237,7 @@ def test_guest_never_emits_evidence_for_failed_probe_or_action(qa, tmp_path, mon
     (tmp_path / "uptime").write_text("1000.00 50.00\n")
     for key, value in {"boot_id": "12345678-1234-4234-8234-123456789abc",
                        "policy": json.dumps({"default": [{"type": "reject"}], "transports": {"docker": {REPO: [{"type": "sigstoreSigned", "keyPath": "/usr/lib/snosi/cosign.pub"}]}}}),
-                       "key": "public-key", "update_check": "outcome=staged\n", "update_staged": "sha256:" + NEXT,
+                       "key": "public-key", "update_check": "outcome=staged\n", "update_staged": STAGED_FILE,
                        "osrelease": KERNEL + "\n"}.items():
         (tmp_path / key).write_text(value)
     if damage in ("policy", "outcome", "marker", "wrong_boot"):
@@ -2075,12 +2253,18 @@ def test_guest_never_emits_evidence_for_failed_probe_or_action(qa, tmp_path, mon
     monkeypatch.setattr(qa, "guest_lockdown", lambda: True)
     booted = NEXT if phase == "rollback" else N
     version = m["version_n_plus_1"] if phase == "rollback" else m["version_n"]
-    status = {"spec": {"image": {"image": m["target_ref"] if phase == "rollback" else m["image_n"], "transport": "registry"}},
+    status = {"spec": {"image": {"image": m["target_ref"], "transport": "containers-storage" if phase == "rollback" else "registry"}},
               "status": {"booted": {"image": {"imageDigest": "sha256:" + booted, "version": version}},
                              "staged": None,
                          "rollback": {"image": {"imageDigest": "sha256:" + N}} if phase == "rollback" else None}}
     if damage == "pre_spec":
         status["spec"]["image"]["image"] = f"{REPO}:latest"
+    if damage == "pre_image_n":
+        status["spec"]["image"]["image"] = m["image_n"]   # Firn records target_ref, never image_n
+    if damage == "pre_transport":
+        status["spec"]["image"]["transport"] = "containers-storage"   # stage pre-action must be registry
+    if damage == "rollback_transport":
+        status["spec"]["image"]["transport"] = "docker"
     calls = []
 
     def fake_run(args, **kwargs):
@@ -2113,7 +2297,7 @@ def test_guest_never_emits_evidence_for_failed_probe_or_action(qa, tmp_path, mon
         elif args[0] in ("mount", "umount"):
             data = b""
         elif args[0] == "/usr/libexec/bootc-update-stage":
-            status["spec"]["image"]["image"] = m["target_ref"]
+            status["spec"]["image"]["transport"] = "containers-storage"
             status["status"]["staged"] = {"image": {"imageDigest": "sha256:" + NEXT}}
             data = b""
         else:
@@ -2135,13 +2319,16 @@ def test_guest_never_emits_evidence_for_failed_probe_or_action(qa, tmp_path, mon
                "secure_boot": "secure_boot", "tpm_unsigned": "tpm_token", "tpm_pcrlock": "tpm_token",
                "tpm_wrong_pcrs": "tpm_token", "marker": "stage_marker", "outcome": "stage_outcome",
                "updater": "updater", "updater_timeout": "updater", "wrong_boot": "boot_identity", "rollback_failure": "rollback_action", "rollback_timeout": "rollback_action",
-               "pre_spec": "booted_image", "root_device_missing": "root_luks",
+               "pre_spec": "booted_image", "pre_image_n": "booted_image", "pre_transport": "booted_image",
+               "rollback_transport": "rollback_image", "root_device_missing": "root_luks",
                "uki_other_entry": "uki", "uki_unmeasured": "uki", "uki_partial": "uki", "uki_prefixed": "uki", "esp_ambiguous": "esp_discovery",
                "esp_missing": "esp_discovery", "bls_wrong": "uki_bls", "bls_linux": "uki_bls"}
     with pytest.raises(qa.GateError, match="^" + reasons[damage] + "$"):
         qa.guest(creds)
-    if damage in ("pre_spec", "uki_other_entry", "uki_unmeasured", "uki_partial", "uki_prefixed", "esp_ambiguous", "esp_missing", "bls_wrong", "bls_linux", "tpm_unsigned", "tpm_pcrlock", "tpm_wrong_pcrs"):
+    if damage in ("pre_spec", "pre_image_n", "pre_transport", "uki_other_entry", "uki_unmeasured", "uki_partial", "uki_prefixed", "esp_ambiguous", "esp_missing", "bls_wrong", "bls_linux", "tpm_unsigned", "tpm_pcrlock", "tpm_wrong_pcrs"):
         assert ["/usr/libexec/bootc-update-stage"] not in calls
+    if damage == "rollback_transport":
+        assert ["bootc", "rollback"] not in calls
     if damage in ("uki_other_entry", "uki_unmeasured", "uki_partial", "uki_prefixed", "bls_wrong", "bls_linux"):
         assert ["umount", str(esp)] in calls
     if damage in ("esp_ambiguous", "esp_missing"):
@@ -2371,7 +2558,7 @@ def test_workflow_deadline_covers_maximum_guest_windows_and_host_margins(qa):
     tag_checks = 9 * 120  # One bounded skopeo resolve for every tag invocation.
     vm_ops = (host_timeout(r"incus init") + 2 * host_timeout(r"incus config device add") +
               6 * host_timeout(r"incus config set") + 6 * host_timeout(r"incus start") +
-              6 * host_timeout(r"incus stop") + host_timeout(r"incus config show") +
+              host_timeout(r"incus stop") + host_timeout(r"incus config show") +
               host_timeout(r"curl") + host_timeout(r"virt-fw-vars --inplace") +
               host_timeout(r"virt-fw-vars -i") + host_timeout(r"incus config device remove") +
               host_timeout(r"incus delete"))
@@ -2379,7 +2566,13 @@ def test_workflow_deadline_covers_maximum_guest_windows_and_host_margins(qa):
     serial_timeout = re.search(r"(?m)^\s*timeout=(\d+), check=False, preexec_fn=limit", script)
     assert serial_timeout
     serial_polling = (5 + 6) * int(serial_timeout[1])
-    worst_case = guest_windows + iso_downloads + preflight + apt + tag_checks + vm_ops + serial_polling
+    # Each of the five phases waits up to the reboot budget for the guest's poweroff. An
+    # iteration is one bounded `incus info` plus a 5s sleep; the deadline check follows an
+    # iteration, so the overshoot is at most one more info and sleep.
+    info_timeout = re.search(r"info=\$\(timeout (\d+) incus info", script)
+    assert info_timeout and 'shutdown_end=$((SECONDS + shutdown_budget))' in script
+    shutdown_waits = 5 * (limits["reboot"] + 2 * int(info_timeout[1]) + 5)
+    worst_case = shutdown_waits + guest_windows + iso_downloads + preflight + apt + tag_checks + vm_ops + serial_polling
     assert entry["activeDeadlineSeconds"] * 10 >= worst_case * 11
 
 
@@ -2516,7 +2709,7 @@ def test_runner_failure_never_initializes_vm_and_does_not_expose_inputs(tmp_path
     assert (tmp_path / "results/result-summary.txt").read_text().strip() == expected
 
 
-@pytest.mark.parametrize("scenario", ["pass", "stage", "stage_keep", "iso_add_partial_keep", "iso_add_partial_detach_failed", "no_reboot", "tag_drift", "evidence_write", "output_write", "stage_teardown", "teardown", "serial_oversize", "serial_unreadable", "blocked_teardown", "phase_missing", "phase_malformed", "guest_error", "guest_error_crlf", "updater_error_crlf", "rollback_error_crlf", "duplicate_error_crlf", "conflicting_error_crlf", "install_missing", "install_failed", "install_firn_v1", "install_firn_v2", "install_firn_hash", "install_fake_code", "install_disk_detect", "install_disk_byid", "install_progress", "install_bad_progress", "install_secret_code", "install_fallback", "install_empty_stream", "install_validate_secret", "install_validate_unknown", "install_validate_unclassified", "install_validate_fake", "cumulative_pass", "cumulative_stale", "cumulative_reset", "cumulative_prefix", "fsverity", "fsverity_known"])
+@pytest.mark.parametrize("scenario", ["pass", "stage", "stage_keep", "iso_add_partial_keep", "iso_add_partial_detach_failed", "no_reboot", "tag_drift", "evidence_write", "output_write", "stage_teardown", "teardown", "serial_oversize", "serial_unreadable", "blocked_teardown", "phase_missing", "phase_malformed", "guest_error", "guest_error_crlf", "updater_error_crlf", "rollback_error_crlf", "duplicate_error_crlf", "conflicting_error_crlf", "install_missing", "install_failed", "install_firn_v1", "install_firn_v2", "install_firn_hash", "install_fake_code", "install_disk_detect", "install_disk_byid", "install_progress", "install_bad_progress", "install_secret_code", "install_fallback", "install_empty_stream", "install_validate_secret", "install_validate_unknown", "install_validate_unclassified", "install_validate_fake", "cumulative_pass", "cumulative_stale", "cumulative_reset", "cumulative_prefix", "fsverity", "fsverity_known", "guest_shutdown"])
 def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario):
     script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
     for old, new in (("ROOT=/var/lib/snosi-lab/snow-bootc-evidence", f"ROOT={tmp_path}/evidence"),
@@ -2525,10 +2718,12 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
                      ("/var/lib/incus/storage-pools", str(tmp_path / "pools")),
                      ("/opt/snow-qa/qa.py", str(tmp_path / "qa.py"))):
         script = script.replace(old, new)
-    if scenario in ('phase_missing', 'install_missing', 'install_failed', 'cumulative_stale', 'guest_error_crlf', 'updater_error_crlf', 'rollback_error_crlf', 'duplicate_error_crlf', 'conflicting_error_crlf'):
+    if scenario in ('phase_missing', 'install_missing', 'install_failed', 'cumulative_stale', 'guest_error_crlf', 'updater_error_crlf', 'rollback_error_crlf', 'duplicate_error_crlf', 'conflicting_error_crlf', 'guest_shutdown'):
         # Keep the actual await loop; cap its clock only in offline timeout tests.
         assert 'end=$((SECONDS + $2))' in script
         script = script.replace('end=$((SECONDS + $2))', 'end=$((SECONDS + 1))')
+        assert 'shutdown_end=$((SECONDS + shutdown_budget))' in script
+        script = script.replace('shutdown_end=$((SECONDS + shutdown_budget))', 'shutdown_end=$((SECONDS + 1))')
         script = script.replace('sleep 5', 'sleep 0.01')
     if scenario == "evidence_write":
         script = script.replace('local source="$1" dest="$2"',
@@ -2651,6 +2846,10 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
                 (root / 'console-log').write_bytes(previous + content.encode())
                 (root / 'console-count').write_text(str(count))
             sys.stdout.buffer.write((root / 'console-log').read_bytes())
+        elif args[0] == 'info':
+            # The guest powers itself off after its record; a stuck guest stays RUNNING.
+            stuck = os.environ['SCENARIO'] == 'guest_shutdown' and int((root / 'count').read_text()) == 3
+            print('Name: ' + args[1]); print('Status: ' + ('RUNNING' if stuck else 'STOPPED'))
         elif args[0] == 'delete' and os.environ['SCENARIO'] in ('stage_teardown', 'teardown', 'blocked_teardown'):
             sys.exit(1)
     ''' ).lstrip())
@@ -2704,6 +2903,9 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
             assert summary == 'PASS: verified_five_fresh_boots\n'
         assert len([e for e in events if e.startswith('phase ')]) == 5
         assert len([e for e in events if e.startswith('incus start')]) == 6
+        # Only the installer ISO is force-stopped; each phase waits for the guest's own poweroff.
+        assert [e for e in events if e.startswith('incus stop')] == ['incus stop snow-qa-mock-run --force']
+        assert len([e for e in events if e.startswith('incus info')]) == 5
         assert len(set(e.split()[2] for e in events if e.startswith('phase '))) == 5
         assert next(i for i, e in enumerate(events) if e.startswith('incus config device remove')) < next(i for i, e in enumerate(events) if e.startswith('phase installed-n '))
         assert events.index('tag after-stage') > next(i for i, e in enumerate(events) if e.startswith('phase stage '))
@@ -2784,4 +2986,5 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
                                     'cumulative_stale': 'BLOCKED: phase_timeout',
                                     'cumulative_reset': 'BLOCKED: channel_lineage',
                                     'cumulative_prefix': 'BLOCKED: channel_lineage',
+                                    'guest_shutdown': 'FAILED: guest_shutdown',
                                     'fsverity': 'FAILED: fsverity_errors'}[scenario]

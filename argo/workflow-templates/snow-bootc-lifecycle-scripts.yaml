@@ -301,6 +301,12 @@ data:
     Path(sys.argv[3]).write_bytes(snapshot[len(baseline):])
     PY
     }
+    vm_stopped() {
+      # Capture first: grep -q closing the pipe early must not make incus fail under pipefail.
+      local info
+      info=$(timeout 30 incus info "$VM" 2>/dev/null) || return 1
+      grep -qx 'Status: STOPPED' <<<"$info"
+    }
     await() {
       local needle="$1" observed_failure="${3:-}" end=$((SECONDS + $2))
       while (( SECONDS < end )); do
@@ -864,11 +870,16 @@ data:
     TimeoutStartSec=$budget
     StandardOutput=null
     StandardError=null
-    ExecStart=/bin/bash -ec 'install -d -m 0700 /run/snow-credentials; cut -d\" \" -f1 /proc/uptime > /run/snow-credentials/unit_started; install -d -m 0700 /opt/snow-qa; echo $qa_b64 | base64 -d > /run/snow-qa.z; python3 -c \"import zlib,sys;sys.stdout.buffer.write(zlib.decompress(sys.stdin.buffer.read()))\" < /run/snow-qa.z > /opt/snow-qa/qa.py; echo $manifest_b64 | base64 -d > /opt/snow-qa/normalized.json; printf %%s $phase > /run/snow-credentials/phase; printf %%s $nonce > /run/snow-credentials/nonce; printf %%s $n > /run/snow-credentials/image_n; printf %%s $next > /run/snow-credentials/image_n_plus_1; printf %%s $target > /run/snow-credentials/target_ref; python3 /opt/snow-qa/qa.py guest /run/snow-credentials'"
+    ExecStart=/bin/bash -ec 'install -d -m 0700 /run/snow-credentials; cut -d\" \" -f1 /proc/uptime > /run/snow-credentials/unit_started; install -d -m 0700 /opt/snow-qa; echo $qa_b64 | base64 -d > /run/snow-qa.z; python3 -c \"import zlib,sys;sys.stdout.buffer.write(zlib.decompress(sys.stdin.buffer.read()))\" < /run/snow-qa.z > /opt/snow-qa/qa.py; echo $manifest_b64 | base64 -d > /opt/snow-qa/normalized.json; printf %%s $phase > /run/snow-credentials/phase; printf %%s $nonce > /run/snow-credentials/nonce; printf %%s $n > /run/snow-credentials/image_n; printf %%s $next > /run/snow-credentials/image_n_plus_1; printf %%s $target > /run/snow-credentials/target_ref; python3 /opt/snow-qa/qa.py guest /run/snow-credentials; systemctl --no-block poweroff'"
       gb=$(printf '%s' "$guestunit" | base64 -w0) || fail unit_encoding
       [[ ${#gb} -lt 60000 ]] || fail unit_size
       gd=$(printf '[Unit]\nWants=snow-guest.service' | base64 -w0) || fail unit_encoding
-      timeout 60 incus config set "$VM" raw.qemu="-smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.snow-guest.service=$gb -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.multi-user.target=$gd" >/dev/null 2>&1 || fail phase_injection
+      # The image's hourly bootc-update-stage.timer must not stage N+1 early. A drop-in
+      # condition on a path nothing creates skips the timer's run; the stage phase
+      # calls /usr/libexec/bootc-update-stage directly and is not affected.
+      td=$(printf '[Unit]\nConditionPathExists=/run/snow-qa-timer-disabled' | base64 -w0) || fail unit_encoding
+      [[ ${#gd} -lt 60000 && ${#td} -lt 60000 ]] || fail unit_size
+      timeout 60 incus config set "$VM" raw.qemu="-smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.snow-guest.service=$gb -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.multi-user.target=$gd -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.bootc-update-stage.service=$td" >/dev/null 2>&1 || fail phase_injection
       timeout 120 incus start "$VM" >/dev/null 2>&1 || fail guest_start
       await SNOW_QA_V1 "$((budget + 300))"
       python3 /opt/snow-qa/qa.py phase "$WORK/normalized.json" "$phase" "$nonce" "$prior" "$WORK/serial" "$WORK/checks.json" > "$WORK/boot-id" 2>/dev/null || fail phase_mismatch
@@ -892,7 +903,15 @@ data:
       fi
       persist "$OUT/checks.txt" "$EVIDENCE/checks.txt" || fail evidence_write
       case "$phase" in stage|boot-n-plus-1|rollback) tag after-"$phase";; esac
-      timeout 120 incus stop "$VM" --force >/dev/null 2>&1 || fail guest_stop
+      # The guest unit powers off after its record so bootc finalizes the staged
+      # deployment at shutdown (a forced stop would skip it). Wait, bounded, for
+      # the VM to stop; never force-stop between phases.
+      shutdown_budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["reboot"])' "$WORK/normalized.json") || fail manifest_read
+      shutdown_end=$((SECONDS + shutdown_budget))
+      until vm_stopped; do
+        (( SECONDS < shutdown_end )) || fail guest_shutdown
+        sleep 5
+      done
     done
     # Judged after all five boots so a failure keeps every phase's evidence
     # (frostyard/snosi#1130). A count above 0 on a known-defect kernel is the
@@ -1307,6 +1326,33 @@ data:
         return full(r"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", value)
 
 
+    def spec_transport_allowed(phase, transport):
+        # installed-n is exactly what Firn wrote. Later phases follow the updater
+        # (containers-storage) or a booted deployment that still says registry;
+        # any other transport is foreign. The record keeps the observed value.
+        if phase == "installed-n":
+            return transport == "registry"
+        return transport in ("registry", "containers-storage")
+
+
+    def staged_marker(m, raw):
+        # /run/snosi/update-staged is three key=value lines: image, digest, staged_at.
+        require(type(raw) is bytes and 0 < len(raw) <= 4096, "stage_marker")
+        try:
+            lines = raw.decode("ascii").splitlines()
+        except UnicodeError as exc:
+            raise GateError("stage_marker") from exc
+        fields = {}
+        for line in lines:
+            key, separator, value = line.partition("=")
+            require(separator == "=" and key in ("image", "digest", "staged_at")
+                    and key not in fields and re.fullmatch(r"[ -~]{1,256}", value) is not None, "stage_marker")
+            fields[key] = value
+        require("image" in fields and "digest" in fields, "stage_marker")
+        require(fields["digest"] == "sha256:" + m["image_n_plus_1"].rsplit(":", 1)[-1]
+                and fields["image"] == m["target_ref"], "stage_marker")
+
+
     def verdict(m, phase, nonce, prior, record):
         require(type(record) is dict and set(record) == RECORD_FIELDS, "record_fields")
         require(record["phase"] == phase and record["nonce"] == nonce, "record_identity")
@@ -1314,8 +1360,10 @@ data:
         newer = phase in ("boot-n-plus-1", "rollback")
         require(record["booted_digest"] == m["image_n_plus_1" if newer else "image_n"].rsplit(":", 1)[-1]
                 and record["booted_version"] == m["version_n_plus_1" if newer else "version_n"], "booted_image")
-        require(record["spec_image"] == (m["image_n"] if phase == "installed-n" else m["target_ref"])
-                and record["spec_transport"] == "registry", "target_spec")
+        # Firn installs with --target-imgref, so the spec names target_ref in every phase.
+        # The Snow updater switches the spec to containers-storage (same name).
+        require(record["spec_image"] == m["target_ref"], "target_spec")
+        require(spec_transport_allowed(phase, record["spec_transport"]), "target_transport")
         require(record["staged_digest"] == (m["image_n_plus_1"].rsplit(":", 1)[-1] if phase == "stage" else None), "staged_image")
         require(record["rollback_digest"] == (m["image_n"].rsplit(":", 1)[-1] if newer else
                 m["image_n_plus_1"].rsplit(":", 1)[-1] if phase == "boot-n" else None), "rollback_image")
@@ -1585,17 +1633,17 @@ data:
         if phase == "stage":
             # Attest the pre-action N boot before invoking the shipped updater.
             require(booted == m["image_n"].rsplit(":", 1)[-1] and version == m["version_n"]
-                    and spec == m["image_n"] and transport == "registry" and staged is None and rollback is None, "booted_image")
+                    and spec == m["target_ref"] and transport == "registry" and staged is None and rollback is None, "booted_image")
             guest_command(["/usr/libexec/bootc-update-stage"], "updater", timeout=action_timeout("updater"))
             spec, transport, booted, version, staged, rollback = status_fields(guest_status())
             marker_text = GUEST_PATHS["update_check"].read_text()
             require(len(marker_text) <= 4096 and "outcome=staged" in marker_text.splitlines(), "stage_outcome")
-            marker_text = GUEST_PATHS["update_staged"].read_text().strip()
-            require(marker_text == "sha256:" + m["image_n_plus_1"].rsplit(":", 1)[-1], "stage_marker")
+            with GUEST_PATHS["update_staged"].open("rb") as source:
+                staged_marker(m, source.read(4097))
             action, marker = "staged", m["image_n_plus_1"].rsplit(":", 1)[-1]
         elif phase == "rollback":
             require(booted == m["image_n_plus_1"].rsplit(":", 1)[-1] and version == m["version_n_plus_1"]
-                    and spec == m["target_ref"] and transport == "registry" and
+                    and spec == m["target_ref"] and spec_transport_allowed(phase, transport) and
                     staged is None and rollback == m["image_n"].rsplit(":", 1)[-1], "rollback_image")
             # Preserve the attested pre-action state: rollback changes pending
             # deployment bookkeeping, not the currently running boot.
