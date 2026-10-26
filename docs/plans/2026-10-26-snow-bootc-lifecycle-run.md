@@ -50,6 +50,11 @@ build from snosi `37b042bb` (#1144, #1150) is also a valid N+1; keep this one
 unless Brian wants those changes in the update. An N (1.16.8) → N+1 (1.17.1) run is the more
 valuable later proof; it needs a lab change to pin the assembly per image.
 
+This paragraph records the selection rationale on 2026-10-26. Since lab #153,
+preflight accepts `bootc-1.16.8-storage-digest-v1` or
+`bootc-1.17.1-storage-digest-v1` for each image independently and records
+both, so the N (1.16.8) → N+1 (1.17.1) run Brian approved can follow this one.
+
 ## Phase 1 — Correct the lane's guest contract (lab PR [#146](https://github.com/frostyard/lab/pull/146))
 
 The lane never got past install, so its guest expectations were never met by
