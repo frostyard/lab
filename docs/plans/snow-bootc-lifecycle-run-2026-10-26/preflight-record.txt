@@ -1,0 +1,42 @@
+# Preflight record: run-snow-bootc-lifecycle manifest (read-only)
+# date: 2026-10-26T00:25:46Z (UTC). Lab ConfigMap qa.py from origin/main c66e42ca98c8.
+# command: PREFLIGHT_IMAGE=docker.io/library/debian:trixie PREFLIGHT_PULL=never \
+#   scripts/snow-lifecycle-preflight/run.sh docs/plans/snow-bootc-lifecycle-run-2026-10-26/manifest.json <local copy of the ISO>
+# runner image: docker.io/library/debian:trixie (local; this host's containers policy rejects pulling trixie-slim).
+# target_ref PENDING is expected: no one has created ghcr.io/frostyard/snow:qa-controlled yet.
+
+tools: cosign devel; skopeo version 1.18.0; gpgv (GnuPG) 2.4.7
+manifest file sha256=7298395eb004300357a434f66a48bc4e2613ff40b5de87e4dd0327888c7c829a
+CHECK index_key_sha256 PASS shared/native-ab/keys/import-pubring.gpg@39cf19887547 sha256=977fe2de56de82dab559709178bbf335a28cc648237c69cb88ee3de008c0fc97
+CHECK cosign_key_sha256 PASS cosign.pub@39cf19887547 sha256=3e79750429976e1f1a01cb2a71d0aa1caf61ad918302553b2a8df397c4514fc5
+CHECK mok_cert_sha256 PASS shared/native-ab/keys/mok-2026.crt@39cf19887547 sha256=0446e4780b809711af17934da0b5a39487da1da35d1fe7dbaae5e7f9f39545b4
+CHECK index_key_fingerprint PASS F37282A35CB6BDFEBFC8FE775A2EAC5C8216FD68
+CHECK iso_index_signature PASS VALIDSIG primary=F37282A35CB6BDFEBFC8FE775A2EAC5C8216FD68
+CHECK iso_index_entry PASS snosi-installer_20261025233920_x86-64.iso 664047bccf58483ecee7a89404d91969b1f97e544e3a5d046a0308d9849e3a7e (1 entries in the index)
+CHECK iso_url_versioned PASS https://repository.frostyard.org/isos/native/v1/snosi-installer_20261025233920_x86-64.iso
+CHECK iso_sha256 PASS 664047bccf58483ecee7a89404d91969b1f97e544e3a5d046a0308d9849e3a7e (747030528 bytes)
+CHECK iso_esp PASS GPT partition 2 is an ESP at byte 104448
+CHECK iso_initramfs PASS firn-installer/initrd.img 630914739 bytes
+CHECK iso_embedded:/usr/lib/snosi/cosign.pub PASS equals pinned cosign.pub
+CHECK iso_embedded:/usr/lib/snosi/os-update-pubring.gpg PASS equals pinned index.gpg
+CHECK iso_embedded:/usr/lib/snosi/mok.crt PASS equals pinned mok.crt
+CHECK iso_catalog PASS {"n":1,"ref":"ghcr.io/frostyard/snow:latest","key":"/usr/lib/snosi/cosign.pub"}
+CHECK iso_release PASS SNOSI_INSTALLER_VERSION=20261025233920 SNOSI_INSTALLER_BUILD_ID=firn-installer 
+CHECK iso_firn INFO sha256=a37d9d07a78a4a39c2a0f8b86360e457370a6816310d3ab27ae6b30ca526013f version=0.9.0
+CHECK iso_bootc INFO no bootc in the installer initramfs: Firn runs bootc from image N with podman
+CHECK oci_signature_n PASS 1 claim(s), signed digest=sha256:01a5af1b51676474adaf4eca5ec88948e6ad2980a64086f39389b72b2f78cb2b
+CHECK oci_digest_n PASS sha256:01a5af1b51676474adaf4eca5ec88948e6ad2980a64086f39389b72b2f78cb2b
+CHECK oci_labels_n PASS {"v":"20261025113924","a":"bootc-1.16.8-storage-digest-v1","c":"true"}
+CHECK oci_version_annotation_n PASS 20261025113924 (application/vnd.oci.image.manifest.v1+json)
+CHECK version_tag_n PASS ghcr.io/frostyard/snow:20261025113924 -> sha256:01a5af1b51676474adaf4eca5ec88948e6ad2980a64086f39389b72b2f78cb2b
+CHECK oci_signature_n_plus_1 PASS 1 claim(s), signed digest=sha256:2a51013c012d0c1def2e8fee8c532ace3d8e3f320404df14af384fa2143b57e5
+CHECK oci_digest_n_plus_1 PASS sha256:2a51013c012d0c1def2e8fee8c532ace3d8e3f320404df14af384fa2143b57e5
+CHECK oci_labels_n_plus_1 PASS {"v":"20261025201457","a":"bootc-1.16.8-storage-digest-v1","c":"true"}
+CHECK oci_version_annotation_n_plus_1 PASS 20261025201457 (application/vnd.oci.image.manifest.v1+json)
+CHECK version_tag_n_plus_1 PASS ghcr.io/frostyard/snow:20261025201457 -> sha256:2a51013c012d0c1def2e8fee8c532ace3d8e3f320404df14af384fa2143b57e5
+CHECK order_distinct PASS 20261025113924 < 20261025201457, digests distinct
+CHECK target_ref PENDING ghcr.io/frostyard/snow:qa-controlled does not exist yet (create it before submit)
+CHECK lane_validate PASS canonical manifest_sha256=a68f5c5411a927e763bc4a3317549e11ce92077db6825c3eda283d1510fdf4dd
+CHECK lane_preflight PASS qa.py preflight with only the target-tag resolve deferred
+lane preflight.json: {"cosign_key_sha256":"3e79750429976e1f1a01cb2a71d0aa1caf61ad918302553b2a8df397c4514fc5","digest_n":"01a5af1b51676474adaf4eca5ec88948e6ad2980a64086f39389b72b2f78cb2b","digest_n_plus_1":"2a51013c012d0c1def2e8fee8c532ace3d8e3f320404df14af384fa2143b57e5","firn_compatibility":"installer-vm-v1-recipe-validator-only","firn_provenance":"iso-esp-p2/firn-installer/initrd.img","firn_sha256":"a37d9d07a78a4a39c2a0f8b86360e457370a6816310d3ab27ae6b30ca526013f","index_key_sha256":"977fe2de56de82dab559709178bbf335a28cc648237c69cb88ee3de008c0fc97","iso_sha256":"664047bccf58483ecee7a89404d91969b1f97e544e3a5d046a0308d9849e3a7e","manifest_sha256":"a68f5c5411a927e763bc4a3317549e11ce92077db6825c3eda283d1510fdf4dd","mok_cert_sha256":"0446e4780b809711af17934da0b5a39487da1da35d1fe7dbaae5e7f9f39545b4","snosi_commit":"39cf19887547f83200866e94e5753888706b49fa","tags":{},"timestamp":"2026-10-26T00:25:46.336494+00:00","version_n":"20261025113924","version_n_plus_1":"20261025201457"}
+failures=0 target_ready=0
