@@ -1,0 +1,22 @@
+{
+  "family": "snow",
+  "product": "snow",
+  "iso_url": "https://repository.frostyard.org/isos/native/v1/snosi-installer_20261026003253_x86-64.iso",
+  "iso_sha256": "e70df1a4fe3e1cdcc888e578cc2abd7ad3a58520abf68aebf7b64a7307cc2a2a",
+  "iso_version": "20261026003253",
+  "image_n": "ghcr.io/frostyard/snow@sha256:01a5af1b51676474adaf4eca5ec88948e6ad2980a64086f39389b72b2f78cb2b",
+  "version_n": "20261025113924",
+  "version_tag_n": "ghcr.io/frostyard/snow:20261025113924",
+  "image_n_plus_1": "ghcr.io/frostyard/snow@sha256:2a51013c012d0c1def2e8fee8c532ace3d8e3f320404df14af384fa2143b57e5",
+  "version_n_plus_1": "20261025201457",
+  "version_tag_n_plus_1": "ghcr.io/frostyard/snow:20261025201457",
+  "target_ref": "ghcr.io/frostyard/snow:qa-controlled",
+  "snosi_commit": "39cf19887547f83200866e94e5753888706b49fa",
+  "index_key_sha256": "977fe2de56de82dab559709178bbf335a28cc648237c69cb88ee3de008c0fc97",
+  "cosign_key_sha256": "3e79750429976e1f1a01cb2a71d0aa1caf61ad918302553b2a8df397c4514fc5",
+  "mok_cert_sha256": "0446e4780b809711af17934da0b5a39487da1da35d1fe7dbaae5e7f9f39545b4",
+  "trust_fingerprint": "F37282A35CB6BDFEBFC8FE775A2EAC5C8216FD68",
+  "secureboot": true,
+  "encryption": "tpm2-luks-passphrase",
+  "timeouts": {"iso_boot": 1800, "install": 7200, "installed_boot": 1800, "stage": 3600, "reboot": 1800}
+}

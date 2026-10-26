@@ -38,7 +38,8 @@ Org-wide decisions binding this repo: [org-adrs.md](org-adrs.md).
 
 ### Plans
 
-*(none yet)*
+- [2026-10-26 — First Snow bootc N → N+1 update and rollback run](plans/2026-10-26-snow-bootc-lifecycle-run.md)
+  — selected inputs, preflight record and submit runbook
 
 ### Uncategorized (indexed where they stand)
 
