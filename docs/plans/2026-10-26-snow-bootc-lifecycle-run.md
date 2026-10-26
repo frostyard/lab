@@ -46,7 +46,7 @@ rejects it in preflight (`oci_assembly`), because `qa.py` pins
 image) is the right choice now. An N (1.16.8) → N+1 (1.17.1) run is the more
 valuable later proof; it needs a lab change to pin the assembly per image.
 
-## Phase 1 — Correct the lane's guest contract (lab PR #PR_A)
+## Phase 1 — Correct the lane's guest contract (lab PR [#146](https://github.com/frostyard/lab/pull/146))
 
 The lane never got past install, so its guest expectations were never met by
 real software. Read against Firn and snosi source, a run with the current
@@ -64,7 +64,7 @@ real software. Read against Firn and snosi source, a run with the current
 - The hourly `bootc-update-stage.timer` can stage N+1 during the
   `installed-n` boot and break the sequence.
 
-- **Done when:** lab PR #PR_A is merged and Argo CD `frostyard-lab` is
+- **Done when:** lab PR [#146](https://github.com/frostyard/lab/pull/146) is merged and Argo CD `frostyard-lab` is
   `Synced` at that commit (step 1 below checks the ConfigMap).
 
 ## Phase 2 — Preflight (done 2026-10-26, read-only)
@@ -162,7 +162,8 @@ lab cluster. Steps 3 and 5 are publications and stay with Brian.
 
    Private evidence is under
    `/var/lib/snosi-lab/snow-bootc-evidence/<workflow-name>/` on the
-   control-plane node. The run can take up to 16 h (queue included).
+   control-plane node. The run itself is bounded at 17 h, 18 h with the
+   semaphore queue (after #146).
 
 8. **After the run.** Leave `qa-controlled` in place; it names a signed
    image. Do **not** delete it through the GitHub package UI: GHCR deletes a
@@ -183,7 +184,7 @@ lab cluster. Steps 3 and 5 are publications and stay with Brian.
 ## Open questions
 
 - **Spec transport after stage:** bootc reports the staged or booted
-  deployment's spec. #PR_A requires `registry` at `installed-n` and before
+  deployment's spec. #146 requires `registry` at `installed-n` and before
   stage, and accepts `registry` or `containers-storage` after it. Decide the
   exact per-phase value from this run's records, by the next lifecycle change.
 - **fs-verity noise during stage:** [snosi#1130](https://github.com/frostyard/snosi/issues/1130)
