@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-26T21:00:19Z",
+  "generated": "2026-10-26T21:30:18Z",
   "lanes": [
     {
       "laneKey": "run-firn-install-tests",
@@ -68,9 +68,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1793048400",
+        "name": "publish-results-1793050200",
         "phase": "Running",
-        "started": "2026-10-26T21:00:00Z",
+        "started": "2026-10-26T21:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -130,29 +130,62 @@
       "qaRun": null
     },
     {
+      "laneKey": "image-poll-floe-latest",
+      "template": "image-poller",
+      "label": "Registry digest poll",
+      "kind": "poll",
+      "latest": {
+        "name": "image-poll-floe-latest-1793049600",
+        "phase": "Succeeded",
+        "started": "2026-10-26T21:20:00Z",
+        "finished": "2026-10-26T21:21:41Z",
+        "durationSeconds": 101,
+        "template": "image-poller",
+        "laneKey": "image-poll-floe-latest",
+        "qaOutcome": "passed",
+        "kind": "poll",
+        "label": "Registry digest poll",
+        "trigger": "scheduled",
+        "result": "14 passed, 9 skipped",
+        "digest": "sha256:72893afd774b4ee219deddb9bd3cc85c8412ceb2be1ccb698719997b6ff365cd",
+        "checks": []
+      },
+      "runs": 3,
+      "everGreen": true,
+      "qaRun": {
+        "name": "image-poll-floe-latest-1793049600",
+        "finished": "2026-10-26T21:21:41Z",
+        "result": "14 passed, 9 skipped"
+      }
+    },
+    {
       "laneKey": "image-poll-snow-latest",
       "template": "image-poller",
       "label": "Registry digest poll",
       "kind": "poll",
       "latest": {
         "name": "image-poll-snow-latest-1793048400",
-        "phase": "Running",
+        "phase": "Succeeded",
         "started": "2026-10-26T21:00:00Z",
-        "finished": null,
-        "durationSeconds": null,
+        "finished": "2026-10-26T21:01:44Z",
+        "durationSeconds": 104,
         "template": "image-poller",
         "laneKey": "image-poll-snow-latest",
-        "qaOutcome": "unknown",
+        "qaOutcome": "passed",
         "kind": "poll",
         "label": "Registry digest poll",
         "trigger": "scheduled",
-        "result": null,
-        "digest": null,
+        "result": "20 passed, 3 skipped",
+        "digest": "sha256:ff707d4c2445ef11acd901ea807e2f9d56212cde99289e1e0a9a9bc39a7da011",
         "checks": []
       },
-      "runs": 5,
+      "runs": 4,
       "everGreen": true,
-      "qaRun": null
+      "qaRun": {
+        "name": "image-poll-snow-latest-1793048400",
+        "finished": "2026-10-26T21:01:44Z",
+        "result": "20 passed, 3 skipped"
+      }
     },
     {
       "laneKey": "image-poll-sundog-latest",
@@ -211,60 +244,63 @@
         "finished": "2026-10-26T18:41:48Z",
         "result": "20 passed, 3 skipped"
       }
-    },
-    {
-      "laneKey": "image-poll-floe-latest",
-      "template": "image-poller",
-      "label": "Registry digest poll",
-      "kind": "poll",
-      "latest": {
-        "name": "image-poll-floe-latest-1793038800",
-        "phase": "Succeeded",
-        "started": "2026-10-26T18:20:00Z",
-        "finished": "2026-10-26T18:21:30Z",
-        "durationSeconds": 90,
-        "template": "image-poller",
-        "laneKey": "image-poll-floe-latest",
-        "qaOutcome": "passed",
-        "kind": "poll",
-        "label": "Registry digest poll",
-        "trigger": "scheduled",
-        "result": "14 passed, 9 skipped",
-        "digest": "sha256:89c2da788f0db45e602d32bf867ba7774fc9fc96937b34db0945057593e8b5de",
-        "checks": []
-      },
-      "runs": 3,
-      "everGreen": true,
-      "qaRun": {
-        "name": "image-poll-floe-latest-1793038800",
-        "finished": "2026-10-26T18:21:30Z",
-        "result": "14 passed, 9 skipped"
-      }
     }
   ],
   "runs": [
     {
-      "name": "image-poll-snow-latest-1793048400",
+      "name": "publish-results-1793050200",
       "phase": "Running",
-      "started": "2026-10-26T21:00:00Z",
+      "started": "2026-10-26T21:30:00Z",
       "finished": null,
       "durationSeconds": null,
-      "template": "image-poller",
-      "laneKey": "image-poll-snow-latest",
+      "template": "publish",
+      "laneKey": "publish",
       "qaOutcome": "unknown",
-      "kind": "poll",
-      "label": "Registry digest poll",
+      "kind": "other",
+      "label": "publish",
       "trigger": "scheduled",
       "result": null,
       "digest": null,
       "checks": []
     },
     {
-      "name": "publish-results-1793048400",
-      "phase": "Running",
+      "name": "image-poll-floe-latest-1793049600",
+      "phase": "Succeeded",
+      "started": "2026-10-26T21:20:00Z",
+      "finished": "2026-10-26T21:21:41Z",
+      "durationSeconds": 101,
+      "template": "image-poller",
+      "laneKey": "image-poll-floe-latest",
+      "qaOutcome": "passed",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": "14 passed, 9 skipped",
+      "digest": "sha256:72893afd774b4ee219deddb9bd3cc85c8412ceb2be1ccb698719997b6ff365cd",
+      "checks": []
+    },
+    {
+      "name": "image-poll-snow-latest-1793048400",
+      "phase": "Succeeded",
       "started": "2026-10-26T21:00:00Z",
-      "finished": null,
-      "durationSeconds": null,
+      "finished": "2026-10-26T21:01:44Z",
+      "durationSeconds": 104,
+      "template": "image-poller",
+      "laneKey": "image-poll-snow-latest",
+      "qaOutcome": "passed",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": "20 passed, 3 skipped",
+      "digest": "sha256:ff707d4c2445ef11acd901ea807e2f9d56212cde99289e1e0a9a9bc39a7da011",
+      "checks": []
+    },
+    {
+      "name": "publish-results-1793048400",
+      "phase": "Succeeded",
+      "started": "2026-10-26T21:00:00Z",
+      "finished": "2026-10-26T21:00:32Z",
+      "durationSeconds": 32,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -297,22 +333,6 @@
       "started": "2026-10-26T20:00:00Z",
       "finished": "2026-10-26T20:00:32Z",
       "durationSeconds": 32,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1793043000",
-      "phase": "Succeeded",
-      "started": "2026-10-26T19:30:00Z",
-      "finished": "2026-10-26T19:30:33Z",
-      "durationSeconds": 33,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -606,22 +626,6 @@
       "checks": []
     },
     {
-      "name": "image-poll-floe-latest-1793017200",
-      "phase": "Succeeded",
-      "started": "2026-10-26T12:20:00Z",
-      "finished": "2026-10-26T12:21:36Z",
-      "durationSeconds": 96,
-      "template": "image-poller",
-      "laneKey": "image-poll-floe-latest",
-      "qaOutcome": "passed",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": "14 passed, 9 skipped",
-      "digest": "sha256:af3d1af85758a6023261ff916401dc879b1a3275648472a9eb2408a03977ee5d",
-      "checks": []
-    },
-    {
       "name": "orphan-pod-gc-1793017020",
       "phase": "Succeeded",
       "started": "2026-10-26T12:17:00Z",
@@ -656,22 +660,6 @@
         "tag=before-install timestamp=2026-10-26T12:16:35.035637+00:00",
         "tag=before-installed-n timestamp=2026-10-26T12:21:33.508216+00:00"
       ]
-    },
-    {
-      "name": "image-poll-snow-latest-1793016000",
-      "phase": "Succeeded",
-      "started": "2026-10-26T12:00:00Z",
-      "finished": "2026-10-26T12:01:52Z",
-      "durationSeconds": 112,
-      "template": "image-poller",
-      "laneKey": "image-poll-snow-latest",
-      "qaOutcome": "passed",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": "20 passed, 3 skipped",
-      "digest": "sha256:1a3a0b5896c3e7ddbc4417460adbd359d0855bfaff526954b52c4385127233cd",
-      "checks": []
     },
     {
       "name": "run-snow-bootc-lifecycle-clvpb",
