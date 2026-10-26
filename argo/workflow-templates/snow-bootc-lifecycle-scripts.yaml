@@ -909,7 +909,7 @@ data:
     Wants=network-online.target
     [Service]
     Type=oneshot
-    TimeoutStartSec=$budget
+    TimeoutStartSec=$((budget + 150))
     StandardOutput=null
     StandardError=null
     ExecStart=/bin/bash -ec 'install -d -m 0700 /run/snow-credentials; cut -d\" \" -f1 /proc/uptime > /run/snow-credentials/unit_started; install -d -m 0700 /opt/snow-qa; echo $qa_b64 | base64 -d > /run/snow-qa.z; python3 -c \"import zlib,sys;sys.stdout.buffer.write(zlib.decompress(sys.stdin.buffer.read()))\" < /run/snow-qa.z > /opt/snow-qa/qa.py; echo $manifest_b64 | base64 -d > /opt/snow-qa/normalized.json; printf %%s $phase > /run/snow-credentials/phase; printf %%s $nonce > /run/snow-credentials/nonce; printf %%s $n > /run/snow-credentials/image_n; printf %%s $next > /run/snow-credentials/image_n_plus_1; printf %%s $target > /run/snow-credentials/target_ref; python3 /opt/snow-qa/qa.py guest /run/snow-credentials; systemctl --no-block poweroff'"
@@ -1740,20 +1740,30 @@ data:
                 pass
 
 
-    def serial_getty_ready():
+    def serial_getty_ready(timeout=10):
         try:
             pid = subprocess.run(["systemctl", "show", "-p", "MainPID", "--value", "serial-getty@ttyS0.service"],
-                                 capture_output=True, timeout=10, check=False).stdout.strip()
+                                 capture_output=True, timeout=timeout, check=False).stdout.strip()
             return pid.isdigit() and pid != b"0" and Path("/proc", pid.decode(), "comm").read_text().strip() == "agetty"
         except (OSError, subprocess.SubprocessError, ValueError):
             return False
 
 
-    def publish(line, wait=90):
+    # The replay wait is bounded as a whole; the guest unit's TimeoutStartSec
+    # adds PUBLISH_MARGIN seconds beyond the phase budget for it and the
+    # poweroff request, so it never eats the probes' own margin.
+    PUBLISH_WAIT = 90
+    PUBLISH_MARGIN = 150
+
+
+    def publish(line, wait=PUBLISH_WAIT):
         emit(line)
         deadline = time.monotonic() + wait
-        while time.monotonic() < deadline and not serial_getty_ready():
-            time.sleep(2)
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or serial_getty_ready(timeout=max(1, min(10, remaining))):
+                break
+            time.sleep(max(0, min(2, deadline - time.monotonic())))
         emit(line)
 
 

@@ -783,7 +783,7 @@ def test_guest_publishes_to_serial_and_replays_after_getty(qa, tmp_path, monkeyp
     ttys0, console = tmp_path / "ttyS0", tmp_path / "console"
     monkeypatch.setattr(qa, "GUEST_CONSOLES", (str(ttys0), str(console)))
     states = iter([False, False, True])
-    monkeypatch.setattr(qa, "serial_getty_ready", lambda: next(states))
+    monkeypatch.setattr(qa, "serial_getty_ready", lambda **_: next(states))
     monkeypatch.setattr(qa.time, "sleep", lambda _: None)
     monkeypatch.setattr(qa, "guest", lambda _: "SNOW_QA_V1 abc")
     assert qa.main(["guest", "/irrelevant"]) == 0
@@ -791,7 +791,7 @@ def test_guest_publishes_to_serial_and_replays_after_getty(qa, tmp_path, monkeyp
     assert console.read_text() == "SNOW_QA_V1 abc\n" * 2
     # A missing ttyS0 is not fatal, and the wait for agetty is bounded.
     monkeypatch.setattr(qa, "GUEST_CONSOLES", (str(tmp_path / "missing" / "ttyS0"),))
-    monkeypatch.setattr(qa, "serial_getty_ready", lambda: False)
+    monkeypatch.setattr(qa, "serial_getty_ready", lambda **_: False)
     clock = iter(range(0, 1000, 10))
     monkeypatch.setattr(qa.time, "monotonic", lambda: next(clock))
     assert qa.main(["guest", "/irrelevant"]) == 0
@@ -2252,7 +2252,8 @@ def test_run_guest_unit_uses_manifest_phase_budget_without_systemd_specifiers(tm
                                "n": f"{REPO}@sha256:{N}", "next": f"{REPO}@sha256:{NEXT}",
                                "target": f"{REPO}:qa-controlled"},
                           capture_output=True, check=True, text=True).stdout
-    assert unit.splitlines().count(f'TimeoutStartSec={manifest()["timeouts"][key]}') == 1
+    # The phase budget plus qa.py PUBLISH_MARGIN for the record replay and poweroff.
+    assert unit.splitlines().count(f'TimeoutStartSec={manifest()["timeouts"][key] + 150}') == 1
     assert "%" not in unit.replace("%%", "")
 
 
@@ -2275,8 +2276,9 @@ def test_host_wait_outlives_guest_unit_budget(tmp_path, phase, key):
                             env={**os.environ, "WORK": str(work), "phase": phase})
     unit_budget = int(re.search(r"(?m)^TimeoutStartSec=(\d+)$", result.stdout).group(1))
     host_wait = int(re.search(r"(?m)^HOST_WAIT=(\d+)$", result.stdout).group(1))
-    assert unit_budget == manifest()["timeouts"][key]
-    assert host_wait >= unit_budget + 300
+    assert unit_budget == manifest()["timeouts"][key] + 150
+    # The record is first written within the phase budget; its replay within the unit budget.
+    assert host_wait >= unit_budget + 150
 
 
 def test_host_install_wait_outlives_install_unit_budget():
@@ -2312,7 +2314,7 @@ def test_guest_failure_console_reports_only_safe_gate_code(qa, monkeypatch, caps
 
     monkeypatch.setattr("builtins.open", safe_open)
     monkeypatch.setattr(qa, "GUEST_CONSOLES", ("/dev/console",))
-    monkeypatch.setattr(qa, "serial_getty_ready", lambda: True)
+    monkeypatch.setattr(qa, "serial_getty_ready", lambda **_: True)
     monkeypatch.setattr(qa, "guest", lambda _: (_ for _ in ()).throw(qa.GateError(reason)))
     assert qa.main(["guest", "/irrelevant"]) == 1
     # Written once at once, and once more after serial-getty's TTY setup.
@@ -3204,3 +3206,26 @@ def test_firn_install_has_no_file_size_limit_and_bounded_outputs(tmp_path, firn_
     log = run / "snow-install.log"
     assert log.stat().st_size == 1048576 and log.stat().st_mode & 0o777 == 0o600
     assert (run / "snow-install.ndjson").read_text() == '{"event":"start","steps":[]}\n'
+
+
+def test_guest_publish_margin_matches_unit_timeout_and_bounds_the_replay(qa, monkeypatch):
+    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    assert f"TimeoutStartSec=$((budget + {qa.PUBLISH_MARGIN}))" in script
+    assert qa.PUBLISH_WAIT + 20 <= qa.PUBLISH_MARGIN  # room for the last query, the emit and poweroff
+    # A getty that never comes, with slow queries: the whole wait stays bounded,
+    # and no query may run past the deadline.
+    now = [0.0]
+    monkeypatch.setattr(qa.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(qa.time, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds))
+    timeouts = []
+
+    def slow_query(timeout=10):
+        timeouts.append(timeout)
+        now[0] += timeout
+        return False
+
+    monkeypatch.setattr(qa, "serial_getty_ready", slow_query)
+    monkeypatch.setattr(qa, "emit", lambda line: None)
+    qa.publish("SNOW_QA_V1 abc")
+    assert now[0] <= qa.PUBLISH_WAIT + 1
+    assert all(1 <= value <= 10 for value in timeouts)
