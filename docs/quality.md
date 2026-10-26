@@ -247,14 +247,16 @@ sanitized summaries; a missing file/check is not a pass. Each stopped VM's
 bounded console snapshot, taken after the guest powers itself off, becomes the
 byte-exact baseline before its next start;
 only newly appended bytes are checked for that boot's nonce and record.
-Every capture must extend the last accepted capture byte for byte. Incus 7
-starts a new console log at each instance start, so one exception applies: at
-the first capture after a start, before anything of the new boot was accepted,
-a log that does not contain the whole previous snapshot (or follows a blank
-one) starts a new lineage and is searched in full (the fresh nonce and boot ID
-still bind the record). Any later reset, a truncation, or a changed prefix
-that still carries the old snapshot makes lineage ambiguous (`BLOCKED`), not a
-fresh proof. The full snapshots and per-boot slices are transient only. Raw
+Incus 7 starts a new console log whenever QEMU starts: at each instance start
+and at a guest reboot inside a phase. A capture that does not contain the
+previous boot's log (kept unchanged for the whole boot) is such a new log and
+is searched whole (the fresh nonce and boot ID still bind the record). The
+searched bytes must never contain that previous log: a changed log that still
+carries it cannot be split safely and makes lineage ambiguous (`BLOCKED`), not
+a fresh proof. Limit: a guest error printed before such a restart and not yet
+seen by the runner is lost with the old log; a later attempt in the same phase
+must then still produce a complete, valid record, so a phase result means the
+final attempt passed, not every attempt. The full snapshots and per-boot slices are transient only. Raw
 serial console, raw installer traces, passwords, recovery material and NVRAM
 are never retained as evidence or output parameters; transient raw serial is
 deleted. Redacted diagnostics and serial may be incomplete and must not be

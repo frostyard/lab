@@ -2774,7 +2774,7 @@ def test_runner_failure_never_initializes_vm_and_does_not_expose_inputs(tmp_path
     assert (tmp_path / "results/result-summary.txt").read_text().strip() == expected
 
 
-@pytest.mark.parametrize("scenario", ["pass", "stage", "stage_keep", "iso_add_partial_keep", "iso_add_partial_detach_failed", "no_reboot", "tag_drift", "evidence_write", "output_write", "stage_teardown", "teardown", "serial_oversize", "serial_unreadable", "blocked_teardown", "phase_missing", "phase_malformed", "guest_error", "guest_error_crlf", "updater_error_crlf", "rollback_error_crlf", "duplicate_error_crlf", "conflicting_error_crlf", "install_missing", "install_failed", "install_firn_v2", "install_firn_hash", "install_fake_code", "install_disk_detect", "install_disk_byid", "install_progress", "install_bad_progress", "install_secret_code", "install_fallback", "install_empty_stream", "install_validate_secret", "install_validate_unknown", "install_validate_unclassified", "install_validate_fake", "cumulative_pass", "cumulative_stale", "cumulative_reset", "cumulative_prefix", "fsverity", "fsverity_known", "guest_shutdown", "nvram_escape", "console_reset_each_start", "reset_mid_boot", "reset_twice", "reset_then_truncate", "empty_then_reset"])
+@pytest.mark.parametrize("scenario", ["pass", "stage", "stage_keep", "iso_add_partial_keep", "iso_add_partial_detach_failed", "no_reboot", "tag_drift", "evidence_write", "output_write", "stage_teardown", "teardown", "serial_oversize", "serial_unreadable", "blocked_teardown", "phase_missing", "phase_malformed", "guest_error", "guest_error_crlf", "updater_error_crlf", "rollback_error_crlf", "duplicate_error_crlf", "conflicting_error_crlf", "install_missing", "install_failed", "install_firn_v2", "install_firn_hash", "install_fake_code", "install_disk_detect", "install_disk_byid", "install_progress", "install_bad_progress", "install_secret_code", "install_fallback", "install_empty_stream", "install_validate_secret", "install_validate_unknown", "install_validate_unclassified", "install_validate_fake", "cumulative_pass", "cumulative_stale", "cumulative_reset", "cumulative_prefix", "fsverity", "fsverity_known", "guest_shutdown", "nvram_escape", "console_reset_each_start", "reset_mid_boot", "reset_twice", "reset_then_truncate", "empty_then_reset", "installer_restart", "reset_then_stale", "reset_then_stale_error"])
 def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario):
     script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
     for old, new in (("ROOT=/var/lib/snosi-lab/snow-bootc-evidence", f"ROOT={tmp_path}/evidence"),
@@ -2783,7 +2783,7 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
                      ("/var/lib/incus/storage-pools", str(tmp_path / "pools")),
                      ("/opt/snow-qa/qa.py", str(tmp_path / "qa.py"))):
         script = script.replace(old, new)
-    if scenario in ('reset_twice', 'empty_then_reset', 'reset_mid_boot'):
+    if scenario in ('reset_twice', 'empty_then_reset', 'reset_mid_boot', 'installer_restart', 'reset_then_stale', 'reset_then_stale_error'):
         script = script.replace('sleep 5', 'sleep 0.01')  # several polls in one boot
     if scenario in ('phase_missing', 'install_missing', 'install_failed', 'cumulative_stale', 'guest_error_crlf', 'updater_error_crlf', 'rollback_error_crlf', 'duplicate_error_crlf', 'conflicting_error_crlf', 'guest_shutdown'):
         # Keep the actual await loop; cap its clock only in offline timeout tests.
@@ -2922,6 +2922,15 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
             if os.environ['SCENARIO'] in ('cumulative_reset', 'console_reset_each_start', 'reset_twice', 'reset_then_truncate', 'empty_then_reset') and count >= 2:
                 if os.environ['SCENARIO'] != 'cumulative_reset' or count == 3:
                     previous = b''  # Incus 7: a new console log at each start.
+            if os.environ['SCENARIO'] == 'installer_restart' and count == 1:
+                # The ISO boot restarts QEMU early (firmware reset): the log starts over.
+                reads = int((root / 'reads').read_text()) + 1 if (root / 'reads').exists() else 1
+                (root / 'reads').write_text(str(reads))
+                if reads == 1:
+                    sys.stdout.buffer.write(b'firmware banner\\n'); sys.exit(0)
+                (root / 'console-log').write_bytes(content.encode())
+                (root / 'console-count').write_text(str(count))
+                sys.stdout.buffer.write(content.encode()); sys.exit(0)
             sequences = {
                 # Incus 7 resets at each start; then the log changes again within the boot.
                 'reset_twice': [b'boot-start\\n', b'other\\n' + content.encode()],
@@ -2929,6 +2938,10 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
                 'reset_then_truncate': [content.encode(), b''],
                 # An empty first capture is a reset; later output must extend it.
                 'empty_then_reset': [b'', b'data\\n', b'X' + content.encode()],
+                # A new log is accepted, then the previous boot's log reappears
+                # (with this boot's record, or with an old error marker).
+                'reset_then_stale': [b'fresh-banner\\n', b'CHANGED\\n' + previous + content.encode()],
+                'reset_then_stale_error': [b'fresh-banner\\n', b'CHANGED\\n' + previous + b'SNOW_QA_ERR bootc_status\\n'],
             }
             if os.environ['SCENARIO'] in sequences and count == 3:
                 reads = int((root / 'reads').read_text()) + 1 if (root / 'reads').exists() else 1
@@ -2998,7 +3011,8 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
     summary = summary_path.read_text() if summary_path.exists() else (tmp_path / 'evidence/mock-run/result-summary.txt').read_text()
     assert not any('console' in p.name or p.name == 'serial-full'
                    for p in (tmp_path / 'evidence/mock-run').iterdir())
-    if scenario in ('pass', 'cumulative_pass', 'fsverity_known', 'cumulative_reset', 'console_reset_each_start'):
+    if scenario in ('pass', 'cumulative_pass', 'fsverity_known', 'cumulative_reset', 'console_reset_each_start',
+                    'reset_mid_boot', 'reset_twice', 'reset_then_truncate', 'empty_then_reset', 'installer_restart'):
         assert not (tmp_path / 'evidence/mock-run/serial-redacted.log').exists()
         assert result.returncode == 0, (summary, result.stderr)
         if scenario == 'fsverity_known':
@@ -3094,11 +3108,9 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
                                       'install_disk_detect': 'FAILED: install_failed:disk_detect',
                                       'install_disk_byid': 'FAILED: install_failed:disk_byid',
                                     'cumulative_stale': 'BLOCKED: phase_timeout',
-                                    'reset_mid_boot': 'BLOCKED: channel_lineage',
-                                    'reset_twice': 'BLOCKED: channel_lineage',
-                                    'reset_then_truncate': 'BLOCKED: channel_lineage',
-                                    'empty_then_reset': 'BLOCKED: channel_lineage',
                                     'cumulative_prefix': 'BLOCKED: channel_lineage',
+                                    'reset_then_stale': 'BLOCKED: channel_lineage',
+                                    'reset_then_stale_error': 'BLOCKED: channel_lineage',
                                     'guest_shutdown': 'FAILED: guest_shutdown',
                                     'nvram_escape': 'BLOCKED: host_storage_unsupported',
                                     'fsverity': 'FAILED: fsverity_errors'}[scenario]
