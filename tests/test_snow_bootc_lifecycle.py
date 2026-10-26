@@ -174,7 +174,9 @@ EMBEDDED_FILES = {
 }
 
 
-def fake_inspector(args, m, failure, member_prefix="./", duplicate_members=False, catalog_data=None, **kwargs):
+def fake_inspector(args, m, failure, member_prefix="./", duplicate_members=False, catalog_data=None,
+                   assembly_n="bootc-1.16.8-storage-digest-v1",
+                   assembly_n_plus_1="bootc-1.16.8-storage-digest-v1", **kwargs):
     """Only externally observable inspector responses; fail on unexpected commands."""
     assert isinstance(args, list)
     if args[0] == "curl":
@@ -276,7 +278,7 @@ def fake_inspector(args, m, failure, member_prefix="./", duplicate_members=False
         if ref == m["version_tag_n"] and failure == "version_tag":
             digest = NEXT
         labels = {"org.opencontainers.image.version": m["version_n"] if digest == N else m["version_n_plus_1"],
-                   "io.snosi.bootc.secureboot-assembly": "bootc-1.16.8-storage-digest-v1",
+                  "io.snosi.bootc.secureboot-assembly": assembly_n if digest == N else assembly_n_plus_1,
                   "io.snosi.bootc.secureboot-capable": "true"}
         if failure == "labels":
             labels["org.opencontainers.image.version"] = "bad"
@@ -530,7 +532,48 @@ def test_preflight_records_vm_validator_contract_without_executing_firn(qa, tmp_
     assert data["firn_sha256"] == hashlib.sha256(EMBEDDED_FILES["usr/bin/firn"]).hexdigest()
     assert data["firn_provenance"] == "iso-esp-p2/firn-installer/initrd.img"
     assert data["firn_compatibility"] == "installer-vm-v2-recipe-validator-only"
+    assert data["assembly_n"] == "bootc-1.16.8-storage-digest-v1"
+    assert data["assembly_n_plus_1"] == "bootc-1.16.8-storage-digest-v1"
     qa.check_state(m, data)
+
+
+def preflight_manifest():
+    m = manifest()
+    m.update(index_key_sha256=hashlib.sha256(b"index-key").hexdigest(),
+             cosign_key_sha256=hashlib.sha256(b"cosign-key").hexdigest(),
+             mok_cert_sha256=hashlib.sha256(b"mok-cert").hexdigest(),
+             iso_sha256=hashlib.sha256(ISO_BYTES).hexdigest())
+    return m
+
+
+def test_preflight_accepts_a_listed_assembly_per_image_and_records_both(qa, tmp_path, monkeypatch):
+    # An N to N+1 update may cross a bootc version, so the two labels differ.
+    m = preflight_manifest()
+    checks = tmp_path / "checks.json"
+    monkeypatch.setattr(qa.subprocess, "run", lambda args, **kwargs: fake_inspector(
+        args, m, None, assembly_n="bootc-1.16.8-storage-digest-v1",
+        assembly_n_plus_1="bootc-1.17.1-storage-digest-v1", **kwargs))
+    qa.preflight(m, checks)
+    data = json.loads(checks.read_text())
+    assert data["assembly_n"] == "bootc-1.16.8-storage-digest-v1"
+    assert data["assembly_n_plus_1"] == "bootc-1.17.1-storage-digest-v1"
+    qa.check_state(m, data)
+    qa.tag(m, "before-stage", checks)
+
+
+@pytest.mark.parametrize("which", ["assembly_n", "assembly_n_plus_1"])
+@pytest.mark.parametrize("assembly", ["bootc-1.17.2-storage-digest-v1", "bootc-1.16.8-storage-digest-v2",
+                                      "bootc-1.17.1-storage-digest", "bootc-1.16.8-storage-digest-v1-extra"])
+def test_preflight_rejects_an_unlisted_assembly_label(qa, tmp_path, monkeypatch, which, assembly):
+    # The allowlist is exact: no pattern, no neighbouring bootc version.
+    m = preflight_manifest()
+    labels = {which: assembly}
+    checked = tmp_path / "checks.json"
+    monkeypatch.setattr(qa.subprocess, "run", lambda args, **kwargs: fake_inspector(
+        args, m, None, **labels, **kwargs))
+    with pytest.raises(qa.GateError, match="^oci_assembly$"):
+        qa.preflight(m, checked)
+    assert not checked.exists()
 
 
 def test_signed_index_subkey_accepts_pinned_primary(qa, tmp_path, monkeypatch):
@@ -575,6 +618,12 @@ def test_tag_rejects_oversize_nonfinite_or_duplicate_checks_without_registry(qa,
     lambda data, m: data.update(firn_sha256="not-a-digest"),
     lambda data, m: data.update(firn_compatibility="unverified"),
     lambda data, m: data.update(firn_provenance="untrusted-source"),
+    lambda data, m: data.update(assembly_n="bootc-1.17.2-storage-digest-v1"),
+    lambda data, m: data.update(assembly_n_plus_1="bootc-1.16.8-storage-digest-v2"),
+    lambda data, m: data.update(assembly_n="bootc-1.16.8-storage-digest-v1", assembly_n_plus_1="bad"),
+    lambda data, m: data.pop("assembly_n"),
+    lambda data, m: data.pop("assembly_n_plus_1"),
+    lambda data, m: data.update(assembly_n=None),
     lambda data, m: data.update(iso_sha256="0" * 64),
     lambda data, m: data.update(snosi_commit="0" * 40),
     lambda data, m: data.update(digest_n="0" * 64),
@@ -597,6 +646,8 @@ def test_tag_rejects_forged_or_incomplete_checks_before_registry(qa, tmp_path, m
             "iso_sha256": m["iso_sha256"], "firn_sha256": "f" * 64,
             "firn_provenance": "iso-esp-p2/firn-installer/initrd.img",
              "firn_compatibility": "installer-vm-v2-recipe-validator-only",
+            "assembly_n": "bootc-1.16.8-storage-digest-v1",
+            "assembly_n_plus_1": "bootc-1.16.8-storage-digest-v1",
             "index_key_sha256": m["index_key_sha256"],
             "cosign_key_sha256": m["cosign_key_sha256"],
             "mok_cert_sha256": m["mok_cert_sha256"], "tags": {}}
@@ -696,7 +747,9 @@ def phase_files(tmp_path, qa):
         version_n_plus_1=m["version_n_plus_1"], digest_n=N, digest_n_plus_1=NEXT,
         snosi_commit=COMMIT, iso_sha256=ISO, firn_sha256="f" * 64,
         firn_provenance="iso-esp-p2/firn-installer/initrd.img",
-        firn_compatibility="installer-vm-v2-recipe-validator-only", index_key_sha256="1" * 64,
+        firn_compatibility="installer-vm-v2-recipe-validator-only",
+        assembly_n="bootc-1.16.8-storage-digest-v1",
+        assembly_n_plus_1="bootc-1.16.8-storage-digest-v1", index_key_sha256="1" * 64,
         cosign_key_sha256="2" * 64, mok_cert_sha256="3" * 64, tags={})))
     return normalized, checks
 

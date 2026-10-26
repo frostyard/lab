@@ -226,11 +226,14 @@ pattern-redacted, best-effort, and relies on Firn output never reaching the
 console; neither file is a blanket guarantee against arbitrary secret text.
 Preflight checks the signed
 ISO index against the pinned fingerprint and records the ISO hash, key hashes,
-verified N/N+1 OCI digests, version mappings, and the extracted Firn binary's
-hash and provenance. The narrow Firn v2 recipe validator runs inside the
-disposable installer VM before `firn install`, after checking the guest Firn
-hash against preflight. This validator check alone does **not** prove full
-Firn installed compatibility. Before install, real-recipe validation reports
+verified N/N+1 OCI digests, version mappings, the observed
+`io.snosi.bootc.secureboot-assembly` label of each image, and the extracted
+Firn binary's hash and provenance. The assembly label must be one of the listed
+`bootc-1.16.8-storage-digest-v1` or `bootc-1.17.1-storage-digest-v1`, so an N to
+N+1 run may cross a bootc version. The narrow Firn v2 recipe validator runs
+inside the disposable installer VM before `firn install`, after checking the
+guest Firn hash against preflight. This validator check alone does **not** prove
+full Firn installed compatibility. Before install, real-recipe validation reports
 an allowlisted Firn issue code or `unclassified`, never its diagnostic text. The ISO `SHA256SUMS.gpg`
 authenticates the ISO index only, not an A/B update index. Registry tag
 resolution is read-only (`skopeo inspect`), not a signature check: cosign

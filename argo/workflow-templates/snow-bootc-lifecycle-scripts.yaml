@@ -976,9 +976,10 @@ data:
     ISO_BASE = "https://repository.frostyard.org/isos/native/v1/"
     FINGERPRINT = "F37282A35CB6BDFEBFC8FE775A2EAC5C8216FD68"
     SNOSI_COMMIT = "39cf19887547f83200866e94e5753888706b49fa"
-    ASSEMBLY = "bootc-1.16.8-storage-digest-v1"
+    # Snosi derives this label from the bootc version, so N and N+1 may differ.
+    ASSEMBLIES = ("bootc-1.16.8-storage-digest-v1", "bootc-1.17.1-storage-digest-v1")
     FIELDS = set("family product iso_url iso_sha256 iso_version image_n version_n version_tag_n image_n_plus_1 version_n_plus_1 version_tag_n_plus_1 target_ref snosi_commit index_key_sha256 cosign_key_sha256 mok_cert_sha256 trust_fingerprint secureboot encryption timeouts".split())
-    CHECK_FIELDS = set("manifest_sha256 timestamp version_n version_n_plus_1 digest_n digest_n_plus_1 snosi_commit iso_sha256 firn_sha256 firn_provenance firn_compatibility index_key_sha256 cosign_key_sha256 mok_cert_sha256 tags".split())
+    CHECK_FIELDS = set("manifest_sha256 timestamp version_n version_n_plus_1 digest_n digest_n_plus_1 assembly_n assembly_n_plus_1 snosi_commit iso_sha256 firn_sha256 firn_provenance firn_compatibility index_key_sha256 cosign_key_sha256 mok_cert_sha256 tags".split())
     LIMITS = {"iso_boot": 1800, "install": 7200, "installed_boot": 1800,
               "stage": 3600, "reboot": 1800}
     PHASES = ("installed-n", "stage", "boot-n-plus-1", "rollback", "boot-n")
@@ -1216,6 +1217,9 @@ data:
 
     def check_state(m, data):
         require(type(data) is dict and set(data) == CHECK_FIELDS, "checks_state")
+        require(type(data["assembly_n"]) is str and data["assembly_n"] in ASSEMBLIES and
+                type(data["assembly_n_plus_1"]) is str and data["assembly_n_plus_1"] in ASSEMBLIES,
+                "checks_state")
         expected = {"manifest_sha256": sha(canonical(m)), "version_n": m["version_n"],
                     "version_n_plus_1": m["version_n_plus_1"],
                     "digest_n": m["image_n"].rsplit(":", 1)[-1],
@@ -1297,13 +1301,17 @@ data:
                     digest.update(chunk)
             require(digest.hexdigest() == m["iso_sha256"], "iso_hash")
             firn_sha256 = inspect_iso(iso, root, m, key, cosign, mok)
-            for ref, version in ((m["image_n"], m["version_n"]), (m["image_n_plus_1"], m["version_n_plus_1"])):
+            assemblies = {}
+            for which, ref, version in (("n", m["image_n"], m["version_n"]),
+                                        ("n_plus_1", m["image_n_plus_1"], m["version_n_plus_1"])):
                 inspect(["cosign", "verify", "--key", str(pub), ref], "oci_signature")
                 info = image_info(ref)
                 require(info["Digest"] == "sha256:" + ref.rsplit(":", 1)[-1], "oci_digest")
                 labels = info.get("Labels")
                 require(type(labels) is dict and labels.get("org.opencontainers.image.version") == version, "oci_version")
-                require(labels.get("io.snosi.bootc.secureboot-assembly") == ASSEMBLY, "oci_assembly")
+                assembly = labels.get("io.snosi.bootc.secureboot-assembly")
+                require(type(assembly) is str and assembly in ASSEMBLIES, "oci_assembly")
+                assemblies[which] = assembly
                 require(labels.get("io.snosi.bootc.secureboot-capable") == "true", "oci_capability")
         resolve(m["version_tag_n"], m["image_n"].rsplit(":", 1)[-1])
         resolve(m["version_tag_n_plus_1"], m["image_n_plus_1"].rsplit(":", 1)[-1])
@@ -1314,6 +1322,7 @@ data:
                            "version_n": m["version_n"], "version_n_plus_1": m["version_n_plus_1"],
                            "digest_n": m["image_n"].rsplit(":", 1)[-1],
                            "digest_n_plus_1": m["image_n_plus_1"].rsplit(":", 1)[-1],
+                           "assembly_n": assemblies["n"], "assembly_n_plus_1": assemblies["n_plus_1"],
                            "snosi_commit": m["snosi_commit"], "iso_sha256": m["iso_sha256"],
                            "firn_sha256": firn_sha256, "firn_provenance": "iso-esp-p2/firn-installer/initrd.img",
                            "firn_compatibility": "installer-vm-v2-recipe-validator-only",
