@@ -322,7 +322,9 @@ for the complete evidence and limits of the retired lane.
 
 [`run-snow-bootc-lifecycle`](argo/workflow-templates/run-snow-bootc-lifecycle.yaml)
 is an advisory WorkflowTemplate for Snow bootc only; it is not scheduled,
-not a release gate and has no live pass on record here. It instantiates the
+not a release gate. Its first manual main-lane PASS
+(`run-snow-bootc-lifecycle-tbjnp`, 2026-10-26, bootc 1.16.8 N → N+1) is
+recorded in the [run plan](docs/plans/2026-10-26-snow-bootc-lifecycle-run.md#result-2026-10-26-pass). It instantiates the
 existing console, concurrency, logging and non-vacuous-evidence decisions in
 [ADR-0005](docs/adr/0005-console-marker-protocol-for-agentless-guests.md),
 [ADR-0007](docs/adr/0007-cross-workflow-concurrency-via-template-semaphores.md),

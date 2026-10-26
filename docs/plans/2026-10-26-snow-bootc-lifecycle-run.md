@@ -5,11 +5,12 @@ This plan prepares one manual
 run: a Firn-installed Snow image N, staged to N+1 by the shipped updater,
 booted, rolled back and booted again as N. It holds the selected public
 inputs, a [preflight record](snow-bootc-lifecycle-run-2026-10-26/preflight-record.txt)
-with each check shown, and the exact submit steps. Nothing here is a run or a
-pass: the lane stays advisory and unproven
+with each check shown, the exact submit steps and, in
+[Phase 4](#result-2026-10-26-pass), the result: the first manual main-lane
+`PASS: verified_five_fresh_boots` on 2026-10-26. The lane stays advisory and
+not a release gate
 ([ADR-0003](../adr/0003-unproven-is-distinct-from-failed.md),
-[ADR-0010](../adr/0010-vacuous-success-is-forbidden.md)) until a submitted
-run reaches `PASS: verified_five_fresh_boots`. The field contract is in the
+[ADR-0010](../adr/0010-vacuous-success-is-forbidden.md)). The field contract is in the
 [README](../../README.md#manual-snow-bootc-lifecycle); evidence limits are in
 [quality.md](../quality.md#manual-snow-bootc-lifecycle-evidence).
 
@@ -194,6 +195,48 @@ lab cluster. Steps 3 and 5 are publications and stay with Brian.
   serial record. A `FAILED` or `BLOCKED` result is
   evidence too: record the code, then fix forward.
 - **Done when:** the result is recorded here and the run data shows the run.
+
+### Result (2026-10-26): PASS
+
+`run-snow-bootc-lifecycle-tbjnp` (main lane at lab `4dcde2af`, submitted
+17:10:49Z, ended 17:24:34Z):
+
+```
+PASS: verified_five_fresh_boots;fsverity_known_defect=7.2.11+deb14-amd64
+```
+
+| Phase | Boot ID | Kernel | fs-verity errors |
+| --- | --- | --- | --- |
+| `installed-n` | `e852717e-2ac2-43de-a64f-fbe4702f602c` | `7.2.11+deb14-amd64` | 4 |
+| `stage` | `2cbf2dde-a846-4487-9f17-9ed84335857c` | `7.2.11+deb14-amd64` | 6 |
+| `boot-n-plus-1` | `d1723327-e13b-4dbf-81d1-a982a23e20a2` | `7.2.11+deb14-amd64` | 1 |
+| `rollback` | `cbd6e82c-8f1f-475f-94a8-8a717d31f329` | `7.2.11+deb14-amd64` | 0 |
+| `boot-n` | `5c0b35a0-972b-493f-a3c4-c404d2a0f7e9` | `7.2.11+deb14-amd64` | 0 |
+
+Inputs: ISO `snosi-installer_20261026164045` (Firn 0.9.1, hash `bc6a19ad…`;
+the signed index had rotated 4 times since the first selection, each refresh
+re-verified by the preflight tool), N `20261025113924`, N+1 `20261025201457`,
+`qa-controlled` at N+1, manifest `manifest_sha256` `fb8f065f…91da`. Every
+phase attested Secure Boot, kernel lockdown, a measured Type #2 UKI, a
+TPM-unlocked LUKS root on btrfs, the shipped signature policy, the signed
+pull of N+1 and the expected `bootc status`; fs-verity counts are on the
+known-defect kernel (snosi#1130), recorded, not failed. Before it, the dev run
+`dev-snow-bootc-lifecycle-xm98m` of the same lane code had passed at
+16:36:33Z; a dev run validates lane code and is not evidence about images.
+
+This is the first manual main-lane PASS: Firn install of N, signed update to
+N+1 by the shipped updater, N+1 boot, `bootc rollback`, N boot, for this one
+same-version (bootc 1.16.8) pair. Each earlier live run stopped on one lane
+defect that the offline tests could not show; the fixes were lab #146
+(guest contract), #148 (Firn schema 2), #149 (by-id partition names), #150
+(`RLIMIT_FSIZE` on podman), #151 (Incus 7 `config show` and `qemu.nvram`),
+#152 and #154 (console log restarts), #155 (the record on tty0, plus 4 probe
+defects found by an audit against a booted Snow), #156 (poweroff before the
+host read the record) and #157 (the getty prompt). #147 added this plan and
+the preflight tool, #153 per-image assembly support for a later cross-version
+run, and #158 dev submits so later lane fixes are proven before a merge.
+It proves nothing about recovery, key rotation, Snowfield hardware or release
+readiness.
 
 ## Open questions
 
