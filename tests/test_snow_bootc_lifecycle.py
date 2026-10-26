@@ -2646,7 +2646,9 @@ def test_manual_lane_docs_match_runner_manifest_and_template(qa):
     assert 'exit 1' not in commands[0]
     assert not re.search(r"sha256:[a-f0-9]{64}|:latest|:example|:placeholder", commands[0])
     assert "not scheduled" in section and "not a release gate" in section
-    assert "no live pass" in quality_section
+    # The first manual main-lane PASS is recorded, and the lane stays advisory.
+    assert "first manual main-lane PASS" in quality_section and "release gate" in quality_section
+    assert "first manual main-lane PASS" in section
 
 
 def test_workflow_deadline_covers_maximum_guest_windows_and_host_margins(qa):

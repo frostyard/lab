@@ -5,11 +5,12 @@ This plan prepares one manual
 run: a Firn-installed Snow image N, staged to N+1 by the shipped updater,
 booted, rolled back and booted again as N. It holds the selected public
 inputs, a [preflight record](snow-bootc-lifecycle-run-2026-10-26/preflight-record.txt)
-with each check shown, and the exact submit steps. Nothing here is a run or a
-pass: the lane stays advisory and unproven
+with each check shown, the exact submit steps and, in
+[Phase 4](#result-2026-10-26-pass), the result: the first manual main-lane
+`PASS: verified_five_fresh_boots` on 2026-10-26. The lane stays advisory and
+not a release gate
 ([ADR-0003](../adr/0003-unproven-is-distinct-from-failed.md),
-[ADR-0010](../adr/0010-vacuous-success-is-forbidden.md)) until a submitted
-run reaches `PASS: verified_five_fresh_boots`. The field contract is in the
+[ADR-0010](../adr/0010-vacuous-success-is-forbidden.md)). The field contract is in the
 [README](../../README.md#manual-snow-bootc-lifecycle); evidence limits are in
 [quality.md](../quality.md#manual-snow-bootc-lifecycle-evidence).
 
@@ -219,17 +220,23 @@ re-verified by the preflight tool), N `20261025113924`, N+1 `20261025201457`,
 phase attested Secure Boot, kernel lockdown, a measured Type #2 UKI, a
 TPM-unlocked LUKS root on btrfs, the shipped signature policy, the signed
 pull of N+1 and the expected `bootc status`; fs-verity counts are on the
-known-defect kernel (snosi#1130), recorded, not failed. The dev run
-`dev-snow-bootc-lifecycle-xm98m` of the same lane had passed at 16:36:33Z.
+known-defect kernel (snosi#1130), recorded, not failed. Before it, the dev run
+`dev-snow-bootc-lifecycle-xm98m` of the same lane code had passed at
+16:36:33Z; a dev run validates lane code and is not evidence about images.
 
-This is the first live proof of the lane: Firn install of N, signed update to
-N+1 by the shipped updater, N+1 boot, `bootc rollback`, N boot. It took lab
-#146–#157: each earlier live run stopped on one lane defect that the offline
-tests could not show (Firn schema 2, by-id partition names, RLIMIT_FSIZE on
-podman, Incus 7 `config show`/`qemu.nvram`, console log restarts, the record
-on tty0, the getty prompt, poweroff before the host read the record), plus 4
-probe defects found by an audit against a booted Snow (#155). lab #158 added
-dev submits so later lane fixes are proven before a merge.
+This is the first manual main-lane PASS: Firn install of N, signed update to
+N+1 by the shipped updater, N+1 boot, `bootc rollback`, N boot, for this one
+same-version (bootc 1.16.8) pair. Each earlier live run stopped on one lane
+defect that the offline tests could not show; the fixes were lab #146
+(guest contract), #148 (Firn schema 2), #149 (by-id partition names), #150
+(`RLIMIT_FSIZE` on podman), #151 (Incus 7 `config show` and `qemu.nvram`),
+#152 and #154 (console log restarts), #155 (the record on tty0, plus 4 probe
+defects found by an audit against a booted Snow), #156 (poweroff before the
+host read the record) and #157 (the getty prompt). #147 added this plan and
+the preflight tool, #153 per-image assembly support for a later cross-version
+run, and #158 dev submits so later lane fixes are proven before a merge.
+It proves nothing about recovery, key rotation, Snowfield hardware or release
+readiness.
 
 ## Open questions
 

@@ -193,7 +193,9 @@ accepts explicit public `manifest-json` and optional `keep-vm-on-failure`
 (default `false`); the exact fields, trust pins,
 operator-controlled N+1 target tag and submission interface are in the
 [README](../README.md#manual-snow-bootc-lifecycle). It is not scheduled, not a
-release gate, and has no live pass documented. Offline mocked tests cannot
+release gate. Its first manual main-lane PASS (`run-snow-bootc-lifecycle-tbjnp`,
+2026-10-26) is recorded in the
+[run plan](plans/2026-10-26-snow-bootc-lifecycle-run.md#result-2026-10-26-pass). Offline mocked tests cannot
 establish published ISO/OCI availability or Snowfield hardware qualification.
 Submission includes the JSON in the `argo` process argv; workflow/pod parameters
 and env are visible: no secrets in the manifest. After tool provisioning,
@@ -307,8 +309,8 @@ start events cannot establish a step and report `unknown`. An empty stream repor
 `unknown:empty_stream` and an incomplete stream reports `unknown:stream_truncated`.
 Neither is a passing lane. The host-side MOK varstore stand-in is **not** human
 enrollment. An untested SMBIOS injection/serial channel is not a passing lane;
-no real Incus/cluster/registry run is claimed. Even a VM `PASS` would prove
-only this bounded N/N+1 Snow bootc path: not recovery, key rotation,
+one real Incus/cluster/registry run passed (see the run plan). A VM `PASS`
+proves only this bounded N/N+1 Snow bootc path: not recovery, key rotation,
 reconciliation, Snowfield hardware or release readiness. Interpret alongside
 the [console marker](adr/0005-console-marker-protocol-for-agentless-guests.md),
 [semaphore](adr/0007-cross-workflow-concurrency-via-template-semaphores.md),
