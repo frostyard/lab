@@ -509,8 +509,9 @@ data:
     # RLIMIT_FSIZE on Firn: podman and bootc inherit that limit and fail to
     # store any image blob above it (EFBIG, run-snow-bootc-lifecycle-6prlx).
     # Each sink keeps the first 1 MiB and drains the rest, so Firn never sees
-    # a broken pipe; pipefail keeps Firn's exit status.
-    bounded() { { head -c 1048576; cat >/dev/null; } > "$1"; }
+    # a broken pipe; pipefail keeps Firn's exit status. A sink that cannot
+    # write (open failure, a full /run) still drains, then fails the pipeline.
+    bounded() { local rc=0; head -c 1048576 > "$1" || rc=$?; cat >/dev/null || rc=$?; return "$rc"; }
     if { firn install /run/snow-recipe.toml --confirm "$disk" --uefi on --secure-boot on --tpm on --json-progress 2>&1 1>&3 3>&- | bounded /run/snow-install.log; } 3>&1 | bounded /run/snow-install.ndjson; then
       printf 'SNOW_INSTALL_OK\n' > /dev/ttyS0
     else
