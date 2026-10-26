@@ -287,27 +287,31 @@ data:
     }
     serial() {
       capture_serial || blocked serial_capture
-      # The instance may retain prior boots' console lines. Compare the entire
-      # bounded snapshot byte-for-byte with the pre-start baseline, and hand
-      # only the newly appended region to the marker search and phase verifier.
-      # Incus 7 instead starts a new console log at each instance start
-      # (run-snow-bootc-lifecycle-g7kvk). Accept that only at the first capture
-      # after a start, and only when no byte of the previous log survives: the
-      # new log then stands alone and becomes this boot's baseline-free view.
-      # A reset later in a boot, a truncation, or a changed prefix that still
-      # carries the old log cannot establish boot lineage.
-      python3 - "$WORK/serial-baseline" "$WORK/serial-full" "$WORK/serial" "${SERIAL_FRESH_START:-0}" <<'PY' || blocked channel_lineage
+      # Two files: serial-baseline is the slice offset (the pre-start snapshot,
+      # or empty after an accepted reset); serial-last is the last accepted
+      # snapshot. Every capture must extend serial-last byte for byte, so a
+      # reset, truncation or changed prefix inside one lineage is BLOCKED.
+      # Only the newly appended region reaches the marker search and verifier.
+      # Incus 7 starts a new console log at each instance start
+      # (run-snow-bootc-lifecycle-g7kvk). One exception covers that: at the
+      # first capture after a start, before anything of the new boot was
+      # accepted, a snapshot that does not contain the whole previous snapshot
+      # (or follows a blank one) starts a new lineage with an empty offset.
+      python3 - "$WORK/serial-baseline" "$WORK/serial-last" "$WORK/serial-full" "$WORK/serial" "${SERIAL_FRESH_START:-0}" <<'PY' || blocked channel_lineage
     import sys
     from pathlib import Path
-    baseline = Path(sys.argv[1]).read_bytes()
-    snapshot = Path(sys.argv[2]).read_bytes()
-    if snapshot.startswith(baseline):
-        Path(sys.argv[3]).write_bytes(snapshot[len(baseline):])
-    elif sys.argv[4] == "1" and (not baseline.strip() or baseline not in snapshot):
-        Path(sys.argv[1]).write_bytes(b"")
-        Path(sys.argv[3]).write_bytes(snapshot)
+    offset_path, last_path = Path(sys.argv[1]), Path(sys.argv[2])
+    offset, last = offset_path.read_bytes(), last_path.read_bytes()
+    snapshot = Path(sys.argv[3]).read_bytes()
+    if snapshot.startswith(last) and snapshot.startswith(offset):
+        new = snapshot[len(offset):]
+    elif sys.argv[5] == "1" and last == offset and (not last.strip() or last not in snapshot):
+        offset_path.write_bytes(b"")
+        new = snapshot
     else:
         sys.exit(1)
+    Path(sys.argv[4]).write_bytes(new)
+    last_path.write_bytes(snapshot)
     PY
       SERIAL_FRESH_START=0
     }
@@ -419,6 +423,7 @@ data:
     firn_sha256=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["firn_sha256"])' "$WORK/checks.json") || fail checks_read
     [[ "$firn_sha256" =~ ^[0-9a-f]{64}$ ]] || fail checks_read
     : > "$WORK/serial-baseline" # Empty log for the newly initialized VM.
+    : > "$WORK/serial-last"
     timeout 120 incus init "$VM" --empty --vm -c security.secureboot=true \
       -c limits.cpu=4 -c limits.memory=8GiB -d root,size=40GiB >/dev/null 2>&1 || fail vm_init
     INITIALIZED=1
@@ -885,6 +890,7 @@ data:
       # old markers must never satisfy a fresh nonce or be fed to qa.py.
       serial
       cp -- "$WORK/serial-full" "$WORK/serial-baseline" || fail channel_baseline
+      cp -- "$WORK/serial-full" "$WORK/serial-last" || fail channel_baseline
       # Credentials supplied by SMBIOS as base64, not kernel arguments. Each
       # phase has a fresh unit and a fresh VM boot, never a re-used serial log.
       case "$phase" in installed-n) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["installed_boot"])' "$WORK/normalized.json") || fail manifest_read;; stage) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["stage"])' "$WORK/normalized.json") || fail manifest_read;; *) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["reboot"])' "$WORK/normalized.json") || fail manifest_read;; esac

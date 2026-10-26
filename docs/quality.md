@@ -244,11 +244,14 @@ sanitized summaries; a missing file/check is not a pass. Each stopped VM's
 bounded console snapshot, taken after the guest powers itself off, becomes the
 byte-exact baseline before its next start;
 only newly appended bytes are checked for that boot's nonce and record.
-Incus 7 starts a new console log at each instance start: at the first capture
-after a start, a log that keeps no byte of the previous one stands alone as
-that boot's log (the fresh nonce and boot ID still bind the record). A reset
-later in a boot, a truncation, or a changed prefix that still carries the old
-log makes lineage ambiguous (`BLOCKED`), not a fresh proof. The full snapshots and per-boot slices are transient only. Raw
+Every capture must extend the last accepted capture byte for byte. Incus 7
+starts a new console log at each instance start, so one exception applies: at
+the first capture after a start, before anything of the new boot was accepted,
+a log that does not contain the whole previous snapshot (or follows a blank
+one) starts a new lineage and is searched in full (the fresh nonce and boot ID
+still bind the record). Any later reset, a truncation, or a changed prefix
+that still carries the old snapshot makes lineage ambiguous (`BLOCKED`), not a
+fresh proof. The full snapshots and per-boot slices are transient only. Raw
 serial console, raw installer traces, passwords, recovery material and NVRAM
 are never retained as evidence or output parameters; transient raw serial is
 deleted. Redacted diagnostics and serial may be incomplete and must not be
