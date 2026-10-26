@@ -447,6 +447,13 @@ bounded, redacted installer diagnostic or `unavailable`/`unparsed`) and
 raw serial). `kept-vm.txt` exists only for an initialized VM deliberately kept
 on a non-PASS result. No recovery material belongs in these evidence files.
 
+To test a lane fix before it merges, run `scripts/snow-lifecycle-dev-submit.sh`
+(see the dev-run rule in [AGENTS.md](AGENTS.md)): it renders one
+`dev-snow-bootc-lifecycle-*` Workflow from the current checkout, with the
+scripts as input artifacts instead of the ConfigMap, and `--print` only
+renders. A dev run publishes nothing, moves no tag and changes neither the
+main WorkflowTemplate nor its ConfigMap.
+
 ### Driving a guest with no agent and no SSH
 
 snosi images ship no incus guest agent, and a live ISO has no provisioned SSH

@@ -22,3 +22,12 @@ frostyard/core plus a line in [docs/org-adrs.md](docs/org-adrs.md).
 Org-level conventions this repo follows are recorded as ADRs in
 frostyard/core — see [docs/org-adrs.md](docs/org-adrs.md) for the list that
 binds this repo. Change the ADR (in core) before changing behavior it covers.
+
+## Snow bootc lifecycle dev runs
+
+Dev runs of the Snow bootc lifecycle lane (Brian, 2026-10-26, T237f): an agent
+may submit `scripts/snow-lifecycle-dev-submit.sh` Workflows
+(`dev-snow-bootc-lifecycle-*`, label `snosi.io/trigger=dev`) from an unmerged
+branch to test lane fixes. A dev run must not publish, move a tag or change
+the main WorkflowTemplate or ConfigMap; lane fixes still merge through a
+reviewed PR before a main-lane run.

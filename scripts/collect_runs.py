@@ -37,6 +37,8 @@ LANE_KINDS = {
     "orphan-pod-gc": ("maintenance", "Orphan pod GC"),
 }
 
+DEV_TRIGGER = "dev"
+
 PRODUCT_POLLS = tuple(
     f"image-poll-{product}-latest"
     for product in ("snow", "floe", "snowfield", "sundog")
@@ -59,6 +61,17 @@ def output_param(node: dict, name: str) -> str | None:
         if param.get("name") == name:
             return param.get("value")
     return None
+
+
+def dev_run(workflow: dict) -> bool:
+    """A dev submit (label snosi.io/trigger=dev) tests a lane fix, not a lane.
+
+    AGENTS.md lets an agent submit the Snow bootc lifecycle lane from an
+    unmerged branch. Such a run is an experiment on the lane, never evidence
+    about the image, so it stays out of runs.json and out of every lane.
+    """
+    labels = (workflow.get("metadata") or {}).get("labels") or {}
+    return labels.get("snosi.io/trigger") == DEV_TRIGGER
 
 
 def summarize(workflow: dict) -> dict:
@@ -224,7 +237,7 @@ def main() -> int:
     out_path = Path(sys.argv[1] if len(sys.argv) > 1 else "site/src/data/runs.json")
 
     raw = json.loads(kubectl("get", "workflows", "-n", "argo", "-o", "json"))
-    runs = [summarize(w) for w in raw.get("items", [])]
+    runs = [summarize(w) for w in raw.get("items", []) if not dev_run(w)]
     # Newest first; runs without a start time sort last rather than crashing.
     runs.sort(key=lambda r: r["started"] or "", reverse=True)
     runs = runs[:MAX_RUNS]
