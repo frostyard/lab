@@ -1457,7 +1457,9 @@ data:
         # marker must be valid: never pick a convenient record from a union.
         raw = Path(serial).read_bytes()
         require(len(raw) <= 1024 * 1024, "serial_size")
-        lines = raw.splitlines()
+        # Lines end at LF only, as in the runner's error parser: a CR inside a
+        # line never ends a marker (trailing CRs from ONLCR are stripped).
+        lines = raw.split(b"\n")
         # The guest writes its one record more than once (to ttyS0 and again
         # after serial-getty's TTY setup); identical copies are one record.
         # A copy can follow the getty prompt on its line ("snow-qa login: "

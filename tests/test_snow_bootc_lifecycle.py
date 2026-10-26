@@ -3367,3 +3367,27 @@ def test_runner_reads_a_guest_error_after_the_getty_prompt(tmp_path):
         serial.write_bytes(text)
         result = subprocess.run(["python3", str(path), str(serial)], capture_output=True, text=True)
         assert (result.stdout.strip() if result.returncode == 0 else None) == expected
+
+
+def test_record_and_error_readers_share_lf_line_boundaries(qa, tmp_path, capsys):
+    # An embedded CR must not end a marker for one reader and not the other.
+    normalized, checks = phase_files(tmp_path, qa)
+    copy = serial_record(phase_record("installed-n")).split("\n")[1]
+    serial = tmp_path / "serial"
+    for text, ok in (("snow-qa login: " + copy + "\rjunk\n", False),   # trailing data after a CR
+                     (copy + " " + copy + "\n", False),                  # 2 markers on 1 line
+                     ("\n" + copy + "\r\r\n" + copy + "\n", True)):   # ONLCR CRs only at the end
+        serial.write_text(text)
+        assert qa.main(["phase", str(normalized), "installed-n", NONCE, "none", str(serial), str(checks)]) == (0 if ok else 1)
+        capsys.readouterr()
+    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    parser = re.search(r"code=\$\(python3 - \"\$WORK/serial\" <<'PY'\n(.*?)\nPY\n", script, re.S)
+    path = tmp_path / "parse.py"
+    path.write_text(parser.group(1))
+    for text, expected in ((b"snow-qa login: SNOW_QA_ERR updater\rjunk\n", None),
+                           (b"SNOW_QA_ERR updater SNOW_QA_ERR updater\n", None),
+                           (b"\nSNOW_QA_ERR updater\r\r\nSNOW_QA_ERR updater\n", "updater"),
+                           (b"snow-qa login: SNOW_QA_ERR updater\n" + copy.encode() + b"\n", None)):  # error + record
+        serial.write_bytes(text)
+        result = subprocess.run(["python3", str(path), str(serial)], capture_output=True, text=True)
+        assert (result.stdout.strip() if result.returncode == 0 else None) == expected
