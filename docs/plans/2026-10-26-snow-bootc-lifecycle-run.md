@@ -195,6 +195,42 @@ lab cluster. Steps 3 and 5 are publications and stay with Brian.
   evidence too: record the code, then fix forward.
 - **Done when:** the result is recorded here and the run data shows the run.
 
+### Result (2026-10-26): PASS
+
+`run-snow-bootc-lifecycle-tbjnp` (main lane at lab `4dcde2af`, submitted
+17:10:49Z, ended 17:24:34Z):
+
+```
+PASS: verified_five_fresh_boots;fsverity_known_defect=7.2.11+deb14-amd64
+```
+
+| Phase | Boot ID | Kernel | fs-verity errors |
+| --- | --- | --- | --- |
+| `installed-n` | `e852717e-2ac2-43de-a64f-fbe4702f602c` | `7.2.11+deb14-amd64` | 4 |
+| `stage` | `2cbf2dde-a846-4487-9f17-9ed84335857c` | `7.2.11+deb14-amd64` | 6 |
+| `boot-n-plus-1` | `d1723327-e13b-4dbf-81d1-a982a23e20a2` | `7.2.11+deb14-amd64` | 1 |
+| `rollback` | `cbd6e82c-8f1f-475f-94a8-8a717d31f329` | `7.2.11+deb14-amd64` | 0 |
+| `boot-n` | `5c0b35a0-972b-493f-a3c4-c404d2a0f7e9` | `7.2.11+deb14-amd64` | 0 |
+
+Inputs: ISO `snosi-installer_20261026164045` (Firn 0.9.1, hash `bc6a19ad…`;
+the signed index had rotated 4 times since the first selection, each refresh
+re-verified by the preflight tool), N `20261025113924`, N+1 `20261025201457`,
+`qa-controlled` at N+1, manifest `manifest_sha256` `fb8f065f…91da`. Every
+phase attested Secure Boot, kernel lockdown, a measured Type #2 UKI, a
+TPM-unlocked LUKS root on btrfs, the shipped signature policy, the signed
+pull of N+1 and the expected `bootc status`; fs-verity counts are on the
+known-defect kernel (snosi#1130), recorded, not failed. The dev run
+`dev-snow-bootc-lifecycle-xm98m` of the same lane had passed at 16:36:33Z.
+
+This is the first live proof of the lane: Firn install of N, signed update to
+N+1 by the shipped updater, N+1 boot, `bootc rollback`, N boot. It took lab
+#146–#157: each earlier live run stopped on one lane defect that the offline
+tests could not show (Firn schema 2, by-id partition names, RLIMIT_FSIZE on
+podman, Incus 7 `config show`/`qemu.nvram`, console log restarts, the record
+on tty0, the getty prompt, poweroff before the host read the record), plus 4
+probe defects found by an audit against a booted Snow (#155). lab #158 added
+dev submits so later lane fixes are proven before a merge.
+
 ## Open questions
 
 - **Spec transport after stage:** bootc reports the staged or booted
