@@ -1532,7 +1532,8 @@ data:
         # even one malformed/prefixed lookalike; repeated identical paths in
         # current and default blocks are normal, different digests are not.
         esp_prefix = re.escape(str(GUEST_PATHS["esp"]).encode())
-        pattern = (rb"(?<![A-Za-z0-9_./$-])(?:\$BOOT|/boot/efi|" + esp_prefix + rb")?"
+        # bootctl --esp-path=X prints "uki: X//EFI/..." (a doubled slash).
+        pattern = (rb"(?<![A-Za-z0-9_./$-])(?:(?:\$BOOT|/boot/efi|" + esp_prefix + rb")/?)?"
                    rb"(?P<path>/EFI/Linux/bootc/bootc_composefs-[0-9a-f]{128}\.efi)"
                    rb"(?![A-Za-z0-9_./-])")
         matches = list(re.finditer(pattern, status))
@@ -1615,6 +1616,31 @@ data:
         require(len(matching) == 1, "uki_bls")
 
 
+    SNOW_POLICY = [{"type": "sigstoreSigned", "keyPath": "/usr/lib/snosi/cosign.pub",
+                    "signedIdentity": {"type": "matchRepository"}}]
+    LOCAL_TRANSPORTS = ("containers-storage", "tarball", "docker-archive", "oci-archive", "dir", "oci")
+
+
+    def policy_ok(policy):
+        # The shipped snosi policy (shared/bootc-secure/tree/etc/containers/policy.json):
+        # reject by default; every registry repository it names is sigstore-signed
+        # with the pinned key, Snow exactly so; only local transports accept
+        # anything (run-snow-bootc-lifecycle-2tnjh audit, Snow 20261026105903).
+        if type(policy) is not dict or set(policy) != {"default", "transports"}:
+            return False
+        transports = policy["transports"]
+        if policy["default"] != [{"type": "reject"}] or type(transports) is not dict:
+            return False
+        docker = transports.get("docker")
+        if type(docker) is not dict or docker.get(REPO) != SNOW_POLICY or "" in docker:
+            return False
+        if not all(type(name) is str and name.startswith("ghcr.io/frostyard/") and rules == SNOW_POLICY
+                   for name, rules in docker.items()):
+            return False
+        return all(name == "docker" or (name in LOCAL_TRANSPORTS and rules == {"": [{"type": "insecureAcceptAnything"}]})
+                   for name, rules in transports.items())
+
+
     def guest(credentials):
         # Credentials are installed by the VM's systemd unit from SMBIOS, not
         # echoed to serial. The normalized manifest is a private host-provided file.
@@ -1657,8 +1683,7 @@ data:
             parsed = json.loads(policy, object_pairs_hook=pairs)
         except (ValueError, UnicodeError) as exc:
             raise GateError("policy") from exc
-        require(parsed == {"default": [{"type": "reject"}], "transports": {"docker": {
-            REPO: [{"type": "sigstoreSigned", "keyPath": "/usr/lib/snosi/cosign.pub"}]}}}, "policy")
+        require(policy_ok(parsed), "policy")
         key = GUEST_PATHS["key"].read_bytes()
         require(0 < len(key) <= 16384 and sha(key) == m["cosign_key_sha256"], "policy_key")
         # No --signature-policy, --tls-verify=false or bypass of the installed root policy.
@@ -1674,7 +1699,8 @@ data:
         require(b"/dev/mapper/root is active" in luks_status, "root_luks")
         devices = re.findall(rb"(?m)^\s*device:\s+(/dev/[a-zA-Z0-9/_-]+)\s*$", luks_status)
         require(len(devices) == 1 and b".." not in devices[0], "root_luks")
-        require(guest_command(["findmnt", "-n", "-o", "FSTYPE", "/"], "root_btrfs").strip() == b"btrfs", "root_btrfs")
+        # A composefs boot mounts / as overlay; the btrfs root filesystem is /sysroot.
+        require(guest_command(["findmnt", "-n", "-o", "FSTYPE", "/sysroot"], "root_btrfs").strip() == b"btrfs", "root_btrfs")
         with mounted_esp(adjacent_esp(devices[0].decode())) as esp:
             esp_uki(esp, guest_command(["bootctl", "--esp-path=" + str(esp), "--no-pager", "status"], "uki"))
         # Inspect LUKS metadata without exporting tokens, sealed blobs or recovery material.
@@ -1684,7 +1710,8 @@ data:
             type(token) is dict and token.get("type") == "systemd-tpm2" and
             token.get("tpm2-pcrs") == [] and token.get("tpm2_pubkey_pcrs") == [11] and
             "tpm2-pcrlock" not in token and
-            type(token.get("tpm2-pubkey")) is str and len(token["tpm2-pubkey"]) > 0
+            # systemd names the signed-policy public key "tpm2_pubkey" (older: "tpm2-pubkey").
+            any(type(token.get(name)) is str and len(token[name]) > 0 for name in ("tpm2_pubkey", "tpm2-pubkey"))
             for token in entries.values()), "tpm_token")
         spec, transport, booted, version, staged, rollback = status_fields(guest_status())
         action = marker = None

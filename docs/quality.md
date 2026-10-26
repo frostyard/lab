@@ -237,7 +237,10 @@ full Firn installed compatibility. Before install, real-recipe validation report
 an allowlisted Firn issue code or `unclassified`, never its diagnostic text. The ISO `SHA256SUMS.gpg`
 authenticates the ISO index only, not an A/B update index. Registry tag
 resolution is read-only (`skopeo inspect`), not a signature check: cosign
-verification and exact guest policy plus signed pull checks are separate.
+verification and the guest policy check (the shipped snosi policy: reject by
+default, every registry repository sigstore-signed with the pinned key, only
+local transports open) plus signed pull checks are separate. On a composefs
+boot `/` is an overlay, so the btrfs root check reads `/sysroot`.
 `checks.json` records the preflight checks of both immutable version tags and
 controlled target-tag rechecks before install and each phase and after stage,
 N+1 boot and rollback; `checks.txt` records manifest hash, target-tag check
