@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-27T16:00:22Z",
+  "generated": "2026-10-27T16:30:18Z",
   "lanes": [
     {
       "laneKey": "run-firn-install-tests",
@@ -68,9 +68,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1793116800",
+        "name": "publish-results-1793118600",
         "phase": "Running",
-        "started": "2026-10-27T16:00:00Z",
+        "started": "2026-10-27T16:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -248,11 +248,27 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1793116800",
+      "name": "publish-results-1793118600",
       "phase": "Running",
-      "started": "2026-10-27T16:00:00Z",
+      "started": "2026-10-27T16:30:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1793116800",
+      "phase": "Succeeded",
+      "started": "2026-10-27T16:00:00Z",
+      "finished": "2026-10-27T16:00:34Z",
+      "durationSeconds": 34,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -349,22 +365,6 @@
       "started": "2026-10-27T15:00:00Z",
       "finished": "2026-10-27T15:00:33Z",
       "durationSeconds": 33,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1793111400",
-      "phase": "Succeeded",
-      "started": "2026-10-27T14:30:00Z",
-      "finished": "2026-10-27T14:30:32Z",
-      "durationSeconds": 32,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
