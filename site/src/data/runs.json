@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-27T03:00:18Z",
+  "generated": "2026-10-27T03:30:19Z",
   "lanes": [
     {
       "laneKey": "run-firn-install-tests",
@@ -68,9 +68,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1793070000",
+        "name": "publish-results-1793071800",
         "phase": "Running",
-        "started": "2026-10-27T03:00:00Z",
+        "started": "2026-10-27T03:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -130,29 +130,62 @@
       "qaRun": null
     },
     {
+      "laneKey": "image-poll-floe-latest",
+      "template": "image-poller",
+      "label": "Registry digest poll",
+      "kind": "poll",
+      "latest": {
+        "name": "image-poll-floe-latest-1793071200",
+        "phase": "Succeeded",
+        "started": "2026-10-27T03:20:00Z",
+        "finished": "2026-10-27T03:21:31Z",
+        "durationSeconds": 91,
+        "template": "image-poller",
+        "laneKey": "image-poll-floe-latest",
+        "qaOutcome": "passed",
+        "kind": "poll",
+        "label": "Registry digest poll",
+        "trigger": "scheduled",
+        "result": "14 passed, 9 skipped",
+        "digest": "sha256:4535c2931fabd5a2820fdc44e8c0fb0ce4e7d271d363e2f94b476388fde19af3",
+        "checks": []
+      },
+      "runs": 3,
+      "everGreen": true,
+      "qaRun": {
+        "name": "image-poll-floe-latest-1793071200",
+        "finished": "2026-10-27T03:21:31Z",
+        "result": "14 passed, 9 skipped"
+      }
+    },
+    {
       "laneKey": "image-poll-snow-latest",
       "template": "image-poller",
       "label": "Registry digest poll",
       "kind": "poll",
       "latest": {
         "name": "image-poll-snow-latest-1793070000",
-        "phase": "Running",
+        "phase": "Succeeded",
         "started": "2026-10-27T03:00:00Z",
-        "finished": null,
-        "durationSeconds": null,
+        "finished": "2026-10-27T03:01:44Z",
+        "durationSeconds": 104,
         "template": "image-poller",
         "laneKey": "image-poll-snow-latest",
-        "qaOutcome": "unknown",
+        "qaOutcome": "passed",
         "kind": "poll",
         "label": "Registry digest poll",
         "trigger": "scheduled",
-        "result": null,
-        "digest": null,
+        "result": "20 passed, 3 skipped",
+        "digest": "sha256:b419212caaf7089ad2d69341d5887b64f4a4cf82c0c621188bb1ccc9ad35aa3b",
         "checks": []
       },
-      "runs": 5,
+      "runs": 4,
       "everGreen": true,
-      "qaRun": null
+      "qaRun": {
+        "name": "image-poll-snow-latest-1793070000",
+        "finished": "2026-10-27T03:01:44Z",
+        "result": "20 passed, 3 skipped"
+      }
     },
     {
       "laneKey": "image-poll-sundog-latest",
@@ -211,60 +244,63 @@
         "finished": "2026-10-27T00:41:51Z",
         "result": "20 passed, 3 skipped"
       }
-    },
-    {
-      "laneKey": "image-poll-floe-latest",
-      "template": "image-poller",
-      "label": "Registry digest poll",
-      "kind": "poll",
-      "latest": {
-        "name": "image-poll-floe-latest-1793060400",
-        "phase": "Succeeded",
-        "started": "2026-10-27T00:20:00Z",
-        "finished": "2026-10-27T00:21:37Z",
-        "durationSeconds": 97,
-        "template": "image-poller",
-        "laneKey": "image-poll-floe-latest",
-        "qaOutcome": "passed",
-        "kind": "poll",
-        "label": "Registry digest poll",
-        "trigger": "scheduled",
-        "result": "14 passed, 9 skipped",
-        "digest": "sha256:149b33bd3588f8fe4e272f1293879db7792aa98b4ec8df4d0b42236e4983b2ba",
-        "checks": []
-      },
-      "runs": 3,
-      "everGreen": true,
-      "qaRun": {
-        "name": "image-poll-floe-latest-1793060400",
-        "finished": "2026-10-27T00:21:37Z",
-        "result": "14 passed, 9 skipped"
-      }
     }
   ],
   "runs": [
     {
-      "name": "image-poll-snow-latest-1793070000",
+      "name": "publish-results-1793071800",
       "phase": "Running",
-      "started": "2026-10-27T03:00:00Z",
+      "started": "2026-10-27T03:30:00Z",
       "finished": null,
       "durationSeconds": null,
-      "template": "image-poller",
-      "laneKey": "image-poll-snow-latest",
+      "template": "publish",
+      "laneKey": "publish",
       "qaOutcome": "unknown",
-      "kind": "poll",
-      "label": "Registry digest poll",
+      "kind": "other",
+      "label": "publish",
       "trigger": "scheduled",
       "result": null,
       "digest": null,
       "checks": []
     },
     {
-      "name": "publish-results-1793070000",
-      "phase": "Running",
+      "name": "image-poll-floe-latest-1793071200",
+      "phase": "Succeeded",
+      "started": "2026-10-27T03:20:00Z",
+      "finished": "2026-10-27T03:21:31Z",
+      "durationSeconds": 91,
+      "template": "image-poller",
+      "laneKey": "image-poll-floe-latest",
+      "qaOutcome": "passed",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": "14 passed, 9 skipped",
+      "digest": "sha256:4535c2931fabd5a2820fdc44e8c0fb0ce4e7d271d363e2f94b476388fde19af3",
+      "checks": []
+    },
+    {
+      "name": "image-poll-snow-latest-1793070000",
+      "phase": "Succeeded",
       "started": "2026-10-27T03:00:00Z",
-      "finished": null,
-      "durationSeconds": null,
+      "finished": "2026-10-27T03:01:44Z",
+      "durationSeconds": 104,
+      "template": "image-poller",
+      "laneKey": "image-poll-snow-latest",
+      "qaOutcome": "passed",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": "20 passed, 3 skipped",
+      "digest": "sha256:b419212caaf7089ad2d69341d5887b64f4a4cf82c0c621188bb1ccc9ad35aa3b",
+      "checks": []
+    },
+    {
+      "name": "publish-results-1793070000",
+      "phase": "Succeeded",
+      "started": "2026-10-27T03:00:00Z",
+      "finished": "2026-10-27T03:00:31Z",
+      "durationSeconds": 31,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -296,22 +332,6 @@
       "phase": "Succeeded",
       "started": "2026-10-27T02:00:00Z",
       "finished": "2026-10-27T02:00:32Z",
-      "durationSeconds": 32,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1793064600",
-      "phase": "Succeeded",
-      "started": "2026-10-27T01:30:00Z",
-      "finished": "2026-10-27T01:30:32Z",
       "durationSeconds": 32,
       "template": "publish",
       "laneKey": "publish",
@@ -500,22 +520,6 @@
       "checks": []
     },
     {
-      "name": "image-poll-floe-latest-1793038800",
-      "phase": "Succeeded",
-      "started": "2026-10-26T18:20:00Z",
-      "finished": "2026-10-26T18:21:30Z",
-      "durationSeconds": 90,
-      "template": "image-poller",
-      "laneKey": "image-poll-floe-latest",
-      "qaOutcome": "passed",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": "14 passed, 9 skipped",
-      "digest": "sha256:89c2da788f0db45e602d32bf867ba7774fc9fc96937b34db0945057593e8b5de",
-      "checks": []
-    },
-    {
       "name": "run-snow-bootc-lifecycle-l6596",
       "phase": "Succeeded",
       "started": "2026-10-26T18:19:00Z",
@@ -562,22 +566,6 @@
       "trigger": "scheduled",
       "result": null,
       "digest": null,
-      "checks": []
-    },
-    {
-      "name": "image-poll-snow-latest-1793037600",
-      "phase": "Succeeded",
-      "started": "2026-10-26T18:00:00Z",
-      "finished": "2026-10-26T18:01:59Z",
-      "durationSeconds": 119,
-      "template": "image-poller",
-      "laneKey": "image-poll-snow-latest",
-      "qaOutcome": "passed",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": "20 passed, 3 skipped",
-      "digest": "sha256:c75d3a257f0b91796cc6067eba85519921a5333ff0e28fd35138853df195acba",
       "checks": []
     },
     {
