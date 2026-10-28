@@ -258,6 +258,10 @@ spec:
         # the failure surfaces much later as an unrelated "no space" error.
         set -eux
         exec > >(tee /dev/console) 2>&1
+        # Under set -e a failing command used to exit with no marker, and the pod then
+        # waited the full install timeout (lab#161). Single quotes keep the literal
+        # marker out of the set -x trace of this line.
+        trap 'rc=$?; echo "${M_FAIL} line ${LINENO} rc=${rc}"' ERR
         echo "${M_BEGIN}"
         for i in $(seq 1 30); do ip route get 1.1.1.1 >/dev/null 2>&1 && break; sleep 5; done
         # Two disks are attached, and neither is the ISO (type rom). The larger
@@ -298,6 +302,15 @@ spec:
         mount "${SCRATCH}" /var/lib/containers
         findmnt -n /var/lib/containers || { echo "${M_FAIL} scratch did not mount"; lsblk; exit 1; }
         mkdir -p /var/lib/containers/storage /var/lib/containers/runroot
+        # The disk was just formatted, so any podman DB here comes from a concurrent
+        # podman (podman-restart or podman-auto-update) that opened the store first.
+        # Podman would then reject our --runroot as a database configuration mismatch
+        # (lab#161). Fail early with a clear marker instead.
+        if [ -e /var/lib/containers/storage/db.sql ] || [ -e /var/lib/containers/storage/libpod/bolt_state.db ]; then
+          echo "${M_FAIL} another podman initialized the lane store before the lane (lab#161)"
+          systemctl list-units --all 'podman*' || true
+          exit 1
+        fi
         df -h /var/lib/containers
 
         # Re-verify immediately before the pull: this is the exact window where
@@ -385,9 +398,18 @@ spec:
         SCRIPT
         )"
         I_B64="$(printf '%s' "${INSTALL_SH}" | base64 -w0)"
+        # Order after the live ISO podman units (lab#161). podman-restart.service and
+        # podman-auto-update.service start after network-online.target and run podman
+        # with the default store config. If one opens /var/lib/containers after our
+        # mount and before our first podman call, it creates db.sql with run root
+        # /run/containers/storage, and our explicit --runroot then fails with a
+        # database configuration mismatch (run dev-nix-sysext-boot-l6mgc: restart
+        # finished 10 ms after our mkdir, the pull failed 20 ms later).
+        # bootc-update-stage.timer is not the cause: its service has
+        # ConditionKernelCommandLine=composefs and the live ISO does not boot composefs.
         UNIT="[Unit]
         Description=snosi QA bootc install
-        After=network-online.target
+        After=network-online.target podman-restart.service podman-auto-update.service
         Wants=network-online.target
         [Service]
         Type=oneshot
