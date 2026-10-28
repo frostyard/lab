@@ -92,28 +92,44 @@ def test_print_renders_the_template_spec_with_script_artifacts(tmp_path):
         m for m in expected_entry["container"]["volumeMounts"] if m["name"] != SCRIPTS_VOLUME
     ]
 
-    # Every field but the two documented additions is the template's spec.
+    # Every field but the documented changes is the template's spec: the
+    # arguments, the artifacts and the unpacking entry command.
     actual = copy.deepcopy(spec)
     del actual["arguments"]
     del entry_template(actual)["inputs"]["artifacts"]
+    command = entry_template(actual)["container"].pop("command")
+    original = expected_entry["container"].pop("command")
     assert actual == expected
+    assert original == ["/bin/bash", MOUNT_PATH + "/run.sh"]
+    assert command[:2] == ["/bin/bash", "-c"] and command[3:] == ["dev-unpack", *original]
     assert all(v["name"] != SCRIPTS_VOLUME for v in spec["volumes"])
     assert all(
         m["name"] != SCRIPTS_VOLUME
         for m in entry_template(spec)["container"]["volumeMounts"]
     )
 
-    # inputs.artifacts: exactly the ConfigMap data keys, byte-equal, at the
-    # mount path, with the ConfigMap volume's mode.
+    # inputs.artifacts: exactly the ConfigMap data keys, gzip+base64 under the
+    # packed path; the entry command restores them byte-equal at the mount
+    # path with the ConfigMap volume's mode.
     artifacts = entry_template(spec)["inputs"]["artifacts"]
+    packed = MOUNT_PATH + ".packed"
     assert len(artifacts) == len(data) == len({a["path"] for a in artifacts})
     assert len({a["name"] for a in artifacts}) == len(artifacts)
-    assert {a["path"] for a in artifacts} == {MOUNT_PATH + "/" + key for key in data}
-    assert {a["mode"] for a in artifacts} == {volume["configMap"]["defaultMode"]}
+    assert {a["path"] for a in artifacts} == {packed + "/" + key + ".gz.b64" for key in data}
     assert volume["configMap"]["defaultMode"] == 0o555
+    root = tmp_path / "root"
     for artifact in artifacts:
-        key = artifact["path"].rsplit("/", 1)[1]
-        assert artifact["raw"]["data"].encode("utf-8") == data[key].encode("utf-8"), key
+        target = root / artifact["path"].lstrip("/")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(artifact["raw"]["data"], encoding="ascii")
+    unpack = command[2].replace(MOUNT_PATH, str(root) + MOUNT_PATH)
+    subprocess.run(["/bin/bash", "-c", unpack, "dev-unpack", "true"], check=True, timeout=60)
+    for key, text in data.items():
+        restored = root / MOUNT_PATH.lstrip("/") / key
+        assert restored.read_bytes() == text.encode("utf-8"), key
+        assert restored.stat().st_mode & 0o7777 == volume["configMap"]["defaultMode"], key
+    # Argo offloads a template above MaxEnvVarLen (128 KiB) to a ConfigMap.
+    assert len(json.dumps(entry_template(spec))) < 131072 // 2
 
     # spec.arguments carries the manifest text and never keeps the VM.
     assert spec["arguments"] == {

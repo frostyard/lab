@@ -8,7 +8,8 @@
 # It renders ONE Workflow from DIR (default: this checkout):
 #   - the spec of argo/workflow-templates/run-snow-bootc-lifecycle.yaml, inline;
 #   - the scripts of argo/workflow-templates/snow-bootc-lifecycle-scripts.yaml
-#     as Argo raw input artifacts at /opt/snow-qa, instead of the ConfigMap;
+#     as Argo raw input artifacts (gzip+base64, unpacked to /opt/snow-qa by the
+#     entry command), instead of the ConfigMap;
 #   - name dev-snow-bootc-lifecycle-*, label snosi.io/trigger=dev and the
 #     source commit, keep-vm-on-failure=false.
 # --print writes the Workflow JSON to stdout and submits nothing. Otherwise it
@@ -34,7 +35,7 @@ python=${PYTHON:-python3}
 "$python" -c 'import yaml' 2>/dev/null || { printf '%s\n' "PyYAML is required (set PYTHON)" >&2; exit 69; }
 commit=$(git -C "$repo" rev-parse HEAD)
 workflow=$("$python" - "$repo" "$1" "$commit" <<'PY'
-import json, sys
+import base64, gzip, json, sys
 from pathlib import Path
 import yaml
 
@@ -53,10 +54,20 @@ mounts = entry["container"]["volumeMounts"]
 (mount,) = [m for m in mounts if m["name"] == volume]
 entry["container"]["volumeMounts"] = [m for m in mounts if m["name"] != volume]
 mode = mounted[0]["configMap"].get("defaultMode", 0o555)
+# Argo offloads a pod template above 128 KiB (MaxEnvVarLen) to a ConfigMap the
+# controller cannot create on this cluster, so the scripts travel gzip+base64
+# under PACKED and the entry command unpacks them to the mount path, byte-equal.
+packed = mount["mountPath"] + ".packed"
+command = entry["container"]["command"]
+assert command == ["/bin/bash", mount["mountPath"] + "/run.sh"], command
 entry["inputs"]["artifacts"] = [
-    {"name": "script-" + name.replace(".", "-").replace("_", "-"), "path": mount["mountPath"] + "/" + name,
-     "mode": mode, "raw": {"data": data}}
+    {"name": "script-" + name.replace(".", "-").replace("_", "-"), "path": packed + "/" + name + ".gz.b64",
+     "mode": 0o444, "raw": {"data": base64.b64encode(gzip.compress(data.encode(), 9, mtime=0)).decode()}}
     for name, data in sorted(scripts["data"].items())]
+entry["container"]["command"] = ["/bin/bash", "-c", (
+    "set -euo pipefail; install -d -m 0755 {dest}; for f in {src}/*.gz.b64; do n=${{f##*/}}; n=${{n%.gz.b64}}; "
+    "base64 -d \"$f\" | gzip -dc > \"{dest}/$n\"; chmod {mode:o} \"{dest}/$n\"; done; exec \"$@\""
+).format(dest=mount["mountPath"], src=packed, mode=mode), "dev-unpack", *command]
 spec["arguments"] = {"parameters": [
     {"name": "manifest-json", "value": manifest.read_text()},
     {"name": "keep-vm-on-failure", "value": "false"}]}
