@@ -96,7 +96,8 @@ repeated this result (`Failed to resolve user 'frostnotes'`).
 ## Rerun with updex 2.1.3 (2026-10-28): FAILED in the enable boot, PASS after the reboot
 
 updex v2.1.3 ([updex#474](https://github.com/frostyard/updex/pull/474),
-ADR-0019) makes a live refresh run `systemd-sysext refresh --no-reload`,
+ADR-0019, `sysext/runner.go` at `2661e98`) makes a live refresh run
+`systemd-sysext refresh --no-reload`,
 `systemd-sysusers`, `systemd-tmpfiles --create --graceful`, then
 `systemd-sysext refresh --always-refresh=yes`. This rerun checks that fix.
 
@@ -130,10 +131,12 @@ The account defect of `kb7qb` is gone: the accounts exist in the enable
 boot and `frostmail.socket` listens. Two new defects stay in the live enable
 path:
 
-- `maild --lodge` resolves the **user** `lodge` (`lodgeapp.LoadEnv`,
-  frostyard/lodge `kit/lodgeapp/env.go`). The suite sysexts declare only the
-  **group** `lodge`; the user comes from lodge's own `sysusers.d`, and the
-  `lodge` feature is not enabled here. Why `frostmail.service` then runs
+- `maild --lodge` resolves the **user** `lodge`: the error string is the one
+  of `lodgeapp.LoadEnv` (frostyard/lodge `kit/lodgeapp/env.go` at
+  `488fe6e`). The refresh output creates only the **group** `lodge`, and the
+  records list only the users `frostmail` and `frostnotes`. The user `lodge`
+  is declared in lodge's own `packaging/sysusers.d/lodge.conf` (same
+  commit), and the `lodge` feature is not enabled here. Why `frostmail.service` then runs
   after the reboot is not proven by this run.
 - `frostnotes-lodge.socket` fails to listen and hits its start limit; the
   probe keeps only the last 20 journal lines of a unit, so the first cause is
