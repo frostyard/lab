@@ -361,6 +361,28 @@ data:
           esac
         fi
         if [[ -n "$observed_failure" ]] && grep -qF "$observed_failure" "$WORK/serial"; then
+          if [[ "$observed_failure" == SNOW_SYSEXT_ERR ]]; then
+            # A sysext probe reports its failures inside its record; this marker is
+            # a fatal gate error (credentials, manifest, I/O), never a probe result.
+            code=$(python3 - "$WORK/serial" <<'PY'
+    import re, sys
+    from pathlib import Path
+    lines = Path(sys.argv[1]).read_bytes().split(b'\n')
+    def token(line):
+        line = line.rstrip(b'\r')
+        index = line.find(b'SNOW_SYSEXT_ERR')
+        return line if index > 0 and not line[index - 1:index].isspace() else line[index:]
+    errors = sorted({token(line) for line in lines if b'SNOW_SYSEXT_ERR' in line})
+    if len(errors) != 1 or any(b'SNOW_SYSEXT_V1' in line for line in lines):
+        sys.exit(1)
+    match = re.fullmatch(rb'SNOW_SYSEXT_ERR ([a-z_]{1,40})\r?', errors[0])
+    if match is None:
+        sys.exit(1)
+    print(match[1].decode('ascii'))
+    PY
+            ) || fail sysext_guest_error
+            fail "sysext_guest_error:$code"
+          fi
           if [[ "$observed_failure" == SNOW_INSTALL_FAILED ]]; then
             code=$(python3 - "$WORK/serial" <<'PY'
     import re, sys
@@ -422,7 +444,7 @@ data:
         # with the same error and record checks, then stop now instead of
         # waiting out the whole phase window.
         if [[ "$final" == 1 ]]; then blocked guest_stopped_without_record; fi
-        if [[ "$needle" == SNOW_QA_V1 ]] && vm_stopped; then final=1; continue; fi
+        if [[ "$needle" == SNOW_QA_V1 || "$needle" == SNOW_SYSEXT_V1 ]] && vm_stopped; then final=1; continue; fi
         sleep 5
       done
       blocked phase_timeout
@@ -898,13 +920,23 @@ data:
     INSTALLER_ATTACHED=0
     prior=none
     seen_boot_ids=':'
+    # The manifest decides the boots. Without sysext_probe the lane makes the five
+    # lifecycle boots. With it the lane installs N, attests it, then makes the two
+    # sysext-probe boots: N+1 is never staged, it is only the controlled tag's target.
+    sysext_mode=$(python3 -c 'import json,sys; print(1 if "sysext_probe" in json.load(open(sys.argv[1])) else 0)' "$WORK/normalized.json") || fail manifest_read
+    if [[ "$sysext_mode" == 1 ]]; then
+      phase_plan=(installed-n sysext-enable sysext-reboot)
+    else
+      phase_plan=(installed-n stage boot-n-plus-1 rollback boot-n)
+    fi
+    sysext_failures=""
     # Kernels with the known upstream btrfs fs-verity defect (frostyard/snosi#1130,
     # kdave/linux dcf8811f63af). Remove an entry when the kernel canary (Firn lane)
     # says `clean` on it or a fixed kernel ships. Keep identical in every lane.
     known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64"
     fsverity_bad=0
     fsverity_known=""
-    for phase in installed-n stage boot-n-plus-1 rollback boot-n; do
+    for phase in "${phase_plan[@]}"; do
       nonce=$(openssl rand -hex 16) || fail nonce
       tag before-"$phase"
       # Re-snapshot the stopped instance immediately before the next boot;
@@ -916,6 +948,8 @@ data:
       # Credentials supplied by SMBIOS as base64, not kernel arguments. Each
       # phase has a fresh unit and a fresh VM boot, never a re-used serial log.
       case "$phase" in installed-n) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["installed_boot"])' "$WORK/normalized.json") || fail manifest_read;; stage) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["stage"])' "$WORK/normalized.json") || fail manifest_read;; *) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["reboot"])' "$WORK/normalized.json") || fail manifest_read;; esac
+      # The sysext-probe boots run the sysext collector; every other boot attests.
+      case "$phase" in sysext-enable|sysext-reboot) guest_mode=sysext;; *) guest_mode=guest;; esac
       guestunit="[Unit]
     After=network-online.target
     Wants=network-online.target
@@ -924,7 +958,7 @@ data:
     TimeoutStartSec=$((budget + 150))
     StandardOutput=null
     StandardError=null
-    ExecStart=/bin/bash -ec 'install -d -m 0700 /run/snow-credentials; cut -d\" \" -f1 /proc/uptime > /run/snow-credentials/unit_started; install -d -m 0700 /opt/snow-qa; echo $qa_b64 | base64 -d > /run/snow-qa.z; python3 -c \"import zlib,sys;sys.stdout.buffer.write(zlib.decompress(sys.stdin.buffer.read()))\" < /run/snow-qa.z > /opt/snow-qa/qa.py; echo $manifest_b64 | base64 -d > /opt/snow-qa/normalized.json; printf %%s $phase > /run/snow-credentials/phase; printf %%s $nonce > /run/snow-credentials/nonce; printf %%s $n > /run/snow-credentials/image_n; printf %%s $next > /run/snow-credentials/image_n_plus_1; printf %%s $target > /run/snow-credentials/target_ref; python3 /opt/snow-qa/qa.py guest /run/snow-credentials; systemctl --no-block poweroff'"
+    ExecStart=/bin/bash -ec 'install -d -m 0700 /run/snow-credentials; cut -d\" \" -f1 /proc/uptime > /run/snow-credentials/unit_started; install -d -m 0700 /opt/snow-qa; echo $qa_b64 | base64 -d > /run/snow-qa.z; python3 -c \"import zlib,sys;sys.stdout.buffer.write(zlib.decompress(sys.stdin.buffer.read()))\" < /run/snow-qa.z > /opt/snow-qa/qa.py; echo $manifest_b64 | base64 -d > /opt/snow-qa/normalized.json; printf %%s $phase > /run/snow-credentials/phase; printf %%s $nonce > /run/snow-credentials/nonce; printf %%s $n > /run/snow-credentials/image_n; printf %%s $next > /run/snow-credentials/image_n_plus_1; printf %%s $target > /run/snow-credentials/target_ref; python3 /opt/snow-qa/qa.py ${guest_mode:-guest} /run/snow-credentials; systemctl --no-block poweroff'"
       gb=$(printf '%s' "$guestunit" | base64 -w0) || fail unit_encoding
       [[ ${#gb} -lt 60000 ]] || fail unit_size
       gd=$(printf '[Unit]\nWants=snow-guest.service' | base64 -w0) || fail unit_encoding
@@ -935,27 +969,53 @@ data:
       [[ ${#gd} -lt 60000 && ${#td} -lt 60000 ]] || fail unit_size
       timeout 60 incus config set "$VM" raw.qemu="-smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.snow-guest.service=$gb -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.multi-user.target=$gd -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.bootc-update-stage.service=$td" >/dev/null 2>&1 || fail phase_injection
       timeout 120 incus start "$VM" >/dev/null 2>&1 || fail guest_start
-      await SNOW_QA_V1 "$((budget + 300))"
-      python3 /opt/snow-qa/qa.py phase "$WORK/normalized.json" "$phase" "$nonce" "$prior" "$WORK/serial" "$WORK/checks.json" > "$WORK/boot-id" 2>/dev/null || fail phase_mismatch
-      [[ -s "$WORK/boot-id" ]] || fail phase_mismatch
-      prior=$(head -n 1 "$WORK/boot-id")
-      # Lines 2 and 3 are the attested fs-verity corruption count and kernel
-      # release (frostyard/snosi#1130).
-      fsverity=$(sed -n '2s/^fsverity_errors=\([0-9]\{1,10\}\)$/\1/p' "$WORK/boot-id")
-      [[ -n "$fsverity" ]] || fail phase_mismatch
-      kernel=$(sed -n '3s/^kernel=\([0-9A-Za-z._+~-]\{1,64\}\)$/\1/p' "$WORK/boot-id")
-      [[ -n "$kernel" ]] || fail phase_mismatch
-      [[ "$seen_boot_ids" != *":$prior:"* ]] || fail reused_boot_id
-      seen_boot_ids+="$prior:"
-      printf 'phase=%s boot_id=%s kernel=%s fsverity_errors=%s\n' "$phase" "$prior" "$kernel" "$fsverity" >> "$OUT/checks.txt"
-      if (( 10#$fsverity > 0 )); then
-        if [[ " $known_defect_kernels " == *" $kernel "* ]]; then
-          [[ " $fsverity_known " == *" $kernel "* ]] || fsverity_known+="${fsverity_known:+ }$kernel"
-        else
-          fsverity_bad=1
-        fi
-      fi
-      persist "$OUT/checks.txt" "$EVIDENCE/checks.txt" || fail evidence_write
+      case "$phase" in
+        sysext-enable|sysext-reboot)
+          await SNOW_SYSEXT_V1 "$((budget + 300))" SNOW_SYSEXT_ERR
+          # The reboot record is compared with the enable record on the host.
+          enable_json=()
+          if [[ "$phase" == sysext-reboot && -s "$WORK/sysext-enable.json" ]]; then
+            enable_json=("$WORK/sysext-enable.json")
+          fi
+          python3 /opt/snow-qa/qa.py sysext-phase "$WORK/normalized.json" "$phase" "$nonce" "$prior" "$WORK/serial" "$WORK/sysext-$phase.json" ${enable_json[@]+"${enable_json[@]}"} > "$WORK/sysext-id" 2>/dev/null || fail phase_mismatch
+          [[ -s "$WORK/sysext-$phase.json" && -s "$WORK/sysext-id" ]] || fail phase_mismatch
+          prior=$(sed -n '1p' "$WORK/sysext-id")
+          sysext_state=$(sed -n '2s/^failures=//p' "$WORK/sysext-id")
+          [[ -n "$prior" && -n "$sysext_state" ]] || fail phase_mismatch
+          [[ "$seen_boot_ids" != *":$prior:"* ]] || fail reused_boot_id
+          seen_boot_ids+="$prior:"
+          persist "$WORK/sysext-$phase.json" "$EVIDENCE/sysext-$phase.json" || fail evidence_write
+          printf 'phase=%s boot_id=%s sysext_failures=%s\n' "$phase" "$prior" "$sysext_state" >> "$OUT/checks.txt"
+          persist "$OUT/checks.txt" "$EVIDENCE/checks.txt" || fail evidence_write
+          # Both sysext boots always run, so one record never hides the other.
+          if [[ "$sysext_state" != none ]]; then
+            sysext_failures+="${sysext_failures:+,}$sysext_state"
+          fi
+          ;;
+        *)
+          await SNOW_QA_V1 "$((budget + 300))"
+          python3 /opt/snow-qa/qa.py phase "$WORK/normalized.json" "$phase" "$nonce" "$prior" "$WORK/serial" "$WORK/checks.json" > "$WORK/boot-id" 2>/dev/null || fail phase_mismatch
+          [[ -s "$WORK/boot-id" ]] || fail phase_mismatch
+          prior=$(head -n 1 "$WORK/boot-id")
+          # Lines 2 and 3 are the attested fs-verity corruption count and kernel
+          # release (frostyard/snosi#1130).
+          fsverity=$(sed -n '2s/^fsverity_errors=\([0-9]\{1,10\}\)$/\1/p' "$WORK/boot-id")
+          [[ -n "$fsverity" ]] || fail phase_mismatch
+          kernel=$(sed -n '3s/^kernel=\([0-9A-Za-z._+~-]\{1,64\}\)$/\1/p' "$WORK/boot-id")
+          [[ -n "$kernel" ]] || fail phase_mismatch
+          [[ "$seen_boot_ids" != *":$prior:"* ]] || fail reused_boot_id
+          seen_boot_ids+="$prior:"
+          printf 'phase=%s boot_id=%s kernel=%s fsverity_errors=%s\n' "$phase" "$prior" "$kernel" "$fsverity" >> "$OUT/checks.txt"
+          if (( 10#$fsverity > 0 )); then
+            if [[ " $known_defect_kernels " == *" $kernel "* ]]; then
+              [[ " $fsverity_known " == *" $kernel "* ]] || fsverity_known+="${fsverity_known:+ }$kernel"
+            else
+              fsverity_bad=1
+            fi
+          fi
+          persist "$OUT/checks.txt" "$EVIDENCE/checks.txt" || fail evidence_write
+          ;;
+      esac
       case "$phase" in stage|boot-n-plus-1|rollback) tag after-"$phase";; esac
       # The guest unit powers off after its record so bootc finalizes the staged
       # deployment at shutdown (a forced stop would skip it). Wait, bounded, for
@@ -976,14 +1036,58 @@ data:
     # compressed ones): recorded, not failed. Any other kernel with errors fails,
     # so a human checks whether that kernel has the fix. A compressed install
     # (an ISO that predates frostyard/firn#119) makes this near certain on 7.2.11.
+    # A sysext failure keeps both probe records: report the failing units' journal
+    # lines in the pod log, then judge after every boot of the plan.
+    if [[ -n "$sysext_failures" ]]; then
+      python3 - "$WORK/sysext-enable.json" "$WORK/sysext-reboot.json" >&2 <<'PY' || true
+    import json, sys
+    from pathlib import Path
+    want = ('unit_inactive', 'first_start_missing', 'first_start_not_run',
+            'first_start_rerun', 'first_start_changed')
+    total = 0
+    for name in sys.argv[1:]:
+        try:
+            data = json.loads(Path(name).read_bytes()[:1048576])
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        codes = data.get('failures')
+        if not isinstance(codes, list):
+            continue
+        host = data.get('host_failures')
+        codes = codes + (host if isinstance(host, list) else [])
+        units = {code.split(':', 1)[1] for code in codes
+                 if isinstance(code, str) and code.split(':', 1)[0] in want}
+        for section in ('units', 'first_start'):
+            entries = data.get(section)
+            for unit, entry in (entries if isinstance(entries, dict) else {}).items():
+                lines = entry.get('journal') if isinstance(entry, dict) else None
+                if unit not in units or not isinstance(lines, list):
+                    continue
+                for line in lines:
+                    if total >= 200:
+                        break
+                    print('sysext_journal unit=' + str(unit) + ' ' + str(line))
+                    total += 1
+    PY
+    fi
     (( fsverity_bad == 0 )) || fail fsverity_errors
     if [[ -n "$fsverity_known" ]]; then
       printf 'fsverity_known_defect=%s\n' "${fsverity_known// /,}" >> "$OUT/checks.txt"
       persist "$OUT/checks.txt" "$EVIDENCE/checks.txt" || fail evidence_write
       echo "fs-verity: errors on known-defect kernel(s) ${fsverity_known} (snosi#1130); recorded, not failed" >&2
     fi
+    if [[ -n "$sysext_failures" ]]; then
+      reason="sysext_failed:$sysext_failures"
+      fail "${reason:0:400}"
+    fi
     STATE=PASS
-    REASON=verified_five_fresh_boots${fsverity_known:+;fsverity_known_defect=${fsverity_known// /,}}
+    if [[ "$sysext_mode" == 1 ]]; then
+      REASON=verified_sysext_probe${fsverity_known:+;fsverity_known_defect=${fsverity_known// /,}}
+    else
+      REASON=verified_five_fresh_boots${fsverity_known:+;fsverity_known_defect=${fsverity_known// /,}}
+    fi
   guest.sh: |
     #!/bin/sh
     # Installed as a once-per-fresh-boot unit; systemd credentials must come
@@ -1025,6 +1129,20 @@ data:
     LIMITS = {"iso_boot": 1800, "install": 7200, "installed_boot": 1800,
               "stage": 3600, "reboot": 1800}
     PHASES = ("installed-n", "stage", "boot-n-plus-1", "rollback", "boot-n")
+    SYSEXT_PHASES = ("sysext-enable", "sysext-reboot")
+    SYSEXT_RECORD_FIELDS = set("phase nonce boot_id booted_digest updex merged links units first_start sysusers extra_journal failures".split())
+    SYSEXT_FIELDS = FIELDS | {"sysext_probe"}
+    # The host accepts a token of at most this many characters; the guest drops the
+    # oldest journal lines until its record fits.
+    SYSEXT_TOKEN_MAX = 12000
+    SYSEXT_POLL_INTERVAL = 5
+    SYSEXT_POLL_TIMEOUT = 180
+    SYSEXT_STATE = Path("/var/lib/snow-qa")
+    SYSEXT_EXTENSIONS = Path("/var/lib/extensions")
+    SYSUSERS_DIR = Path("/usr/lib/sysusers.d")
+    # The guest reads absolute manifest paths from its own root; tests point this
+    # at a temporary tree instead.
+    SYSEXT_ROOT = Path("/")
     RECORD_FIELDS = set("phase nonce boot_id spec_image spec_transport booted_digest booted_version staged_digest rollback_digest policy_sha256 policy_ok pull_ok pull_digest secure_boot uki_type2 lockdown root_luks root_btrfs tpm_pcr11_tokens kernel fsverity_errors action marker_digest".split())
     GUEST_MANIFEST = Path("/opt/snow-qa/normalized.json")
     GUEST_PATHS = {"boot_id": Path("/proc/sys/kernel/random/boot_id"),
@@ -1050,8 +1168,31 @@ data:
         return type(value) is str and re.fullmatch(pattern, value, flags=re.ASCII) is not None
 
 
+    def sysext_probe(p):
+        """The optional sysext_probe block: feature names, units and first-start files."""
+        require(type(p) is dict and set(p) == {"features", "units", "first_start"}, "sysext_fields")
+        features, units, first = p["features"], p["units"], p["first_start"]
+        require(type(features) is list and 1 <= len(features) <= 8 and
+                all(full(r"[a-z][a-z0-9-]{0,31}", name) for name in features) and
+                len(set(features)) == len(features), "sysext_features")
+        require(type(units) is list and 1 <= len(units) <= 16 and
+                all(full(r"[A-Za-z0-9@._-]{1,64}\.(?:service|socket)", name) for name in units) and
+                len(set(units)) == len(units), "sysext_units")
+        require(type(first) is list and len(first) <= 4, "sysext_first_start")
+        seen = set()
+        for entry in first:
+            require(type(entry) is dict and set(entry) == {"unit", "path"}, "sysext_first_start")
+            unit, path = entry["unit"], entry["path"]
+            require(full(r"[A-Za-z0-9@._-]{1,64}\.service", unit) and unit not in seen, "sysext_first_start")
+            seen.add(unit)
+            # No ".." part: the path stays below /etc.
+            require(full(r"/etc/[A-Za-z0-9._-]{1,64}(?:/[A-Za-z0-9._-]{1,64}){0,3}", path) and
+                    ".." not in path.split("/"), "sysext_first_start")
+        return p
+
+
     def normalize(m):
-        require(type(m) is dict and set(m) == FIELDS, "manifest_fields")
+        require(type(m) is dict and set(m) in (FIELDS, SYSEXT_FIELDS), "manifest_fields")
         require(m["family"] == "snow" and m["product"] == "snow", "snow_only")
         require(m["secureboot"] is True and m["encryption"] == "tpm2-luks-passphrase", "security_mode")
         for name in ("iso_sha256", "index_key_sha256", "cosign_key_sha256", "mok_cert_sha256"):
@@ -1061,7 +1202,13 @@ data:
         require(m["trust_fingerprint"] == FINGERPRINT, "fingerprint")
         for name in ("iso_version", "version_n", "version_n_plus_1"):
             require(full(r"[0-9]{14}", m[name]), "version_format")
-        require(m["version_n"] < m["version_n_plus_1"], "version_order")
+        if "sysext_probe" in m:
+            # The sysext probe never stages N+1: N+1 is only the controlled
+            # tag's current target, so the two versions only have to differ.
+            require(m["version_n"] != m["version_n_plus_1"], "version_distinct")
+            sysext_probe(m["sysext_probe"])
+        else:
+            require(m["version_n"] < m["version_n_plus_1"], "version_order")
         require(m["iso_url"] == ISO_BASE + "snosi-installer_" + m["iso_version"] + "_x86-64.iso", "iso_url")
         for name in ("image_n", "image_n_plus_1"):
             require(full(re.escape(REPO) + r"@sha256:[0-9a-f]{64}", m[name]), "image_ref")
@@ -1495,6 +1642,97 @@ data:
         return phase_attest(m, phase, nonce, prior, serial, checks)["boot_id"]
 
 
+    def sysext_decode(encoded):
+        """One published record, or None for a marker that does not decode."""
+        try:
+            require(0 < len(encoded) <= SYSEXT_TOKEN_MAX + 64, "record_encoding")
+            decoded = base64.b64decode(encoded + b"=" * (-len(encoded) % 4), altchars=b"-_", validate=True)
+            require(base64.urlsafe_b64encode(decoded).rstrip(b"=") == encoded, "record_encoding")
+            # Bound the decompressed size: a hostile token must not expand freely.
+            raw = zlib.decompressobj().decompress(decoded, 262144)
+            data = json.loads(raw, object_pairs_hook=pairs,
+                              parse_constant=lambda _: (_ for _ in ()).throw(GateError("record_encoding")))
+        except (ValueError, UnicodeError, zlib.error, GateError):
+            return None
+        return data if type(data) is dict else None
+
+
+    def sysext_record(path):
+        try:
+            raw = Path(path).read_bytes()
+            require(len(raw) <= 1048576, "record_size")
+            data = json.loads(raw, object_pairs_hook=pairs)
+        except (ValueError, UnicodeError) as exc:
+            raise GateError("record_fields") from exc
+        require(type(data) is dict, "record_fields")
+        return data
+
+
+    def mapping(value):
+        return value if type(value) is dict else {}
+
+
+    def sysext_compare(record, enable):
+        """Host checks against the enable record: first-start bytes and account ids."""
+        failures = set()
+        before = mapping(enable.get("first_start"))
+        for unit, item in mapping(record.get("first_start")).items():
+            prior = before.get(unit)
+            if type(item) is dict and type(prior) is dict and item.get("sha256") != prior.get("sha256"):
+                failures.add("first_start_changed:" + sanitize(unit))
+        for group, key in (("users", "uid"), ("groups", "gid")):
+            old = mapping(mapping(enable.get("sysusers")).get(group))
+            new = mapping(mapping(record.get("sysusers")).get(group))
+            for name, item in new.items():
+                prior = old.get(name)
+                if type(item) is dict and type(prior) is dict and item.get(key) != prior.get(key):
+                    failures.add("sysusers_changed:" + sanitize(name))
+        return sorted(failures)
+
+
+    def sysext_record_count(raw):
+        """Every distinct record the serial slice carries; unreadable tokens are dropped."""
+        require(len(raw) <= 1024 * 1024, "serial_size")
+        records = set()
+        for line in raw.split(b"\n"):
+            if b"SNOW_SYSEXT_V1" not in line:
+                continue
+            match = re.fullmatch(rb"SNOW_SYSEXT_V1 ([A-Za-z0-9_-]{1,%d})" % (SYSEXT_TOKEN_MAX + 64),
+                                 marker_token(line, b"SNOW_SYSEXT_V1"))
+            if match is None:
+                continue
+            record = sysext_decode(match[1])
+            if record is not None:
+                records.add(canonical(record))
+        require(len(records) == 1, "record_count")
+        return json.loads(records.pop(), object_pairs_hook=pairs)
+
+
+    def sysext_phase_attest(m, phase, nonce, prior, serial, destination, enable=None):
+        require("sysext_probe" in m and phase in SYSEXT_PHASES and nonce_valid(nonce) and
+                (prior == "none" or boot_id_valid(prior)), "phase_arguments")
+        record = sysext_record_count(Path(serial).read_bytes())
+        require(set(record) - {"truncated"} == SYSEXT_RECORD_FIELDS, "record_fields")
+        require(record["phase"] == phase and record["nonce"] == nonce, "record_identity")
+        require(boot_id_valid(record["boot_id"]) and record["boot_id"] != prior, "boot_identity")
+        # Fixed-code tokens only: these codes reach checks.txt and the run reason,
+        # so one may never carry a newline or another writer's text.
+        require(type(record["failures"]) is list and len(record["failures"]) <= 128 and
+                all(full(r"[a-z_]{1,40}(?::[A-Za-z0-9@._:-]{1,96})?", code) for code in record["failures"]),
+                "record_failures")
+        # The guest's own codes are not recomputed; a reboot record is compared with
+        # the enable record for the files and accounts it must not change.
+        host = sysext_compare(record, sysext_record(enable)) if phase == "sysext-reboot" and enable else []
+        data = dict(record)
+        data["host_failures"] = host
+        with open(destination, "wb", opener=lambda path, flags: os.open(path, flags, 0o600)) as stream:
+            stream.write(canonical(data))
+        failures = sorted(set(record["failures"]) | set(host))
+        print(record["boot_id"])
+        print("failures=" + (",".join(failures) if failures else "none"))
+        return record["boot_id"]
+
+
     def fsverity_error_count(log):
         """Count fs-verity corruption messages in a kernel log; never edits the log.
 
@@ -1778,6 +2016,318 @@ data:
         return "SNOW_QA_V1 " + base64.urlsafe_b64encode(canonical(record).strip()).decode().rstrip("=")
 
 
+    # The sysext probe boots the installed N image, enables updex features and
+    # reports what merged, which units started and which accounts appeared. It
+    # never stages, switches or rolls back an image.
+    SYSUSERS_BEFORE = "sysusers-before.json"
+
+
+    def sanitize(value):
+        """One captured line: UTF-8 text, no control characters, no long hex runs."""
+        text = value.decode("utf-8", "replace") if isinstance(value, bytes) else str(value)
+        text = re.sub(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]", "", text)
+        text = re.sub(r"[0-9a-fA-F]{32,}", "[REDACTED]", text)
+        return text[:240]
+
+
+    def tail_lines(raw, limit):
+        if not isinstance(raw, bytes):
+            return []
+        return [sanitize(line) for line in raw.splitlines()[-limit:]]
+
+
+    def sysext_run(args, timeout=120):
+        """Run one probe command. Its status and bounded text become the record."""
+        try:
+            result = subprocess.run(args, capture_output=True, timeout=timeout, check=False)
+        except (OSError, subprocess.SubprocessError):
+            return 1, b"", b""
+        return result.returncode, result.stdout or b"", result.stderr or b""
+
+
+    def sysext_show(unit, properties):
+        """systemctl show as KEY=VALUE, limited to the named properties."""
+        keys = properties.split(",")
+        rc, out, _ = sysext_run(["systemctl", "show", "--property=" + properties, unit])
+        values = {}
+        if rc != 0:
+            return values
+        for line in out.splitlines():
+            key, separator, value = line.decode("utf-8", "replace").partition("=")
+            if separator and key in keys and key not in values:
+                values[key] = sanitize(value)
+        return values
+
+
+    def sysext_journal(unit, limit):
+        rc, out, err = sysext_run(["journalctl", "-b", "-u", unit, "--no-pager",
+                                   "-o", "short-monotonic", "-n", str(limit)])
+        return tail_lines(out + err, limit) if rc == 0 else []
+
+
+    def sysext_merged():
+        """Extension names merged on /usr, plus the names exactly as reported."""
+        rc, out, _ = sysext_run(["systemd-sysext", "status", "--json=short"])
+        if rc != 0 or len(out) > 65536:
+            return {"names": [], "reported": []}
+        try:
+            data = json.loads(out, object_pairs_hook=pairs)
+        except (ValueError, UnicodeError, GateError):
+            return {"names": [], "reported": []}
+        nodes = data if type(data) is list else data.get("hierarchies") if type(data) is dict else None
+        reported = []
+        if type(nodes) is not list:
+            return {"names": [], "reported": []}
+        for node in nodes:
+            if type(node) is not dict or node.get("hierarchy") not in ("/usr", "usr"):
+                continue
+            entries = node.get("extensions")
+            if type(entries) is not list:
+                continue
+            for entry in entries:
+                if type(entry) is str:
+                    reported.append(entry)
+                elif type(entry) is dict and type(entry.get("name")) is str:
+                    reported.append(entry["name"])
+        reported = sorted({sanitize(name) for name in reported})
+        names = sorted({name[:-4] if name.endswith(".raw") else name for name in reported})
+        return {"names": names, "reported": reported}
+
+
+    def sysext_link(feature):
+        """The basename /var/lib/extensions/<feature>.raw resolves to, or None."""
+        try:
+            return sanitize((SYSEXT_EXTENSIONS / (feature + ".raw")).resolve(strict=True).name)
+        except (OSError, RuntimeError):
+            return None
+
+
+    def sysext_poll(units):
+        """Wait, bounded, for every probed unit to report ActiveState=active."""
+        end = time.monotonic() + SYSEXT_POLL_TIMEOUT
+        while True:
+            if all(sysext_show(unit, "ActiveState").get("ActiveState") == "active" for unit in units):
+                return
+            if time.monotonic() >= end:
+                return
+            time.sleep(SYSEXT_POLL_INTERVAL)
+
+
+    def sysext_unit_state(unit):
+        state = sysext_show(unit, "ActiveState,SubState,Result,NRestarts")
+        entry = {key: state.get(key) for key in ("ActiveState", "SubState", "Result", "NRestarts")}
+        entry["journal"] = sysext_journal(unit, 20) if entry["ActiveState"] != "active" else []
+        return entry
+
+
+    def sysext_first_start(entry):
+        """The first-start unit state and the file it is expected to have written."""
+        unit, path = entry["unit"], entry["path"]
+        state = sysext_show(unit, "ActiveState,Result,ConditionResult,ExecMainStartTimestampMonotonic,ExecMainStatus")
+        item = {key: state.get(key) for key in ("ActiveState", "Result", "ConditionResult",
+                                                "ExecMainStartTimestampMonotonic", "ExecMainStatus")}
+        item.update(exists=False, size=None, mode=None, sha256=None)
+        target = SYSEXT_ROOT / path.lstrip("/")
+        try:
+            if target.is_file() and not target.is_symlink():
+                info = target.stat()
+                digest = hashlib.sha256()
+                with target.open("rb") as stream:
+                    for chunk in iter(lambda: stream.read(65536), b""):
+                        digest.update(chunk)
+                item.update(exists=True, size=info.st_size, mode=format(info.st_mode & 0o7777, "04o"),
+                            sha256=digest.hexdigest())
+        except OSError:
+            pass
+        item["journal"] = sysext_journal(unit, 10)
+        return item
+
+
+    def sysusers_names():
+        try:
+            return sorted(path.name for path in SYSUSERS_DIR.glob("*.conf") if path.is_file())
+        except OSError:
+            return []
+
+
+    def sysusers_save(names):
+        SYSEXT_STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
+        with open(SYSEXT_STATE / SYSUSERS_BEFORE, "wb",
+                  opener=lambda path, flags: os.open(path, flags, 0o600)) as stream:
+            stream.write(canonical(names))
+
+
+    def sysusers_before():
+        try:
+            raw = (SYSEXT_STATE / SYSUSERS_BEFORE).read_bytes()
+            data = json.loads(raw[:65536], object_pairs_hook=pairs)
+        except (OSError, ValueError, UnicodeError, GateError):
+            return []
+        return data if type(data) is list and all(type(name) is str for name in data) else []
+
+
+    def sysusers_entries(fragments):
+        """u NAME, g NAME and m USER GROUP lines of the new fragments."""
+        users, groups, memberships = [], [], []
+        for name in fragments:
+            try:
+                raw = (SYSUSERS_DIR / name).read_bytes()[:65536]
+            except OSError:
+                continue
+            for line in raw.decode("utf-8", "replace").splitlines():
+                fields = line.strip().split()
+                if not fields or fields[0].startswith("#"):
+                    continue
+                kind = fields[0]
+                if kind in ("u", "g") and len(fields) >= 2 and full(r"[A-Za-z_][A-Za-z0-9_.-]{0,31}", fields[1]):
+                    (users if kind == "u" else groups).append(fields[1])
+                elif kind == "m" and len(fields) >= 3 and full(r"[A-Za-z_][A-Za-z0-9_.-]{0,31}", fields[1]) \
+                        and full(r"[A-Za-z_][A-Za-z0-9_.-]{0,31}", fields[2]):
+                    memberships.append((fields[1], fields[2]))
+        return users, groups, memberships
+
+
+    def getent_id(database, name):
+        """The uid or gid getent reports for one name, or None when it is absent."""
+        rc, out, _ = sysext_run(["getent", database, name], timeout=60)
+        if rc != 0:
+            return None
+        lines = out.decode("utf-8", "replace").splitlines()[:1]
+        fields = lines[0].split(":") if lines else []
+        if len(fields) < 4 or fields[0] != name or not fields[2].isdigit():
+            return None
+        return int(fields[2])
+
+
+    def sysusers_state(fragments):
+        users, groups, memberships = sysusers_entries(fragments)
+        state = {"fragments": fragments, "users": {}, "groups": {}, "memberships": {}}
+        failures = set()
+        for name in users:
+            uid = getent_id("passwd", name)
+            state["users"][name] = {"present": uid is not None, "uid": uid}
+            if uid is None:
+                failures.add("sysusers_missing:" + name)
+        for name in groups:
+            gid = getent_id("group", name)
+            state["groups"][name] = {"present": gid is not None, "gid": gid}
+            if gid is None:
+                failures.add("sysusers_missing:" + name)
+        for user, group in memberships:
+            rc, out, _ = sysext_run(["id", "-nG", user], timeout=60)
+            member = rc == 0 and group in out.decode("utf-8", "replace").split()
+            state["memberships"][user + ":" + group] = member
+            if not member:
+                failures.add("sysusers_missing:" + user + ":" + group)
+        return state, failures
+
+
+    def sysext_token(record):
+        return base64.urlsafe_b64encode(zlib.compress(canonical(record).strip(), 9)).decode().rstrip("=")
+
+
+    def sysext_line_lists(record):
+        """Every journal-like line list of a record, oldest line first."""
+        lists = [record["extra_journal"][unit] for unit in sorted(record["extra_journal"])]
+        lists += [record["units"][unit]["journal"] for unit in sorted(record["units"])]
+        lists += [record["first_start"][unit]["journal"] for unit in sorted(record["first_start"])]
+        lists += [record["updex"][feature]["output"] for feature in sorted(record["updex"])]
+        return [entry for entry in lists if entry]
+
+
+    def sysext_truncate(record):
+        """The published token; the oldest captured lines yield until it fits."""
+        data = json.loads(canonical(record), object_pairs_hook=pairs)
+        encoded = sysext_token(data)
+        if len(encoded) <= SYSEXT_TOKEN_MAX:
+            return encoded
+        data["truncated"] = True
+        while len(encoded) > SYSEXT_TOKEN_MAX:
+            lists = sysext_line_lists(data)
+            if not lists:
+                break
+            lists[0].pop(0)
+            encoded = sysext_token(data)
+        require(len(encoded) <= SYSEXT_TOKEN_MAX, "record_size")
+        return encoded
+
+
+    def sysext(credentials):
+        """One sysext-probe record: merged extensions, units, first start, sysusers."""
+        creds = Path(credentials)
+
+        def credential(name):
+            value = (creds / name).read_text().strip()
+            require(len(value) <= 256, "credential")
+            return value
+
+        phase, nonce = credential("phase"), credential("nonce")
+        require(phase in SYSEXT_PHASES and nonce_valid(nonce), "credential")
+        m = load(GUEST_MANIFEST, frozen=True)
+        require("sysext_probe" in m, "sysext_manifest")
+        probe = m["sysext_probe"]
+        for key in ("image_n", "image_n_plus_1", "target_ref"):
+            require(credential(key) == m[key], "credential")
+        boot_id = GUEST_PATHS["boot_id"].read_text().strip()
+        require(boot_id_valid(boot_id), "boot_identity")
+        # status_fields validates the bootc status shape; only the booted digest is
+        # recorded here, and it must name image_n in every sysext phase.
+        _, _, booted_digest, _, _, _ = status_fields(guest_status())
+        if phase == "sysext-enable":
+            # Before any action: the fragments this enable writes are the new ones.
+            before = sysusers_names()
+            sysusers_save(before)
+            updex = {}
+            for feature in probe["features"]:
+                rc, out, err = sysext_run(["updex", "features", "enable", feature, "--now"], timeout=600)
+                updex[feature] = {"rc": rc, "output": tail_lines(out + err, 20)}
+            sysext_poll(probe["units"])
+        else:
+            before = sysusers_before()
+            updex = {}
+            sysext_poll(probe["units"])
+        merged = sysext_merged()
+        links = {feature: sysext_link(feature) for feature in probe["features"]}
+        units = {unit: sysext_unit_state(unit) for unit in probe["units"]}
+        first_start = {entry["unit"]: sysext_first_start(entry) for entry in probe["first_start"]}
+        fragments = [name for name in sysusers_names() if name not in before]
+        sysusers, failures = sysusers_state(fragments)
+        extra_journal = {}
+        for unit in ("reload-sysext.service", "systemd-sysext.service"):
+            if sysext_show(unit, "Result").get("Result") not in (None, "", "success"):
+                extra_journal[unit] = sysext_journal(unit, 20)
+        if not fragments:
+            failures.add("no_sysusers_fragment")
+        for feature, entry in updex.items():
+            if entry["rc"] != 0:
+                failures.add("updex_enable:" + feature)
+        for feature in probe["features"]:
+            if feature not in merged["names"]:
+                failures.add("not_merged:" + feature)
+            if links[feature] is None:
+                failures.add("not_linked:" + feature)
+        for unit, entry in units.items():
+            if entry["ActiveState"] != "active":
+                failures.add("unit_inactive:" + unit)
+        for unit, entry in first_start.items():
+            if not entry["exists"]:
+                failures.add("first_start_missing:" + unit)
+            if phase == "sysext-enable":
+                started = entry["ExecMainStartTimestampMonotonic"] or ""
+                if entry["Result"] != "success" or not started.isdigit() or int(started) == 0:
+                    failures.add("first_start_not_run:" + unit)
+            elif entry["ConditionResult"] != "no":
+                failures.add("first_start_rerun:" + unit)
+        if booted_digest != m["image_n"].rsplit(":", 1)[-1]:
+            failures.add("booted_image")
+        record = dict(phase=phase, nonce=nonce, boot_id=boot_id, booted_digest=booted_digest,
+                      updex=updex, merged=merged, links=links, units=units,
+                      first_start=first_start, sysusers=sysusers, extra_journal=extra_journal,
+                      failures=sorted(failures))
+        require(set(record) == SYSEXT_RECORD_FIELDS, "record_fields")
+        return "SNOW_SYSEXT_V1 " + sysext_truncate(record)
+
+
     # On Snow, /dev/console is tty0 (graphical); the host reads only ttyS0
     # (run-snow-bootc-lifecycle-2tnjh: the installed N booted, but its record
     # never reached the serial log). serial-getty@ttyS0 runs vhangup and may
@@ -1837,7 +2387,7 @@ data:
 
     def main(argv):
         try:
-            require(len(argv) in (2, 3, 4, 7), "usage")
+            require(len(argv) in (2, 3, 4, 7, 8), "usage")
             if argv[0] == "validate" and len(argv) == 3:
                 m = load(argv[1])
                 save(argv[2], m)
@@ -1854,15 +2404,22 @@ data:
             elif argv[0] == "guest" and len(argv) == 2:
                 # The one-line record is emitted only after all probes and actions succeed.
                 publish(guest(argv[1]))
+            elif argv[0] == "sysext" and len(argv) == 2:
+                # Failures travel inside the record; only a fatal gate error
+                # uses the sysext error marker.
+                publish(sysext(argv[1]))
+            elif argv[0] == "sysext-phase" and len(argv) in (7, 8):
+                sysext_phase_attest(load(argv[1], frozen=True), argv[2], argv[3], argv[4],
+                                    argv[5], argv[6], argv[7] if len(argv) == 8 else None)
             else:
                 raise GateError("usage")
             return 0
         except (GateError, OSError, TypeError, KeyError, ValueError) as exc:
             code = str(exc) if isinstance(exc, GateError) and full(r"[a-z_]{1,40}", str(exc)) else "io_error"
-            if argv[:1] == ["guest"] and isinstance(exc, GateError) and code != "io_error":
+            if argv[:1] in (["guest"], ["sysext"]) and isinstance(exc, GateError) and code != "io_error":
                 # An observed fixed-code failure is distinct from an absent
                 # channel. Never print arbitrary tool stderr or credentials.
-                publish("SNOW_QA_ERR " + code)
+                publish(("SNOW_QA_ERR " if argv[:1] == ["guest"] else "SNOW_SYSEXT_ERR ") + code)
             print("qa_failed:" + code, file=sys.stderr)
             return 1
 
