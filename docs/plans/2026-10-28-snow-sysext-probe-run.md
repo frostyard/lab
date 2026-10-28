@@ -90,12 +90,70 @@ This is a product finding for the live enable path (updex `--now`, or snosi's
 refresh hook), not a lane defect. It proves nothing about lodge itself, the app
 sockets' clients, Snowfield hardware or release readiness.
 
+`dev-snow-bootc-lifecycle-vgz7k` (lane commit `3eccfdd`, same N, 16:21Z)
+repeated this result (`Failed to resolve user 'frostnotes'`).
+
+## Rerun with updex 2.1.3 (2026-10-28): FAILED in the enable boot, PASS after the reboot
+
+updex v2.1.3 ([updex#474](https://github.com/frostyard/updex/pull/474),
+ADR-0019) makes a live refresh run `systemd-sysext refresh --no-reload`,
+`systemd-sysusers`, `systemd-tmpfiles --create --graceful`, then
+`systemd-sysext refresh --always-refresh=yes`. This rerun checks that fix.
+
+| Input | Value |
+| --- | --- |
+| Manifest | [`manifest-updex-2.1.3.json`](snow-sysext-probe-2026-10-28/manifest-updex-2.1.3.json), canonical `manifest_sha256` `049af1ad…933294` |
+| ISO | `snosi-installer_20261028172421_x86-64.iso`, SHA-256 `5a34d661…152402`: the single entry of the signed index at submit time |
+| N | `20261028172907`, `sha256:59927ae4…2eb3d4` (`snow:latest`), built by snosi run `40735358368` from `0ede646` |
+| updex in N | `updex version 2.1.3 (Commit: 2661e987…)`: the `xattr/frostyard-updex` layer `sha256:cc44afdd…290000`, `usr/bin/updex --version` |
+| N+1, probe | unchanged; `qa-controlled` was not moved |
+
+`dev-snow-bootc-lifecycle-jvzfn` (lane = `main` at `0bae4fcb`, submitted
+18:17Z, ended 18:31Z). The VM was deleted by the lane's teardown.
+
+```
+FAILED: sysext_failed:unit_inactive:frostmail.service,unit_inactive:frostnotes-lodge.socket,unit_inactive:frostnotes.service
+```
+
+| Check | `sysext-enable` | `sysext-reboot` |
+| --- | --- | --- |
+| `updex features enable … --now` | rc 0 for both; the output shows sysusers in the refresh: `Creating group 'lodge' with GID 976`, `'lodge-apps' … 975`, `user 'frostnotes' … 974`, `user 'frostmail' … 973` | — |
+| Merged on `/usr`, link | `maild`, `notesd`; `maild_0.2.0_13_x86-64.raw`, `notesd_0.2.0_13_x86-64.raw` | same |
+| sysusers (`frostmail`, `frostnotes`, `lodge`, `lodge-apps`, memberships) | **present** (fixed by 2.1.3) | present, same ids |
+| `frostmail.socket` | active (listening) | active |
+| `frostnotes-lodge.socket` | **failed** (`start-limit-hit`, `Failed to listen`) | active |
+| `frostnotes.service` | **failed** (`start-limit-hit`, then dependency) | active, 0 restarts |
+| `frostmail.service` | **auto-restart loop**, 72 restarts: `maild: lodge socket: lodge's user: user: unknown user lodge` | active, 0 restarts |
+| `frostmail-secrets-key.service` | ran at 22 s, made the key (0600, 1418 bytes) | skipped (`ConditionResult=no`); same SHA-256 |
+
+The account defect of `kb7qb` is gone: the accounts exist in the enable
+boot and `frostmail.socket` listens. Two new defects stay in the live enable
+path:
+
+- `maild --lodge` resolves the **user** `lodge` (`lodgeapp.LoadEnv`,
+  frostyard/lodge `kit/lodgeapp/env.go`). The suite sysexts declare only the
+  **group** `lodge`; the user comes from lodge's own `sysusers.d`, and the
+  `lodge` feature is not enabled here. Why `frostmail.service` then runs
+  after the reboot is not proven by this run.
+- `frostnotes-lodge.socket` fails to listen and hits its start limit; the
+  probe keeps only the last 20 journal lines of a unit, so the first cause is
+  not in the record. A guess, not evidence: the second feature's
+  `refresh --no-reload` unmerges `/usr` under the first feature's running
+  units.
+
+This proves nothing about lodge itself, Snowfield hardware or release
+readiness.
+
 ## Open questions
 
-- **Live enable of a sysext with its own accounts:** who applies the merged
-  `sysusers.d` (and `tmpfiles.d`) after a live refresh — updex after
-  `systemd-sysext refresh`, or a snosi hook — and does it also reset the
-  units' start limit? Decide in snosi/updex; rerun this probe after the fix.
+- **Live enable of a sysext with its own accounts:** answered by updex
+  v2.1.3 (accounts exist in the enable boot, `jvzfn`). Whether it should also
+  reset the units' start limit stays open.
+- **`maild --lodge` without the `lodge` feature:** must the `maild` and
+  `notesd` features depend on `lodge` (its user), or must the apps wait for
+  it? Decide in frostmail/frostnotes/snosi.
+- **`frostnotes-lodge.socket` in the enable boot:** find the first failure
+  (the head of the unit journal), then rerun this probe.
 
 ## References
 
