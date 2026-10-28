@@ -456,15 +456,23 @@ never stages N+1; N+1 is only the current target of the controlled tag.
 `sysext-enable` first saves the existing `/usr/lib/sysusers.d` fragments, then
 runs `updex features enable <feature> --now` for each feature and waits up to
 180 s for every `units` entry to be `active`; `sysext-reboot` only waits and
-re-checks. Each boot publishes one `SNOW_SYSEXT_V1` record: merged `/usr`
-extensions, the file each `/var/lib/extensions/<feature>.raw` resolves to, unit
-states, the first-start file size/mode/sha256, the new sysusers accounts, and a
-sorted `failures` list. The probe unit runs after `multi-user.target` is active, so its `Upholds=`
-apply. The runner keeps `sysext-enable.json` and `sysext-reboot.json` evidence
-(the reboot record is compared with the enable record: first-start bytes, a
-rerun, account ids), prints
-the failing units' journal lines in the pod log, and judges after both sysext
-boots: any failure is `sysext_failed:<codes>`, otherwise the reason is
+re-checks. The wait alone is not enough: a `Type=simple` unit in a crash loop
+samples as `active` between two restarts. So every `units` entry must also stay
+`active` for a 30 s settle window, with the same `NRestarts` and the same
+`ActiveEnterTimestampMonotonic` at both samples, else the code is
+`unit_inactive:<unit>` or `unit_restarted:<unit>` (lab#165, see
+[ADR 0010](docs/adr/0010-vacuous-success-is-forbidden.md)).
+Each boot publishes one `SNOW_SYSEXT_V1` record: merged `/usr` extensions, the
+file each `/var/lib/extensions/<feature>.raw` resolves to, unit states, the
+first-start file size/mode/sha256, the new sysusers accounts, and a sorted
+`failures` list. A failing unit keeps the first 40 journal lines of the boot
+and the last 20, so the first cause of a failure survives; truncation drops
+tail lines before head lines. The probe unit runs after `multi-user.target` is
+active, so its `Upholds=` apply. The runner keeps `sysext-enable.json` and
+`sysext-reboot.json` evidence (the reboot record is compared with the enable
+record: first-start bytes, a rerun, account ids), prints the failing units'
+journal head and tail lines in the pod log, and judges after both sysext boots:
+any failure is `sysext_failed:<codes>`, otherwise the reason is
 `verified_sysext_probe`. This probe is not a release gate.
 
 On failure, private evidence may also include `install-diagnostic.txt` (a
