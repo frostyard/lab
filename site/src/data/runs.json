@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-28T16:30:18Z",
+  "generated": "2026-10-28T17:00:18Z",
   "lanes": [
     {
       "laneKey": "run-firn-install-tests",
@@ -68,9 +68,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1793205000",
+        "name": "publish-results-1793206800",
         "phase": "Running",
-        "started": "2026-10-28T16:30:00Z",
+        "started": "2026-10-28T17:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -248,11 +248,27 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1793205000",
+      "name": "publish-results-1793206800",
       "phase": "Running",
-      "started": "2026-10-28T16:30:00Z",
+      "started": "2026-10-28T17:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1793205000",
+      "phase": "Succeeded",
+      "started": "2026-10-28T16:30:00Z",
+      "finished": "2026-10-28T16:30:32Z",
+      "durationSeconds": 32,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -357,22 +373,6 @@
       "trigger": "scheduled",
       "result": "20 passed, 3 skipped",
       "digest": "sha256:249386e3440cfac5131ef3d6d23386b1f187ae62300f7370282523a02049289a",
-      "checks": []
-    },
-    {
-      "name": "publish-results-1793199600",
-      "phase": "Succeeded",
-      "started": "2026-10-28T15:00:00Z",
-      "finished": "2026-10-28T15:00:30Z",
-      "durationSeconds": 30,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": null,
       "checks": []
     },
     {
