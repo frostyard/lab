@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-28T04:30:17Z",
+  "generated": "2026-10-28T05:00:23Z",
   "lanes": [
     {
       "laneKey": "run-firn-install-tests",
@@ -68,9 +68,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1793161800",
+        "name": "publish-results-1793163600",
         "phase": "Running",
-        "started": "2026-10-28T04:30:00Z",
+        "started": "2026-10-28T05:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -244,11 +244,27 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1793161800",
+      "name": "publish-results-1793163600",
       "phase": "Running",
-      "started": "2026-10-28T04:30:00Z",
+      "started": "2026-10-28T05:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1793161800",
+      "phase": "Succeeded",
+      "started": "2026-10-28T04:30:00Z",
+      "finished": "2026-10-28T04:30:30Z",
+      "durationSeconds": 30,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -353,22 +369,6 @@
       "trigger": "scheduled",
       "result": null,
       "digest": "sha256:39e187ef804e7d85dfda276be710c6ab1da8a1b7f9f6cedfc8d806ccb1ddbc7b",
-      "checks": []
-    },
-    {
-      "name": "publish-results-1793156400",
-      "phase": "Succeeded",
-      "started": "2026-10-28T03:00:00Z",
-      "finished": "2026-10-28T03:00:34Z",
-      "durationSeconds": 34,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": null,
       "checks": []
     },
     {
