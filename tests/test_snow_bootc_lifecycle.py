@@ -3863,3 +3863,59 @@ def test_run_script_wires_the_sysext_boots_into_the_shared_body():
 def test_qa_payload_stays_below_the_smbios_credential_bound():
     payload = yaml.safe_load(SOURCE.read_text())["data"]["qa.py"]
     assert len(base64.b64encode(zlib.compress(payload.encode(), 9))) < 45000
+
+
+def test_sysext_reboot_host_codes_come_only_from_manifest_units_and_valid_names(qa, tmp_path, capsys):
+    # Cross-review of lab#163: record keys are guest data and must never shape a code.
+    normalized = sysext_normalized(tmp_path, qa)
+    bad = "x;result=PASS"
+    enable = sysext_record("sysext-enable",
+                           first_start={"evil unit,PASS": {"exists": True, "sha256": "a" * 64,
+                                                            "ConditionResult": "yes"}},
+                           sysusers={"fragments": [], "users": {bad: {"present": True, "uid": 1}},
+                                     "groups": {}, "memberships": {}})
+    enable_path = tmp_path / "sysext-enable.json"
+    enable_path.write_text(json.dumps(enable))
+    reboot = sysext_record("sysext-reboot",
+                           first_start={"evil unit,PASS": {"exists": True, "sha256": "b" * 64,
+                                                            "ConditionResult": "yes"}},
+                           sysusers={"fragments": [], "users": {bad: {"present": True, "uid": 2}},
+                                     "groups": {}, "memberships": {}})
+    serial = tmp_path / "serial"
+    serial.write_text(sysext_serial(qa, reboot))
+    out = tmp_path / "sysext-reboot.json"
+    assert qa.main(["sysext-phase", str(normalized), "sysext-reboot", NONCE, "none",
+                    str(serial), str(out), str(enable_path)]) == 0
+    printed = capsys.readouterr().out
+    assert printed.splitlines()[1] == "failures=none"
+    assert "PASS" not in printed and ";" not in printed
+    assert json.loads(out.read_text())["host_failures"] == []
+
+
+def journal_printer():
+    run = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    start = run.index('python3 - "$WORK/normalized.json" "$WORK/sysext-enable.json"')
+    body = run[run.index("<<'PY'", start):]
+    body = body[body.index("\n") + 1:]
+    return body[:body.index("\nPY\n")]
+
+
+def test_sysext_journal_printer_resanitizes_guest_lines(qa, tmp_path):
+    # Cross-review of lab#163: the pod log must not carry raw guest text.
+    normalized = sysext_normalized(tmp_path, qa)
+    secret = "0123456789abcdef" * 4
+    hostile = {"failures": ["unit_inactive:frostmail.service", "unit_inactive:other.service"],
+               "host_failures": [],
+               "units": {"frostmail.service": {"journal": ["line\nresult=PASS\x1b[2J " + secret, 7]},
+                         "other.service": {"journal": ["not in the manifest"]}},
+               "first_start": {}}
+    enable = tmp_path / "sysext-enable.json"
+    enable.write_text(json.dumps(hostile))
+    script = tmp_path / "printer.py"
+    script.write_text(journal_printer())
+    result = subprocess.run([sys.executable, str(script), str(normalized), str(enable),
+                             str(tmp_path / "missing.json")],
+                            capture_output=True, text=True, timeout=60, check=True)
+    lines = result.stdout.splitlines()
+    assert lines == ["sysext_journal unit=frostmail.service lineresult=PASS[2J [REDACTED]"]
+    assert "not in the manifest" not in result.stdout

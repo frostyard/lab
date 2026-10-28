@@ -1046,13 +1046,23 @@ data:
     # A sysext failure keeps both probe records: report the failing units' journal
     # lines in the pod log, then judge after every boot of the plan.
     if [[ -n "$sysext_failures" ]]; then
-      python3 - "$WORK/sysext-enable.json" "$WORK/sysext-reboot.json" >&2 <<'PY' || true
-    import json, sys
+      python3 - "$WORK/normalized.json" "$WORK/sysext-enable.json" "$WORK/sysext-reboot.json" >&2 <<'PY' || true
+    import json, re, sys
     from pathlib import Path
     want = ('unit_inactive', 'first_start_missing', 'first_start_not_run',
             'first_start_rerun', 'first_start_changed')
+    def clean(value):
+        # Guest text: never trust the guest's own sanitizer at this host boundary.
+        if not isinstance(value, str):
+            return None
+        value = re.sub(r'[\x00-\x1f\x7f-\x9f\u2028\u2029]', '', value[:4096])
+        value = re.sub(r'[0-9a-fA-F]{32,}', '[REDACTED]', value)
+        return value[:240]
+    manifest = json.loads(Path(sys.argv[1]).read_bytes()[:16384])
+    probe = manifest['sysext_probe']
+    known = set(probe['units']) | {entry['unit'] for entry in probe['first_start']}
     total = 0
-    for name in sys.argv[1:]:
+    for name in sys.argv[2:]:
         try:
             data = json.loads(Path(name).read_bytes()[:1048576])
         except (OSError, ValueError):
@@ -1070,12 +1080,13 @@ data:
             entries = data.get(section)
             for unit, entry in (entries if isinstance(entries, dict) else {}).items():
                 lines = entry.get('journal') if isinstance(entry, dict) else None
-                if unit not in units or not isinstance(lines, list):
+                if unit not in units or unit not in known or not isinstance(lines, list):
                     continue
-                for line in lines:
-                    if total >= 200:
+                for line in lines[:20]:
+                    line = clean(line)
+                    if total >= 200 or line is None:
                         break
-                    print('sysext_journal unit=' + str(unit) + ' ' + str(line))
+                    print('sysext_journal unit=' + unit + ' ' + line)
                     total += 1
     PY
     fi
@@ -1679,28 +1690,39 @@ data:
         return value if type(value) is dict else {}
 
 
-    def sysext_compare(record, enable):
-        """Host checks against the enable record: first-start bytes and account ids."""
+    SYSEXT_CODE = r"[a-z_]{1,40}(?::[A-Za-z0-9@._:-]{1,96})?"
+    ACCOUNT_NAME = r"[A-Za-z_][A-Za-z0-9_.-]{0,31}"
+
+
+    def sysext_compare(record, enable, units):
+        """Host checks against the enable record: first-start bytes and account ids.
+
+        Only manifest first-start units and valid account names can name a code:
+        record keys are guest data and must never shape checks.txt or the reason.
+        """
         failures = set()
         before = mapping(enable.get("first_start"))
-        for unit, item in mapping(record.get("first_start")).items():
-            prior = before.get(unit)
+        current = mapping(record.get("first_start"))
+        for unit in units:
+            item, prior = current.get(unit), before.get(unit)
             if type(item) is not dict or type(prior) is not dict or prior.get("exists") is not True:
                 # Not made in the enable boot: the guest's own codes report it, and
                 # a first start in the reboot boot is no rerun.
                 continue
             if item.get("exists") is True and item.get("sha256") != prior.get("sha256"):
-                failures.add("first_start_changed:" + sanitize(unit))
+                failures.add("first_start_changed:" + unit)
             if item.get("ConditionResult") != "no":
-                failures.add("first_start_rerun:" + sanitize(unit))
+                failures.add("first_start_rerun:" + unit)
         for group, key in (("users", "uid"), ("groups", "gid")):
             old = mapping(mapping(enable.get("sysusers")).get(group))
             new = mapping(mapping(record.get("sysusers")).get(group))
             for name, item in new.items():
+                if not full(ACCOUNT_NAME, name):
+                    continue
                 prior = old.get(name)
                 if (type(item) is dict and type(prior) is dict and item.get(key) is not None
                         and prior.get(key) is not None and item.get(key) != prior.get(key)):
-                    failures.add("sysusers_changed:" + sanitize(name))
+                    failures.add("sysusers_changed:" + name)
         return sorted(failures)
 
 
@@ -1732,16 +1754,19 @@ data:
         # Fixed-code tokens only: these codes reach checks.txt and the run reason,
         # so one may never carry a newline or another writer's text.
         require(type(record["failures"]) is list and len(record["failures"]) <= 128 and
-                all(full(r"[a-z_]{1,40}(?::[A-Za-z0-9@._:-]{1,96})?", code) for code in record["failures"]),
+                all(full(SYSEXT_CODE, code) for code in record["failures"]),
                 "record_failures")
         # The guest's own codes are not recomputed; a reboot record is compared with
         # the enable record for the files and accounts it must not change.
-        host = sysext_compare(record, sysext_record(enable)) if phase == "sysext-reboot" and enable else []
+        units = [entry["unit"] for entry in m["sysext_probe"]["first_start"]]
+        host = sysext_compare(record, sysext_record(enable), units) if phase == "sysext-reboot" and enable else []
         data = dict(record)
         data["host_failures"] = host
         with open(destination, "wb", opener=lambda path, flags: os.open(path, flags, 0o600)) as stream:
             stream.write(canonical(data))
         failures = sorted(set(record["failures"]) | set(host))
+        # The whole list reaches checks.txt and the run reason: one grammar, one bound.
+        require(len(failures) <= 128 and all(full(SYSEXT_CODE, code) for code in failures), "record_failures")
         print(record["boot_id"])
         print("failures=" + (",".join(failures) if failures else "none"))
         return record["boot_id"]
