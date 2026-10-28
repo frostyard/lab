@@ -1112,7 +1112,9 @@ def run_script():
 
 
 def phase_loop(script):
-    loop = re.search(r"(?ms)^for phase in installed-n stage boot-n-plus-1 rollback boot-n; do\n.*?^done\n", script)
+    # The boots come from the plan in the normalized manifest (five lifecycle
+    # phases, or three sysext-probe boots); the loop body is one shared path.
+    loop = re.search(r"(?ms)^for phase in \"\$\{phase_plan\[@\]\}\"; do\n.*?^done\n", script)
     assert loop
     return loop.group()
 
@@ -1181,7 +1183,7 @@ def test_host_waits_bounded_for_guest_shutdown_and_never_force_stops_between_pha
     # Force remains only for teardown and the installer ISO stop after SNOW_INSTALL_OK.
     stops = re.findall(r'(?m)^.*incus stop .*$', script)
     assert len(stops) == 1 and "iso_stop" in stops[0]
-    assert script.index("SNOW_INSTALL_OK") < script.index(stops[0]) < script.index("for phase in installed-n")
+    assert script.index("SNOW_INSTALL_OK") < script.index(stops[0]) < script.index('for phase in "${phase_plan[@]}"')
     assert "incus info" in script and "Status: STOPPED" in script
 
 
@@ -2279,7 +2281,8 @@ def test_host_wait_outlives_guest_unit_budget(tmp_path, phase, key):
     script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
     selection = re.search(r'(?m)^  case "\$phase" in installed-n\).*?;; esac', script, re.S)
     assignment = re.search(r'(?m)^  guestunit="\[Unit\].*?^  gb=', script, re.S)
-    wait = re.search(r'(?m)^  await SNOW_QA_V1 .*$', script)
+    # The wait sits in the shared boot body (2 or 3 levels deep with two modes).
+    wait = re.search(r'(?m)^ +await SNOW_QA_V1 .*$', script)
     assert selection and assignment and wait
     work = tmp_path / "work"
     work.mkdir()
@@ -3393,3 +3396,526 @@ def test_record_and_error_readers_share_lf_line_boundaries(qa, tmp_path, capsys)
         serial.write_bytes(text)
         result = subprocess.run(["python3", str(path), str(serial)], capture_output=True, text=True)
         assert (result.stdout.strip() if result.returncode == 0 else None) == expected
+
+
+# ---------------------------------------------------------------------------
+# Optional sysext probe: three boots that install N, enable updex features and
+# check the merged sysexts across one reboot. N+1 is never staged.
+# ---------------------------------------------------------------------------
+
+SYSEXT_BOOT_ID = "87654321-1234-4234-8234-123456789abc"
+SYSEXT_PROBE = {"features": ["notesd", "maild"],
+                "units": ["frostnotes.service", "frostmail.service"],
+                "first_start": [{"unit": "frostmail-secrets-key.service",
+                                 "path": "/etc/credstore.encrypted/frostmail-secrets-key"}]}
+SECRET_PATH = "/etc/credstore.encrypted/frostmail-secrets-key"
+DEV_PLAN = Path(__file__).resolve().parents[1] / "docs/plans/snow-sysext-probe-2026-10-28/manifest.json"
+
+
+def sysext_manifest():
+    m = manifest()
+    m["sysext_probe"] = json.loads(json.dumps(SYSEXT_PROBE))
+    return m
+
+
+def sysext_normalized(tmp_path, qa, m=None):
+    path = tmp_path / "normalized.json"
+    path.write_bytes(qa.canonical(m or sysext_manifest()))
+    return path
+
+
+def sysext_record(phase="sysext-enable", **overrides):
+    record = dict(phase=phase, nonce=NONCE, boot_id=SYSEXT_BOOT_ID, booted_digest=N,
+                  updex={}, merged={"names": ["maild", "notesd"], "reported": ["maild", "notesd"]},
+                  links={"notesd": "notesd.raw", "maild": "maild.raw"}, units={}, first_start={},
+                  sysusers={"fragments": [], "users": {}, "groups": {}, "memberships": {}},
+                  extra_journal={}, failures=[])
+    record.update(overrides)
+    return record
+
+
+def sysext_serial(qa, *records, extra=()):
+    lines = ["boot message unrelated"]
+    for record in records:
+        lines.append("SNOW_SYSEXT_V1 " + qa.sysext_token(record))
+    lines.extend(extra)
+    return "\n".join(lines) + "\nother serial data\n"
+
+
+def sysext_payload(line):
+    assert line.startswith("SNOW_SYSEXT_V1 ")
+    encoded = line.split()[1]
+    return json.loads(zlib.decompress(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))))
+
+
+def test_sysext_dev_plan_normalizes_with_a_distinct_version_rule(qa):
+    plan = json.loads(DEV_PLAN.read_text())
+    # N is newer than N+1 in the probe plan: only the two versions must differ.
+    assert plan["version_n"] > plan["version_n_plus_1"]
+    assert qa.normalize(plan) is plan
+    assert qa.normalize(plan)["sysext_probe"]["features"] == ["notesd", "maild"]
+
+
+@pytest.mark.parametrize("change", [
+    lambda p: p.update(extra="x"),
+    lambda p: p.pop("units"),
+    lambda p: p.update(features=[]),
+    lambda p: p.update(features=["Notesd"]),
+    lambda p: p.update(features=["notesd", "notesd"]),
+    lambda p: p.update(features=["feature-%d" % index for index in range(9)]),
+    lambda p: p.update(units=["frostmail"]),
+    lambda p: p.update(units=["frostmail.service", "frostmail.service"]),
+    lambda p: p.update(units=["frostmail.service"] + ["unit%d.service" % index for index in range(16)]),
+    lambda p: p.update(first_start=[{"unit": "frostmail-secrets-key.socket", "path": "/etc/x"}]),
+    lambda p: p.update(first_start=[{"unit": "key.service", "path": "etc/credstore"}]),
+    lambda p: p.update(first_start=[{"unit": "key.service", "path": "/etc/../shadow"}]),
+    lambda p: p.update(first_start=[{"unit": "key.service", "path": "/etc/a/a/a/a/a"}]),
+    lambda p: p.update(first_start=[{"unit": "key.service", "path": "/etc/x", "mode": "0600"}]),
+    lambda p: p.update(first_start=[{"unit": "key%d.service" % index, "path": "/etc/x"} for index in range(5)]),
+])
+def test_sysext_probe_rejects_unsafe_input(qa, change):
+    m = sysext_manifest()
+    change(m["sysext_probe"])
+    with pytest.raises(qa.GateError, match=r"^[a-z_]+$"):
+        qa.normalize(m)
+
+
+def test_version_rule_follows_the_sysext_mode(qa):
+    m = manifest()
+    m["version_n"], m["version_n_plus_1"] = "20260924000000", "20260923000000"
+    m["version_tag_n"], m["version_tag_n_plus_1"] = f"{REPO}:20260924000000", f"{REPO}:20260923000000"
+    with pytest.raises(qa.GateError, match="^version_order$"):
+        qa.normalize(m)
+    m["sysext_probe"] = json.loads(json.dumps(SYSEXT_PROBE))
+    assert qa.normalize(m)["version_n"] == "20260924000000"
+    m["version_n_plus_1"] = "20260924000000"
+    m["version_tag_n_plus_1"] = f"{REPO}:20260924000000"
+    with pytest.raises(qa.GateError, match="^version_distinct$"):
+        qa.normalize(m)
+
+
+def test_sysext_phase_accepts_one_record_and_writes_it(qa, tmp_path, capsys):
+    normalized = sysext_normalized(tmp_path, qa)
+    serial = tmp_path / "serial"
+    serial.write_text(sysext_serial(qa, sysext_record()))
+    out = tmp_path / "sysext-enable.json"
+    assert qa.main(["sysext-phase", str(normalized), "sysext-enable", NONCE, "none",
+                    str(serial), str(out)]) == 0
+    assert capsys.readouterr().out.splitlines() == [SYSEXT_BOOT_ID, "failures=none"]
+    assert out.stat().st_mode & 0o777 == 0o600
+    written = json.loads(out.read_text())
+    assert written["host_failures"] == [] and written["phase"] == "sysext-enable"
+
+
+def test_sysext_phase_prints_guest_failures_and_still_writes_the_record(qa, tmp_path, capsys):
+    normalized = sysext_normalized(tmp_path, qa)
+    serial = tmp_path / "serial"
+    serial.write_text(sysext_serial(qa, sysext_record(
+        failures=["not_merged:maild", "unit_inactive:frostmail.service"])))
+    out = tmp_path / "sysext-enable.json"
+    assert qa.main(["sysext-phase", str(normalized), "sysext-enable", NONCE, "none",
+                    str(serial), str(out)]) == 0
+    assert capsys.readouterr().out.splitlines()[1] == "failures=not_merged:maild,unit_inactive:frostmail.service"
+    assert json.loads(out.read_text())["failures"] == ["not_merged:maild", "unit_inactive:frostmail.service"]
+
+
+@pytest.mark.parametrize("damage,code", [
+    ("missing", "record_count"), ("mangled", "record_count"), ("conflict", "record_count"),
+    ("nonce", "record_identity"), ("reused", "boot_identity"),
+    ("fields", "record_fields"), ("failures", "record_failures"),
+    ("newline", "record_failures"), ("plain_manifest", "phase_arguments"),
+])
+def test_sysext_phase_rejects_untrustworthy_records(qa, tmp_path, capsys, damage, code):
+    record = sysext_record()
+    phase, prior = "sysext-enable", "none"
+    m = None
+    if damage == "missing":
+        text = "unrelated serial\n"
+    elif damage == "mangled":
+        text = "unrelated serial\nSNOW_SYSEXT_V1 not-a-token!\n"
+    elif damage == "conflict":
+        text = sysext_serial(qa, record, dict(record, boot_id="12345678-1234-4234-8234-123456789abc"))
+    elif damage == "nonce":
+        text = sysext_serial(qa, dict(record, nonce="f" * 32))
+    elif damage == "reused":
+        text, prior = sysext_serial(qa, record), record["boot_id"]
+    elif damage == "fields":
+        text = sysext_serial(qa, dict(record, spec_image="ghcr.io/frostyard/snow:latest"))
+    elif damage == "failures":
+        text = sysext_serial(qa, dict(record, failures="all"))
+    elif damage == "newline":
+        text = sysext_serial(qa, dict(record, failures=["booted_image\nINJECTED: 1"]))
+    else:
+        text, m = sysext_serial(qa, record), manifest()
+    normalized = sysext_normalized(tmp_path, qa, m)
+    serial = tmp_path / "serial"
+    serial.write_text(text)
+    out = tmp_path / "sysext-enable.json"
+    assert qa.main(["sysext-phase", str(normalized), phase, NONCE, prior,
+                    str(serial), str(out)]) == 1
+    assert capsys.readouterr().err.strip() == "qa_failed:" + code
+    assert not out.exists()
+
+
+def test_sysext_phase_ignores_a_copy_that_does_not_decode(qa, tmp_path, capsys):
+    normalized = sysext_normalized(tmp_path, qa)
+    garbage = "SNOW_SYSEXT_V1 " + base64.urlsafe_b64encode(b"not zlib").decode().rstrip("=")
+    serial = tmp_path / "serial"
+    serial.write_text(sysext_serial(qa, sysext_record(),
+                                    extra=["snow-qa login: SNOW_SYSEXT_V1 broken!!", garbage]))
+    out = tmp_path / "sysext-enable.json"
+    assert qa.main(["sysext-phase", str(normalized), "sysext-enable", NONCE, "none",
+                    str(serial), str(out)]) == 0
+    assert capsys.readouterr().out.splitlines()[0] == SYSEXT_BOOT_ID
+
+
+def test_sysext_reboot_adds_host_failures_from_the_enable_record(qa, tmp_path, capsys):
+    normalized = sysext_normalized(tmp_path, qa)
+    enable = sysext_record("sysext-enable",
+                           first_start={"frostmail-secrets-key.service": {"exists": True, "sha256": "a" * 64,
+                                                                    "ConditionResult": "yes"}},
+                           sysusers={"fragments": ["frostmail.conf"],
+                                     "users": {"frostmail": {"present": True, "uid": 990}},
+                                     "groups": {"frostmail": {"present": True, "gid": 990}},
+                                     "memberships": {}})
+    enable_path = tmp_path / "sysext-enable.json"
+    enable_path.write_text(json.dumps(enable))
+    reboot = sysext_record("sysext-reboot",
+                           first_start={"frostmail-secrets-key.service": {"exists": True, "sha256": "b" * 64,
+                                                                    "ConditionResult": "no"}},
+                           sysusers={"fragments": ["frostmail.conf"],
+                                     "users": {"frostmail": {"present": True, "uid": 991}},
+                                     "groups": {"frostmail": {"present": True, "gid": 990}},
+                                     "memberships": {}})
+    serial = tmp_path / "serial"
+    serial.write_text(sysext_serial(qa, reboot))
+    out = tmp_path / "sysext-reboot.json"
+    # The host adds its own codes; run.sh judges, so the command still succeeds.
+    assert qa.main(["sysext-phase", str(normalized), "sysext-reboot", NONCE, "none",
+                    str(serial), str(out), str(enable_path)]) == 0
+    assert capsys.readouterr().out.splitlines()[1] == (
+        "failures=first_start_changed:frostmail-secrets-key.service,sysusers_changed:frostmail")
+    written = json.loads(out.read_text())
+    assert written["host_failures"] == ["first_start_changed:frostmail-secrets-key.service",
+                                        "sysusers_changed:frostmail"]
+    # An unchanged reboot record adds nothing.
+    same = sysext_record("sysext-reboot",
+                         first_start={"frostmail-secrets-key.service": {"exists": True, "sha256": "a" * 64,
+                                                                        "ConditionResult": "no"}},
+                         sysusers=enable["sysusers"])
+    serial.write_text(sysext_serial(qa, same))
+    assert qa.main(["sysext-phase", str(normalized), "sysext-reboot", NONCE, "none",
+                    str(serial), str(out), str(enable_path)]) == 0
+    assert capsys.readouterr().out.splitlines()[1] == "failures=none"
+    # The key existed after the enable boot: a reboot that runs the unit again is a rerun.
+    rerun = sysext_record("sysext-reboot",
+                          first_start={"frostmail-secrets-key.service": {"exists": True, "sha256": "a" * 64,
+                                                                         "ConditionResult": "yes"}},
+                          sysusers=enable["sysusers"])
+    serial.write_text(sysext_serial(qa, rerun))
+    assert qa.main(["sysext-phase", str(normalized), "sysext-reboot", NONCE, "none",
+                    str(serial), str(out), str(enable_path)]) == 0
+    assert capsys.readouterr().out.splitlines()[1] == "failures=first_start_rerun:frostmail-secrets-key.service"
+
+
+def test_sysext_reboot_first_made_after_the_enable_boot_is_no_host_failure(qa, tmp_path, capsys):
+    # dev-snow-bootc-lifecycle-mjhb4: accounts absent in the enable boot (no
+    # sysusers on a live refresh) and present after the reboot; a key first made
+    # in the reboot boot. Neither is a change or a rerun.
+    normalized = sysext_normalized(tmp_path, qa)
+    enable = sysext_record("sysext-enable",
+                           first_start={"frostmail-secrets-key.service": {"exists": False, "sha256": None,
+                                                                          "ConditionResult": "no"}},
+                           sysusers={"fragments": ["frostmail.conf"],
+                                     "users": {"frostmail": {"present": False, "uid": None}},
+                                     "groups": {}, "memberships": {}})
+    enable_path = tmp_path / "sysext-enable.json"
+    enable_path.write_text(json.dumps(enable))
+    reboot = sysext_record("sysext-reboot",
+                           first_start={"frostmail-secrets-key.service": {"exists": True, "sha256": "c" * 64,
+                                                                          "ConditionResult": "yes"}},
+                           sysusers={"fragments": ["frostmail.conf"],
+                                     "users": {"frostmail": {"present": True, "uid": 974}},
+                                     "groups": {}, "memberships": {}})
+    serial = tmp_path / "serial"
+    serial.write_text(sysext_serial(qa, reboot))
+    out = tmp_path / "sysext-reboot.json"
+    assert qa.main(["sysext-phase", str(normalized), "sysext-reboot", NONCE, "none",
+                    str(serial), str(out), str(enable_path)]) == 0
+    assert capsys.readouterr().out.splitlines()[1] == "failures=none"
+    assert json.loads(out.read_text())["host_failures"] == []
+
+
+def test_sysext_probe_unit_orders_after_multi_user_target():
+    run = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    assert 'sysext-enable|sysext-reboot) guest_mode=sysext; guest_after=" multi-user.target";;' in run
+    assert '*) guest_mode=guest; guest_after="";;' in run
+    assert "After=network-online.target${guest_after}" in run
+    # Evidence names match the files the reboot comparison and the journal report read.
+    assert '"$WORK/$phase.json"' in run and '"$WORK/sysext-enable.json"' in run
+
+
+SYSEXT_STATES = {
+    "frostnotes.service": {"ActiveState": "active", "SubState": "running", "Result": "success", "NRestarts": "0"},
+    "frostmail.service": {"ActiveState": "active", "SubState": "running", "Result": "success", "NRestarts": "0"},
+    "frostmail-secrets-key.service": {"ActiveState": "active", "Result": "success", "ConditionResult": "no",
+                                      "ExecMainStartTimestampMonotonic": "123456", "ExecMainStatus": "0"},
+}
+SYSEXT_MERGED = {"hierarchies": [{"hierarchy": "/usr", "extensions": [{"name": "notesd"}, {"name": "maild"}]},
+                                 {"hierarchy": "/opt", "extensions": [{"name": "foreign"}]}]}
+FROSTMAIL_FRAGMENT = ('# created by the extension\n'
+                      'u frostmail - "Frostmail account"\n'
+                      'g frostmail -\n'
+                      'm frostmail frostmail\n')
+
+
+def sysext_guest(qa, tmp_path, monkeypatch, *, states=None, journal=b"", updex_rc=0,
+                 token_max=None, poll_timeout=0):
+    """Stand up the sysext collector with every guest command replaced."""
+    m = sysext_manifest()
+    normalized = tmp_path / "normalized.json"
+    normalized.write_bytes(qa.canonical(m))
+    credentials = tmp_path / "credentials"
+    credentials.mkdir()
+    for name, value in {"phase": "sysext-enable", "nonce": NONCE, "image_n": m["image_n"],
+                        "image_n_plus_1": m["image_n_plus_1"], "target_ref": m["target_ref"]}.items():
+        (credentials / name).write_text(value + "\n")
+    boot = tmp_path / "boot_id"
+    boot.write_text(SYSEXT_BOOT_ID + "\n")
+    state, extensions, sysusers = tmp_path / "snow-qa", tmp_path / "extensions", tmp_path / "sysusers.d"
+    extensions.mkdir()
+    sysusers.mkdir()
+    for feature in SYSEXT_PROBE["features"]:
+        (extensions / (feature + ".raw")).write_bytes(b"extension")
+    (sysusers / "core.conf").write_text("u core -\n")
+    key = tmp_path / SECRET_PATH.lstrip("/")
+    key.parent.mkdir(parents=True)
+    key.write_bytes(b"public-key-material")
+    key.chmod(0o600)
+    monkeypatch.setattr(qa, "GUEST_MANIFEST", normalized)
+    monkeypatch.setattr(qa, "GUEST_PATHS", {**qa.GUEST_PATHS, "boot_id": boot})
+    monkeypatch.setattr(qa, "SYSEXT_STATE", state)
+    monkeypatch.setattr(qa, "SYSEXT_EXTENSIONS", extensions)
+    monkeypatch.setattr(qa, "SYSUSERS_DIR", sysusers)
+    monkeypatch.setattr(qa, "SYSEXT_ROOT", tmp_path)
+    monkeypatch.setattr(qa, "SYSEXT_POLL_TIMEOUT", poll_timeout)
+    if token_max is not None:
+        monkeypatch.setattr(qa, "SYSEXT_TOKEN_MAX", token_max)
+    unit_states = dict(SYSEXT_STATES if states is None else states)
+    status = {"spec": {"image": {"image": m["target_ref"], "transport": "registry"}},
+              "status": {"booted": {"image": {"imageDigest": "sha256:" + N, "version": m["version_n"]}},
+                         "staged": None, "rollback": None}}
+    calls = []
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        assert kwargs.get("capture_output") and not kwargs.get("shell")
+
+        def done(code, out=b"", err=b""):
+            return subprocess.CompletedProcess(args, code, out, err)
+
+        if args[:2] == ["bootc", "status"]:
+            return done(0, json.dumps(status).encode())
+        if args[:3] == ["updex", "features", "enable"]:
+            (sysusers / "frostmail.conf").write_text(FROSTMAIL_FRAGMENT)
+            return done(updex_rc, b"enabled extension\n")
+        if args[0] == "systemctl":
+            properties = args[2].split("=", 1)[1]
+            values = unit_states.get(args[-1], {})
+            return done(0, "".join(key + "=" + values.get(key, "") + "\n"
+                                   for key in properties.split(",")).encode())
+        if args[0] == "journalctl":
+            return done(0, journal)
+        if args[:2] == ["systemd-sysext", "status"]:
+            return done(0, json.dumps(SYSEXT_MERGED).encode())
+        if args[:3] == ["getent", "passwd", "frostmail"]:
+            return done(0, b"frostmail:x:990:990::/:/usr/sbin/nologin\n")
+        if args[:3] == ["getent", "group", "frostmail"]:
+            return done(0, b"frostmail:x:990:\n")
+        if args[:3] == ["id", "-nG", "frostmail"]:
+            return done(0, b"frostmail\n")
+        pytest.fail(f"unexpected guest tool {args}")
+
+    monkeypatch.setattr(qa.subprocess, "run", fake_run)
+    return credentials, calls, state, key
+
+
+def test_guest_sysext_collects_a_passing_record(qa, tmp_path, monkeypatch):
+    credentials, calls, state, key = sysext_guest(qa, tmp_path, monkeypatch)
+    record = sysext_payload(qa.sysext(credentials))
+    assert set(record) == qa.SYSEXT_RECORD_FIELDS
+    assert record["failures"] == []
+    assert record["boot_id"] == SYSEXT_BOOT_ID and record["booted_digest"] == N
+    # /usr only: the /opt hierarchy is not what the image ships.
+    assert record["merged"] == {"names": ["maild", "notesd"], "reported": ["maild", "notesd"]}
+    assert record["links"] == {"notesd": "notesd.raw", "maild": "maild.raw"}
+    assert record["units"]["frostnotes.service"]["ActiveState"] == "active"
+    assert record["units"]["frostnotes.service"]["journal"] == []
+    assert record["updex"]["notesd"] == {"rc": 0, "output": ["enabled extension"]}
+    assert record["sysusers"]["fragments"] == ["frostmail.conf"]
+    assert record["sysusers"]["users"]["frostmail"] == {"present": True, "uid": 990}
+    assert record["sysusers"]["groups"]["frostmail"] == {"present": True, "gid": 990}
+    assert record["sysusers"]["memberships"] == {"frostmail:frostmail": True}
+    item = record["first_start"]["frostmail-secrets-key.service"]
+    assert item["exists"] is True and item["size"] == len(b"public-key-material")
+    assert item["mode"] == "0600" and item["sha256"] == hashlib.sha256(b"public-key-material").hexdigest()
+    assert item["ConditionResult"] == "no" and item["ExecMainStartTimestampMonotonic"] == "123456"
+    # The "before" list is recorded before any action, in a 0700 directory.
+    assert json.loads((state / "sysusers-before.json").read_text()) == ["core.conf"]
+    assert state.stat().st_mode & 0o777 == 0o700
+    assert ["systemd-sysext", "status", "--json=short"] in calls
+    assert ["updex", "features", "enable", "maild", "--now"] in calls
+    assert "truncated" not in record
+
+
+def test_guest_sysext_reports_an_inactive_unit_with_its_journal(qa, tmp_path, monkeypatch):
+    states = json.loads(json.dumps(SYSEXT_STATES))
+    states["frostmail.service"]["ActiveState"] = "failed"
+    journal = (b"Jan 01 00:00:01 snow systemd[1]: Starting frostmail...\n"
+               b"Jan 01 00:00:02 snow frostmail[42]: token=aabbccddeeff00112233445566778899aabbccdd\n"
+               b"Jan 01 00:00:03 snow frostmail[42]: \x1b[31mfailed\x07 to start\n")
+    credentials, _, _, _ = sysext_guest(qa, tmp_path, monkeypatch, states=states, journal=journal)
+    record = sysext_payload(qa.sysext(credentials))
+    assert record["failures"] == ["unit_inactive:frostmail.service"]
+    lines = record["units"]["frostmail.service"]["journal"]
+    assert lines[0] == "Jan 01 00:00:01 snow systemd[1]: Starting frostmail..."
+    assert lines[1].endswith("token=[REDACTED]")
+    assert lines[2] == "Jan 01 00:00:03 snow frostmail[42]: [31mfailed to start"
+    assert record["units"]["frostnotes.service"]["journal"] == []
+
+
+def test_guest_sysext_drops_the_oldest_lines_until_the_token_fits(qa, tmp_path, monkeypatch):
+    seed, lines = b"journal", []
+
+    def blob(width=240, count=40):
+        nonlocal seed
+        out = []
+        for _ in range(count):
+            chunk = b""
+            while len(chunk) < width:
+                seed = hashlib.sha256(seed).digest()
+                chunk += base64.b64encode(seed)
+            out.append(chunk[:width].decode())
+        return ("\n".join(out) + "\n").encode()
+
+    credentials, _, _, _ = sysext_guest(qa, tmp_path, monkeypatch, journal=blob(), token_max=2000)
+    line = qa.sysext(credentials)
+    encoded = line.split(" ", 1)[1]
+    assert len(encoded) <= 2000
+    record = sysext_payload(line)
+    assert record["truncated"] is True
+    assert sum(len(lines) for lines in (record["units"][unit]["journal"]
+                                        for unit in ("frostnotes.service", "frostmail.service"))) < 40
+
+
+def test_guest_sysext_fatal_error_publishes_the_error_marker(qa, tmp_path, monkeypatch):
+    credentials = tmp_path / "credentials"
+    credentials.mkdir()
+    (credentials / "phase").write_text("stage\n")      # not a sysext phase
+    (credentials / "nonce").write_text(NONCE + "\n")
+    ttys0 = tmp_path / "ttyS0"
+    monkeypatch.setattr(qa, "GUEST_CONSOLES", (str(ttys0),))
+    monkeypatch.setattr(qa, "PUBLISH_WAIT", 0)
+    monkeypatch.setattr(qa, "PUBLISH_HOLD", 0)
+    monkeypatch.setattr(qa, "serial_getty_ready", lambda **_: True)
+    assert qa.main(["sysext", str(credentials)]) == 1
+    assert "SNOW_SYSEXT_ERR credential" in ttys0.read_text()
+
+
+def test_run_script_selects_three_sysext_boots_from_the_manifest(tmp_path):
+    script = run_script()
+    block = re.search(r"(?ms)^sysext_mode=.*?^fi\n", script).group()
+    assert "phase_plan=(installed-n sysext-enable sysext-reboot)" in block
+    for name, expected in (("plain", "installed-n stage boot-n-plus-1 rollback boot-n"),
+                           ("sysext", "installed-n sysext-enable sysext-reboot")):
+        work = tmp_path / name
+        work.mkdir()
+        (work / "normalized.json").write_text(json.dumps({"sysext_probe": {}} if name == "sysext" else {}))
+        result = subprocess.run(["bash", "-c",
+                                 'fail() { exit 9; }; WORK="$PWD"\n' + block +
+                                 '\nprintf "%s\\n" "${phase_plan[*]}"'],
+                                cwd=work, capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == expected
+
+
+def test_run_script_wires_the_sysext_boots_into_the_shared_body():
+    script = run_script()
+    loop = phase_loop(script)
+    assert loop.startswith('for phase in "${phase_plan[@]}"; do')
+    assert 'await SNOW_SYSEXT_V1 "$((budget + 300))" SNOW_SYSEXT_ERR' in loop
+    assert 'qa.py sysext-phase' in loop
+    assert 'persist "$WORK/$phase.json" "$EVIDENCE/$phase.json"' in loop
+    assert "sysext_failures=%s" in loop
+    assert 'sysext-enable|sysext-reboot) guest_mode=sysext; guest_after=" multi-user.target";;' in loop
+    assert 'qa.py ${guest_mode:-guest} /run/snow-credentials' in loop
+    # The sysext phases keep the shared drop-in, the bounded wait and no force stop.
+    assert loop.count("raw.qemu=") == 1 and "incus stop" not in loop and "--force" not in loop
+    assert "until vm_stopped" in loop
+    # Failures are collected, then judged once, and the reason stays bounded.
+    assert 'sysext_failures+="${sysext_failures:+,}$sysext_state"' in script
+    assert 'fail "${reason:0:400}"' in script
+    assert "REASON=verified_sysext_probe" in script and "REASON=verified_five_fresh_boots" in script
+    assert 'fail "sysext_guest_error:$code"' in script
+    assert "SNOW_SYSEXT_ERR ([a-z_]{1,40})" in script
+
+
+def test_qa_payload_stays_below_the_smbios_credential_bound():
+    payload = yaml.safe_load(SOURCE.read_text())["data"]["qa.py"]
+    assert len(base64.b64encode(zlib.compress(payload.encode(), 9))) < 45000
+
+
+def test_sysext_reboot_host_codes_come_only_from_manifest_units_and_valid_names(qa, tmp_path, capsys):
+    # Cross-review of lab#163: record keys are guest data and must never shape a code.
+    normalized = sysext_normalized(tmp_path, qa)
+    bad = "x;result=PASS"
+    enable = sysext_record("sysext-enable",
+                           first_start={"evil unit,PASS": {"exists": True, "sha256": "a" * 64,
+                                                            "ConditionResult": "yes"}},
+                           sysusers={"fragments": [], "users": {bad: {"present": True, "uid": 1}},
+                                     "groups": {}, "memberships": {}})
+    enable_path = tmp_path / "sysext-enable.json"
+    enable_path.write_text(json.dumps(enable))
+    reboot = sysext_record("sysext-reboot",
+                           first_start={"evil unit,PASS": {"exists": True, "sha256": "b" * 64,
+                                                            "ConditionResult": "yes"}},
+                           sysusers={"fragments": [], "users": {bad: {"present": True, "uid": 2}},
+                                     "groups": {}, "memberships": {}})
+    serial = tmp_path / "serial"
+    serial.write_text(sysext_serial(qa, reboot))
+    out = tmp_path / "sysext-reboot.json"
+    assert qa.main(["sysext-phase", str(normalized), "sysext-reboot", NONCE, "none",
+                    str(serial), str(out), str(enable_path)]) == 0
+    printed = capsys.readouterr().out
+    assert printed.splitlines()[1] == "failures=none"
+    assert "PASS" not in printed and ";" not in printed
+    assert json.loads(out.read_text())["host_failures"] == []
+
+
+def journal_printer():
+    run = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    start = run.index('python3 - "$WORK/normalized.json" "$WORK/sysext-enable.json"')
+    body = run[run.index("<<'PY'", start):]
+    body = body[body.index("\n") + 1:]
+    return body[:body.index("\nPY\n")]
+
+
+def test_sysext_journal_printer_resanitizes_guest_lines(qa, tmp_path):
+    # Cross-review of lab#163: the pod log must not carry raw guest text.
+    normalized = sysext_normalized(tmp_path, qa)
+    secret = "0123456789abcdef" * 4
+    hostile = {"failures": ["unit_inactive:frostmail.service", "unit_inactive:other.service"],
+               "host_failures": [],
+               "units": {"frostmail.service": {"journal": ["line\nresult=PASS\x1b[2J " + secret, 7]},
+                         "other.service": {"journal": ["not in the manifest"]}},
+               "first_start": {}}
+    enable = tmp_path / "sysext-enable.json"
+    enable.write_text(json.dumps(hostile))
+    script = tmp_path / "printer.py"
+    script.write_text(journal_printer())
+    result = subprocess.run([sys.executable, str(script), str(normalized), str(enable),
+                             str(tmp_path / "missing.json")],
+                            capture_output=True, text=True, timeout=60, check=True)
+    lines = result.stdout.splitlines()
+    assert lines == ["sysext_journal unit=frostmail.service lineresult=PASS[2J [REDACTED]"]
+    assert "not in the manifest" not in result.stdout

@@ -40,6 +40,8 @@ Org-wide decisions binding this repo: [org-adrs.md](org-adrs.md).
 
 - [2026-10-26 — First Snow bootc N → N+1 update and rollback run](plans/2026-10-26-snow-bootc-lifecycle-run.md)
   — selected inputs, preflight record and submit runbook
+- [2026-10-28 — notesd and maild suite sysexts on an installed Snow (sysext probe)](plans/2026-10-28-snow-sysext-probe-run.md)
+  — probe mode, dev run and result
 
 ### Uncategorized (indexed where they stand)
 

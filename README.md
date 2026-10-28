@@ -443,6 +443,30 @@ staged deployment at shutdown; a VM that does not stop fails with
 `guest_shutdown`. See
 [private evidence and verdict limits](docs/quality.md#manual-snow-bootc-lifecycle-evidence)
 before treating any result as evidence.
+
+The optional manifest key `sysext_probe` replaces the five-boot plan with a
+three-boot probe of the installed N image: `installed-n` (the full attestation
+and fs-verity record), `sysext-enable` and `sysext-reboot`. It is an object
+with exactly `features`, `units` and `first_start`: 1-8 unique updex feature
+names (`[a-z][a-z0-9-]{0,31}`), 1-16 unique unit names ending in `.service` or
+`.socket`, and 0-4 first-start entries with exactly `unit` (a `.service` name)
+and `path` (a file below `/etc`, no `..` part). With this key the rule
+`version_n < version_n_plus_1` becomes `version_distinct`, because the lane
+never stages N+1; N+1 is only the current target of the controlled tag.
+`sysext-enable` first saves the existing `/usr/lib/sysusers.d` fragments, then
+runs `updex features enable <feature> --now` for each feature and waits up to
+180 s for every `units` entry to be `active`; `sysext-reboot` only waits and
+re-checks. Each boot publishes one `SNOW_SYSEXT_V1` record: merged `/usr`
+extensions, the file each `/var/lib/extensions/<feature>.raw` resolves to, unit
+states, the first-start file size/mode/sha256, the new sysusers accounts, and a
+sorted `failures` list. The probe unit runs after `multi-user.target` is active, so its `Upholds=`
+apply. The runner keeps `sysext-enable.json` and `sysext-reboot.json` evidence
+(the reboot record is compared with the enable record: first-start bytes, a
+rerun, account ids), prints
+the failing units' journal lines in the pod log, and judges after both sysext
+boots: any failure is `sysext_failed:<codes>`, otherwise the reason is
+`verified_sysext_probe`. This probe is not a release gate.
+
 On failure, private evidence may also include `install-diagnostic.txt` (a
 bounded, redacted installer diagnostic or `unavailable`/`unparsed`) and
 `serial-redacted.log` (best-effort, bounded redacted console snapshot; never
