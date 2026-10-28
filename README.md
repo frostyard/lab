@@ -459,7 +459,10 @@ runs `updex features enable <feature> --now` for each feature and waits up to
 re-checks. Each boot publishes one `SNOW_SYSEXT_V1` record: merged `/usr`
 extensions, the file each `/var/lib/extensions/<feature>.raw` resolves to, unit
 states, the first-start file size/mode/sha256, the new sysusers accounts, and a
-sorted `failures` list. The runner keeps `sysext-<phase>.json` evidence, prints
+sorted `failures` list. The probe unit runs after `multi-user.target` is active, so its `Upholds=`
+apply. The runner keeps `sysext-enable.json` and `sysext-reboot.json` evidence
+(the reboot record is compared with the enable record: first-start bytes, a
+rerun, account ids), prints
 the failing units' journal lines in the pod log, and judges after both sysext
 boots: any failure is `sysext_failed:<codes>`, otherwise the reason is
 `verified_sysext_probe`. This probe is not a release gate.

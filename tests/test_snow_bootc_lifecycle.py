@@ -3572,7 +3572,8 @@ def test_sysext_phase_ignores_a_copy_that_does_not_decode(qa, tmp_path, capsys):
 def test_sysext_reboot_adds_host_failures_from_the_enable_record(qa, tmp_path, capsys):
     normalized = sysext_normalized(tmp_path, qa)
     enable = sysext_record("sysext-enable",
-                           first_start={"frostmail-secrets-key.service": {"sha256": "a" * 64}},
+                           first_start={"frostmail-secrets-key.service": {"exists": True, "sha256": "a" * 64,
+                                                                    "ConditionResult": "yes"}},
                            sysusers={"fragments": ["frostmail.conf"],
                                      "users": {"frostmail": {"present": True, "uid": 990}},
                                      "groups": {"frostmail": {"present": True, "gid": 990}},
@@ -3580,7 +3581,8 @@ def test_sysext_reboot_adds_host_failures_from_the_enable_record(qa, tmp_path, c
     enable_path = tmp_path / "sysext-enable.json"
     enable_path.write_text(json.dumps(enable))
     reboot = sysext_record("sysext-reboot",
-                           first_start={"frostmail-secrets-key.service": {"sha256": "b" * 64}},
+                           first_start={"frostmail-secrets-key.service": {"exists": True, "sha256": "b" * 64,
+                                                                    "ConditionResult": "no"}},
                            sysusers={"fragments": ["frostmail.conf"],
                                      "users": {"frostmail": {"present": True, "uid": 991}},
                                      "groups": {"frostmail": {"present": True, "gid": 990}},
@@ -3597,12 +3599,60 @@ def test_sysext_reboot_adds_host_failures_from_the_enable_record(qa, tmp_path, c
     assert written["host_failures"] == ["first_start_changed:frostmail-secrets-key.service",
                                         "sysusers_changed:frostmail"]
     # An unchanged reboot record adds nothing.
-    same = sysext_record("sysext-reboot", first_start=enable["first_start"],
+    same = sysext_record("sysext-reboot",
+                         first_start={"frostmail-secrets-key.service": {"exists": True, "sha256": "a" * 64,
+                                                                        "ConditionResult": "no"}},
                          sysusers=enable["sysusers"])
     serial.write_text(sysext_serial(qa, same))
     assert qa.main(["sysext-phase", str(normalized), "sysext-reboot", NONCE, "none",
                     str(serial), str(out), str(enable_path)]) == 0
     assert capsys.readouterr().out.splitlines()[1] == "failures=none"
+    # The key existed after the enable boot: a reboot that runs the unit again is a rerun.
+    rerun = sysext_record("sysext-reboot",
+                          first_start={"frostmail-secrets-key.service": {"exists": True, "sha256": "a" * 64,
+                                                                         "ConditionResult": "yes"}},
+                          sysusers=enable["sysusers"])
+    serial.write_text(sysext_serial(qa, rerun))
+    assert qa.main(["sysext-phase", str(normalized), "sysext-reboot", NONCE, "none",
+                    str(serial), str(out), str(enable_path)]) == 0
+    assert capsys.readouterr().out.splitlines()[1] == "failures=first_start_rerun:frostmail-secrets-key.service"
+
+
+def test_sysext_reboot_first_made_after_the_enable_boot_is_no_host_failure(qa, tmp_path, capsys):
+    # dev-snow-bootc-lifecycle-mjhb4: accounts absent in the enable boot (no
+    # sysusers on a live refresh) and present after the reboot; a key first made
+    # in the reboot boot. Neither is a change or a rerun.
+    normalized = sysext_normalized(tmp_path, qa)
+    enable = sysext_record("sysext-enable",
+                           first_start={"frostmail-secrets-key.service": {"exists": False, "sha256": None,
+                                                                          "ConditionResult": "no"}},
+                           sysusers={"fragments": ["frostmail.conf"],
+                                     "users": {"frostmail": {"present": False, "uid": None}},
+                                     "groups": {}, "memberships": {}})
+    enable_path = tmp_path / "sysext-enable.json"
+    enable_path.write_text(json.dumps(enable))
+    reboot = sysext_record("sysext-reboot",
+                           first_start={"frostmail-secrets-key.service": {"exists": True, "sha256": "c" * 64,
+                                                                          "ConditionResult": "yes"}},
+                           sysusers={"fragments": ["frostmail.conf"],
+                                     "users": {"frostmail": {"present": True, "uid": 974}},
+                                     "groups": {}, "memberships": {}})
+    serial = tmp_path / "serial"
+    serial.write_text(sysext_serial(qa, reboot))
+    out = tmp_path / "sysext-reboot.json"
+    assert qa.main(["sysext-phase", str(normalized), "sysext-reboot", NONCE, "none",
+                    str(serial), str(out), str(enable_path)]) == 0
+    assert capsys.readouterr().out.splitlines()[1] == "failures=none"
+    assert json.loads(out.read_text())["host_failures"] == []
+
+
+def test_sysext_probe_unit_orders_after_multi_user_target():
+    run = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    assert 'sysext-enable|sysext-reboot) guest_mode=sysext; guest_after=" multi-user.target";;' in run
+    assert '*) guest_mode=guest; guest_after="";;' in run
+    assert "After=network-online.target${guest_after}" in run
+    # Evidence names match the files the reboot comparison and the journal report read.
+    assert '"$WORK/$phase.json"' in run and '"$WORK/sysext-enable.json"' in run
 
 
 SYSEXT_STATES = {
@@ -3795,9 +3845,9 @@ def test_run_script_wires_the_sysext_boots_into_the_shared_body():
     assert loop.startswith('for phase in "${phase_plan[@]}"; do')
     assert 'await SNOW_SYSEXT_V1 "$((budget + 300))" SNOW_SYSEXT_ERR' in loop
     assert 'qa.py sysext-phase' in loop
-    assert 'persist "$WORK/sysext-$phase.json" "$EVIDENCE/sysext-$phase.json"' in loop
+    assert 'persist "$WORK/$phase.json" "$EVIDENCE/$phase.json"' in loop
     assert "sysext_failures=%s" in loop
-    assert 'case "$phase" in sysext-enable|sysext-reboot) guest_mode=sysext;; *) guest_mode=guest;; esac' in loop
+    assert 'sysext-enable|sysext-reboot) guest_mode=sysext; guest_after=" multi-user.target";;' in loop
     assert 'qa.py ${guest_mode:-guest} /run/snow-credentials' in loop
     # The sysext phases keep the shared drop-in, the bounded wait and no force stop.
     assert loop.count("raw.qemu=") == 1 and "incus stop" not in loop and "--force" not in loop

@@ -949,9 +949,16 @@ data:
       # phase has a fresh unit and a fresh VM boot, never a re-used serial log.
       case "$phase" in installed-n) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["installed_boot"])' "$WORK/normalized.json") || fail manifest_read;; stage) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["stage"])' "$WORK/normalized.json") || fail manifest_read;; *) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["reboot"])' "$WORK/normalized.json") || fail manifest_read;; esac
       # The sysext-probe boots run the sysext collector; every other boot attests.
-      case "$phase" in sysext-enable|sysext-reboot) guest_mode=sysext;; *) guest_mode=guest;; esac
+      # A target orders itself After= every unit it Wants= (systemd.target(5)), so a
+      # probe pulled by multi-user.target would hold the target inactive, and
+      # Upholds= on it never starts a unit (dev-snow-bootc-lifecycle-mjhb4). The
+      # explicit After= removes that implicit order for the sysext probe only.
+      case "$phase" in
+        sysext-enable|sysext-reboot) guest_mode=sysext; guest_after=" multi-user.target";;
+        *) guest_mode=guest; guest_after="";;
+      esac
       guestunit="[Unit]
-    After=network-online.target
+    After=network-online.target${guest_after}
     Wants=network-online.target
     [Service]
     Type=oneshot
@@ -977,14 +984,14 @@ data:
           if [[ "$phase" == sysext-reboot && -s "$WORK/sysext-enable.json" ]]; then
             enable_json=("$WORK/sysext-enable.json")
           fi
-          python3 /opt/snow-qa/qa.py sysext-phase "$WORK/normalized.json" "$phase" "$nonce" "$prior" "$WORK/serial" "$WORK/sysext-$phase.json" ${enable_json[@]+"${enable_json[@]}"} > "$WORK/sysext-id" 2>/dev/null || fail phase_mismatch
-          [[ -s "$WORK/sysext-$phase.json" && -s "$WORK/sysext-id" ]] || fail phase_mismatch
+          python3 /opt/snow-qa/qa.py sysext-phase "$WORK/normalized.json" "$phase" "$nonce" "$prior" "$WORK/serial" "$WORK/$phase.json" ${enable_json[@]+"${enable_json[@]}"} > "$WORK/sysext-id" 2>/dev/null || fail phase_mismatch
+          [[ -s "$WORK/$phase.json" && -s "$WORK/sysext-id" ]] || fail phase_mismatch
           prior=$(sed -n '1p' "$WORK/sysext-id")
           sysext_state=$(sed -n '2s/^failures=//p' "$WORK/sysext-id")
           [[ -n "$prior" && -n "$sysext_state" ]] || fail phase_mismatch
           [[ "$seen_boot_ids" != *":$prior:"* ]] || fail reused_boot_id
           seen_boot_ids+="$prior:"
-          persist "$WORK/sysext-$phase.json" "$EVIDENCE/sysext-$phase.json" || fail evidence_write
+          persist "$WORK/$phase.json" "$EVIDENCE/$phase.json" || fail evidence_write
           printf 'phase=%s boot_id=%s sysext_failures=%s\n' "$phase" "$prior" "$sysext_state" >> "$OUT/checks.txt"
           persist "$OUT/checks.txt" "$EVIDENCE/checks.txt" || fail evidence_write
           # Both sysext boots always run, so one record never hides the other.
@@ -1678,14 +1685,21 @@ data:
         before = mapping(enable.get("first_start"))
         for unit, item in mapping(record.get("first_start")).items():
             prior = before.get(unit)
-            if type(item) is dict and type(prior) is dict and item.get("sha256") != prior.get("sha256"):
+            if type(item) is not dict or type(prior) is not dict or prior.get("exists") is not True:
+                # Not made in the enable boot: the guest's own codes report it, and
+                # a first start in the reboot boot is no rerun.
+                continue
+            if item.get("exists") is True and item.get("sha256") != prior.get("sha256"):
                 failures.add("first_start_changed:" + sanitize(unit))
+            if item.get("ConditionResult") != "no":
+                failures.add("first_start_rerun:" + sanitize(unit))
         for group, key in (("users", "uid"), ("groups", "gid")):
             old = mapping(mapping(enable.get("sysusers")).get(group))
             new = mapping(mapping(record.get("sysusers")).get(group))
             for name, item in new.items():
                 prior = old.get(name)
-                if type(item) is dict and type(prior) is dict and item.get(key) != prior.get(key):
+                if (type(item) is dict and type(prior) is dict and item.get(key) is not None
+                        and prior.get(key) is not None and item.get(key) != prior.get(key)):
                     failures.add("sysusers_changed:" + sanitize(name))
         return sorted(failures)
 
@@ -2316,8 +2330,6 @@ data:
                 started = entry["ExecMainStartTimestampMonotonic"] or ""
                 if entry["Result"] != "success" or not started.isdigit() or int(started) == 0:
                     failures.add("first_start_not_run:" + unit)
-            elif entry["ConditionResult"] != "no":
-                failures.add("first_start_rerun:" + unit)
         if booted_digest != m["image_n"].rsplit(":", 1)[-1]:
             failures.add("booted_image")
         record = dict(phase=phase, nonce=nonce, boot_id=boot_id, booted_digest=booted_digest,
