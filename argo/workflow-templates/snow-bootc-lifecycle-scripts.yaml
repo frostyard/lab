@@ -1049,7 +1049,7 @@ data:
       python3 - "$WORK/normalized.json" "$WORK/sysext-enable.json" "$WORK/sysext-reboot.json" >&2 <<'PY' || true
     import json, re, sys
     from pathlib import Path
-    want = ('unit_inactive', 'first_start_missing', 'first_start_not_run',
+    want = ('unit_inactive', 'unit_restarted', 'first_start_missing', 'first_start_not_run',
             'first_start_rerun', 'first_start_changed')
     def clean(value):
         # Guest text: never trust the guest's own sanitizer at this host boundary.
@@ -1079,15 +1079,20 @@ data:
         for section in ('units', 'first_start'):
             entries = data.get(section)
             for unit, entry in (entries if isinstance(entries, dict) else {}).items():
-                lines = entry.get('journal') if isinstance(entry, dict) else None
-                if unit not in units or unit not in known or not isinstance(lines, list):
+                if not isinstance(entry, dict) or unit not in units or unit not in known:
                     continue
-                for line in lines[:20]:
-                    line = clean(line)
-                    if total >= 200 or line is None:
-                        break
-                    print('sysext_journal unit=' + unit + ' ' + line)
-                    total += 1
+                # A failing unit's head comes first: the first cause of the
+                # failure is its oldest line, not the tail (lab#165).
+                for label, lines, limit in (('sysext_journal_head', entry.get('journal_head'), 40),
+                                            ('sysext_journal', entry.get('journal'), 20)):
+                    if not isinstance(lines, list):
+                        continue
+                    for line in lines[:limit]:
+                        line = clean(line)
+                        if total >= 400 or line is None:
+                            break
+                        print(label + ' unit=' + unit + ' ' + line)
+                        total += 1
     PY
     fi
     (( fsverity_bad == 0 )) || fail fsverity_errors
@@ -1155,6 +1160,11 @@ data:
     SYSEXT_TOKEN_MAX = 12000
     SYSEXT_POLL_INTERVAL = 5
     SYSEXT_POLL_TIMEOUT = 180
+    # lab#165: one active sample can catch a crashing Type=simple unit between
+    # two restarts, and the first cause of a failure is older than the tail.
+    # So the probe samples again after a settle window and keeps the head too.
+    SYSEXT_SETTLE = 30
+    SYSEXT_HEAD_LINES = 40
     SYSEXT_STATE = Path("/var/lib/snow-qa")
     SYSEXT_EXTENSIONS = Path("/var/lib/extensions")
     SYSUSERS_DIR = Path("/usr/lib/sysusers.d")
@@ -2104,6 +2114,17 @@ data:
         return tail_lines(out + err, limit) if rc == 0 else []
 
 
+    def sysext_journal_head(unit, limit):
+        """The first journal lines of this boot: where a failure started (lab#165).
+
+        journalctl -n +N lists the oldest N entries of the current boot, which
+        systemd 254 and later accept.
+        """
+        rc, out, _ = sysext_run(["journalctl", "-b", "-u", unit, "--no-pager",
+                                 "-o", "short-monotonic", "-n", "+" + str(limit)])
+        return [sanitize(line) for line in out.splitlines()[:limit]] if rc == 0 else []
+
+
     def sysext_merged():
         """Extension names merged on /usr, plus the names exactly as reported."""
         rc, out, _ = sysext_run(["systemd-sysext", "status", "--json=short"])
@@ -2152,10 +2173,48 @@ data:
             time.sleep(SYSEXT_POLL_INTERVAL)
 
 
-    def sysext_unit_state(unit):
-        state = sysext_show(unit, "ActiveState,SubState,Result,NRestarts")
-        entry = {key: state.get(key) for key in ("ActiveState", "SubState", "Result", "NRestarts")}
-        entry["journal"] = sysext_journal(unit, 20) if entry["ActiveState"] != "active" else []
+    def sysext_settle(units):
+        """Sample every probed unit, wait SYSEXT_SETTLE once, then sample again."""
+        properties = "ActiveState,SubState,Result,NRestarts,ActiveEnterTimestampMonotonic"
+        before = {unit: sysext_show(unit, properties) for unit in units}
+        time.sleep(SYSEXT_SETTLE)
+        after = {unit: sysext_show(unit, properties) for unit in units}
+        return before, after
+
+
+    def sysext_unit_codes(unit, before, after):
+        """Failure codes for one probed unit across the settle window (lab#165).
+
+        A Type=simple unit in a crash loop samples as active between two
+        restarts, so both samples must be active, with the same NRestarts and
+        the same ActiveEnterTimestampMonotonic. A .socket has no NRestarts.
+        """
+        codes = []
+        if before.get("ActiveState") != "active" or after.get("ActiveState") != "active":
+            codes.append("unit_inactive:" + unit)
+        restarts = (before.get("NRestarts"), after.get("NRestarts"))
+        entered = (before.get("ActiveEnterTimestampMonotonic"),
+                   after.get("ActiveEnterTimestampMonotonic"))
+        restarted = (restarts[0] != restarts[1] or entered[0] != entered[1]
+                     or not full(r"[0-9]+", entered[1]) or int(entered[1]) == 0)
+        if unit.endswith(".service") and not all(full(r"[0-9]+", value) for value in restarts):
+            restarted = True
+        if restarted:
+            codes.append("unit_restarted:" + unit)
+        return codes
+
+
+    def sysext_unit_state(unit, before, after):
+        """One unit's state after the settle window, with both samples' evidence."""
+        first, last = before.get(unit, {}), after.get(unit, {})
+        entry = {key: last.get(key) for key in ("ActiveState", "SubState", "Result", "NRestarts")}
+        entry["NRestartsBefore"] = first.get("NRestarts")
+        entry["ActiveEnterBefore"] = first.get("ActiveEnterTimestampMonotonic")
+        entry["ActiveEnterAfter"] = last.get("ActiveEnterTimestampMonotonic")
+        entry["settle"] = SYSEXT_SETTLE
+        failed = bool(sysext_unit_codes(unit, first, last))
+        entry["journal"] = sysext_journal(unit, 20) if failed else []
+        entry["journal_head"] = sysext_journal_head(unit, SYSEXT_HEAD_LINES) if failed else []
         return entry
 
 
@@ -2274,6 +2333,12 @@ data:
         return [entry for entry in lists if entry]
 
 
+    def sysext_head_lists(record):
+        """The non-empty journal heads of the probed units, in unit order (lab#165)."""
+        lists = [record["units"][unit]["journal_head"] for unit in sorted(record["units"])]
+        return [entry for entry in lists if entry]
+
+
     def sysext_truncate(record):
         """The published token; the oldest captured lines yield until it fits."""
         data = json.loads(canonical(record), object_pairs_hook=pairs)
@@ -2282,10 +2347,16 @@ data:
             return encoded
         data["truncated"] = True
         while len(encoded) > SYSEXT_TOKEN_MAX:
+            # The tails yield first; a head only loses its newest line, so the
+            # first cause of a failure stays longest (lab#165).
             lists = sysext_line_lists(data)
-            if not lists:
-                break
-            lists[0].pop(0)
+            if lists:
+                lists[0].pop(0)
+            else:
+                heads = sysext_head_lists(data)
+                if not heads:
+                    break
+                heads[-1].pop()
             encoded = sysext_token(data)
         require(len(encoded) <= SYSEXT_TOKEN_MAX, "record_size")
         return encoded
@@ -2325,9 +2396,10 @@ data:
             before = sysusers_before()
             updex = {}
             sysext_poll(probe["units"])
+        settle_before, settle_after = sysext_settle(probe["units"])
         merged = sysext_merged()
         links = {feature: sysext_link(feature) for feature in probe["features"]}
-        units = {unit: sysext_unit_state(unit) for unit in probe["units"]}
+        units = {unit: sysext_unit_state(unit, settle_before, settle_after) for unit in probe["units"]}
         first_start = {entry["unit"]: sysext_first_start(entry) for entry in probe["first_start"]}
         fragments = [name for name in sysusers_names() if name not in before]
         sysusers, failures = sysusers_state(fragments)
@@ -2345,9 +2417,9 @@ data:
                 failures.add("not_merged:" + feature)
             if links[feature] is None:
                 failures.add("not_linked:" + feature)
-        for unit, entry in units.items():
-            if entry["ActiveState"] != "active":
-                failures.add("unit_inactive:" + unit)
+        for unit in probe["units"]:
+            failures.update(sysext_unit_codes(unit, settle_before.get(unit, {}),
+                                              settle_after.get(unit, {})))
         for unit, entry in first_start.items():
             if not entry["exists"]:
                 failures.add("first_start_missing:" + unit)

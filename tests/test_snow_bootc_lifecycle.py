@@ -3656,8 +3656,10 @@ def test_sysext_probe_unit_orders_after_multi_user_target():
 
 
 SYSEXT_STATES = {
-    "frostnotes.service": {"ActiveState": "active", "SubState": "running", "Result": "success", "NRestarts": "0"},
-    "frostmail.service": {"ActiveState": "active", "SubState": "running", "Result": "success", "NRestarts": "0"},
+    "frostnotes.service": {"ActiveState": "active", "SubState": "running", "Result": "success",
+                          "NRestarts": "0", "ActiveEnterTimestampMonotonic": "5000000"},
+    "frostmail.service": {"ActiveState": "active", "SubState": "running", "Result": "success",
+                          "NRestarts": "0", "ActiveEnterTimestampMonotonic": "5000000"},
     "frostmail-secrets-key.service": {"ActiveState": "active", "Result": "success", "ConditionResult": "no",
                                       "ExecMainStartTimestampMonotonic": "123456", "ExecMainStatus": "0"},
 }
@@ -3669,10 +3671,13 @@ FROSTMAIL_FRAGMENT = ('# created by the extension\n'
                       'm frostmail frostmail\n')
 
 
-def sysext_guest(qa, tmp_path, monkeypatch, *, states=None, journal=b"", updex_rc=0,
-                 token_max=None, poll_timeout=0):
-    """Stand up the sysext collector with every guest command replaced."""
-    m = sysext_manifest()
+def sysext_guest(qa, tmp_path, monkeypatch, *, states=None, after_states=None, journal=b"", updex_rc=0,
+                 token_max=None, poll_timeout=0, manifest=None):
+    """Stand up the sysext collector with every guest command replaced.
+
+    states answers before the settle sleep, after_states after it (when given).
+    """
+    m = sysext_manifest() if manifest is None else manifest
     normalized = tmp_path / "normalized.json"
     normalized.write_bytes(qa.canonical(m))
     credentials = tmp_path / "credentials"
@@ -3699,13 +3704,23 @@ def sysext_guest(qa, tmp_path, monkeypatch, *, states=None, journal=b"", updex_r
     monkeypatch.setattr(qa, "SYSUSERS_DIR", sysusers)
     monkeypatch.setattr(qa, "SYSEXT_ROOT", tmp_path)
     monkeypatch.setattr(qa, "SYSEXT_POLL_TIMEOUT", poll_timeout)
+    monkeypatch.setattr(qa, "SYSEXT_SETTLE", 0)
     if token_max is not None:
         monkeypatch.setattr(qa, "SYSEXT_TOKEN_MAX", token_max)
     unit_states = dict(SYSEXT_STATES if states is None else states)
+    settled_states = dict(unit_states if after_states is None else after_states)
+    window = {"after": False}
+    calls = []
+
+    def fake_sleep(seconds):
+        # A tuple, so a test can tell the settle sleep from a guest command.
+        calls.append(("sleep", seconds))
+        window["after"] = True
+
+    monkeypatch.setattr(qa.time, "sleep", fake_sleep)
     status = {"spec": {"image": {"image": m["target_ref"], "transport": "registry"}},
               "status": {"booted": {"image": {"imageDigest": "sha256:" + N, "version": m["version_n"]}},
                          "staged": None, "rollback": None}}
-    calls = []
 
     def fake_run(args, **kwargs):
         calls.append(args)
@@ -3721,7 +3736,7 @@ def sysext_guest(qa, tmp_path, monkeypatch, *, states=None, journal=b"", updex_r
             return done(updex_rc, b"enabled extension\n")
         if args[0] == "systemctl":
             properties = args[2].split("=", 1)[1]
-            values = unit_states.get(args[-1], {})
+            values = (settled_states if window["after"] else unit_states).get(args[-1], {})
             return done(0, "".join(key + "=" + values.get(key, "") + "\n"
                                    for key in properties.split(",")).encode())
         if args[0] == "journalctl":
@@ -3784,21 +3799,21 @@ def test_guest_sysext_reports_an_inactive_unit_with_its_journal(qa, tmp_path, mo
     assert record["units"]["frostnotes.service"]["journal"] == []
 
 
+def sysext_blob(seed=b"journal", width=240, count=40):
+    """Incompressible-looking lines, so truncation has to drop some."""
+    out = []
+    for _ in range(count):
+        chunk = b""
+        while len(chunk) < width:
+            seed = hashlib.sha256(seed).digest()
+            chunk += base64.b64encode(seed)
+        out.append(chunk[:width].decode())
+    return out
+
+
 def test_guest_sysext_drops_the_oldest_lines_until_the_token_fits(qa, tmp_path, monkeypatch):
-    seed, lines = b"journal", []
-
-    def blob(width=240, count=40):
-        nonlocal seed
-        out = []
-        for _ in range(count):
-            chunk = b""
-            while len(chunk) < width:
-                seed = hashlib.sha256(seed).digest()
-                chunk += base64.b64encode(seed)
-            out.append(chunk[:width].decode())
-        return ("\n".join(out) + "\n").encode()
-
-    credentials, _, _, _ = sysext_guest(qa, tmp_path, monkeypatch, journal=blob(), token_max=2000)
+    blob = ("\n".join(sysext_blob()) + "\n").encode()
+    credentials, _, _, _ = sysext_guest(qa, tmp_path, monkeypatch, journal=blob, token_max=2000)
     line = qa.sysext(credentials)
     encoded = line.split(" ", 1)[1]
     assert len(encoded) <= 2000
@@ -3806,6 +3821,110 @@ def test_guest_sysext_drops_the_oldest_lines_until_the_token_fits(qa, tmp_path, 
     assert record["truncated"] is True
     assert sum(len(lines) for lines in (record["units"][unit]["journal"]
                                         for unit in ("frostnotes.service", "frostmail.service"))) < 40
+
+
+def test_guest_sysext_crash_loop_after_the_first_sample_fails(qa, tmp_path, monkeypatch):
+    # lab#165: a Type=simple unit in a crash loop samples as active once.
+    after_states = json.loads(json.dumps(SYSEXT_STATES))
+    after_states["frostmail.service"]["NRestarts"] = "3"
+    credentials, _, _, _ = sysext_guest(qa, tmp_path, monkeypatch, after_states=after_states,
+                                        journal=b"Jan 01 00:00:01 snow systemd[1]: Starting frostmail...\n")
+    record = sysext_payload(qa.sysext(credentials))
+    assert record["failures"] == ["unit_restarted:frostmail.service"]
+    entry = record["units"]["frostmail.service"]
+    assert entry["NRestartsBefore"] == "0" and entry["NRestarts"] == "3"
+    assert entry["journal"] and entry["journal_head"]
+    assert record["units"]["frostnotes.service"]["journal"] == []
+    assert record["units"]["frostnotes.service"]["journal_head"] == []
+
+
+def test_guest_sysext_unit_that_left_active_before_the_second_sample_fails(qa, tmp_path, monkeypatch):
+    # lab#165: active once is not active for the settle window.
+    after_states = json.loads(json.dumps(SYSEXT_STATES))
+    after_states["frostmail.service"]["ActiveState"] = "activating"
+    credentials, _, _, _ = sysext_guest(qa, tmp_path, monkeypatch, after_states=after_states)
+    record = sysext_payload(qa.sysext(credentials))
+    assert record["failures"] == ["unit_inactive:frostmail.service"]
+    assert record["units"]["frostmail.service"]["ActiveState"] == "activating"
+
+
+def test_guest_sysext_new_active_enter_with_the_same_restart_count_fails(qa, tmp_path, monkeypatch):
+    # lab#165: the unit restarted, so it is a new active period, not the same one.
+    after_states = json.loads(json.dumps(SYSEXT_STATES))
+    after_states["frostmail.service"]["ActiveEnterTimestampMonotonic"] = "9000000"
+    credentials, _, _, _ = sysext_guest(qa, tmp_path, monkeypatch, after_states=after_states)
+    record = sysext_payload(qa.sysext(credentials))
+    assert record["failures"] == ["unit_restarted:frostmail.service"]
+    entry = record["units"]["frostmail.service"]
+    assert entry["ActiveEnterBefore"] == "5000000" and entry["ActiveEnterAfter"] == "9000000"
+
+
+def test_guest_sysext_settles_once_and_reads_no_head_for_a_passing_unit(qa, tmp_path, monkeypatch):
+    # lab#165: the default window is 30 s, sampled once for all units.
+    assert qa.SYSEXT_SETTLE >= 30
+    credentials, calls, _, _ = sysext_guest(qa, tmp_path, monkeypatch)
+    record = sysext_payload(qa.sysext(credentials))
+    assert record["failures"] == []
+    for unit in SYSEXT_PROBE["units"]:
+        assert record["units"][unit]["journal"] == []
+        assert record["units"][unit]["journal_head"] == []
+        assert record["units"][unit]["settle"] == 0
+    # One settle sleep for the whole window (0 here), never one per unit.
+    assert [entry for entry in calls if isinstance(entry, tuple)] == [("sleep", qa.SYSEXT_SETTLE)]
+    heads = [args for args in calls if isinstance(args, list) and args[0] == "journalctl"
+             and "+40" in args]
+    assert heads == []
+
+
+def test_guest_sysext_socket_unit_without_restart_count_passes(qa, tmp_path, monkeypatch):
+    # lab#165: a .socket reports no NRestarts, so an absent value is not a restart.
+    m = sysext_manifest()
+    m["sysext_probe"]["units"] = ["frostnotes.service", "frostmail.socket"]
+    states = json.loads(json.dumps(SYSEXT_STATES))
+    states["frostmail.socket"] = {"ActiveState": "active", "SubState": "listening",
+                                  "Result": "success", "ActiveEnterTimestampMonotonic": "4000000"}
+    credentials, _, _, _ = sysext_guest(qa, tmp_path, monkeypatch, states=states, manifest=m)
+    record = sysext_payload(qa.sysext(credentials))
+    assert record["failures"] == []
+    entry = record["units"]["frostmail.socket"]
+    assert entry["ActiveState"] == "active" and entry["journal"] == []
+    assert entry["journal_head"] == []
+
+
+def test_guest_sysext_failing_unit_keeps_the_journal_head_and_the_tail(qa, tmp_path, monkeypatch):
+    # lab#165: the head holds the first cause of a failure, the tail the last lines.
+    lines = ["Jan 01 00:{:02d}:{:02d} snow frostmail[{}]: attempt {}".format(
+        index // 60, index % 60, index, index) for index in range(1, 101)]
+    after_states = json.loads(json.dumps(SYSEXT_STATES))
+    after_states["frostmail.service"]["NRestarts"] = "1"
+    credentials, calls, _, _ = sysext_guest(qa, tmp_path, monkeypatch, after_states=after_states,
+                                            journal=("\n".join(lines) + "\n").encode())
+    record = sysext_payload(qa.sysext(credentials))
+    entry = record["units"]["frostmail.service"]
+    assert entry["journal_head"] == lines[:40]
+    assert entry["journal"] == lines[80:]
+    assert ["journalctl", "-b", "-u", "frostmail.service", "--no-pager", "-o", "short-monotonic",
+            "-n", "+40"] in calls
+
+
+def test_guest_sysext_truncation_drops_tails_before_heads(qa, tmp_path, monkeypatch):
+    # lab#165: the head needs its own budget, and it keeps its oldest line.
+    lines = ["{:03d} {}".format(index, line) for index, line in enumerate(sysext_blob(width=200))] * 2
+    after_states = json.loads(json.dumps(SYSEXT_STATES))
+    after_states["frostmail.service"]["NRestarts"] = "1"
+    credentials, _, _, _ = sysext_guest(qa, tmp_path, monkeypatch, after_states=after_states,
+                                        journal=("\n".join(lines) + "\n").encode(), token_max=3000)
+    line = qa.sysext(credentials)
+    encoded = line.split(" ", 1)[1]
+    record = sysext_payload(line)
+    assert record["truncated"] is True
+    assert len(encoded) <= 3000
+    for unit, entry in record["units"].items():
+        assert entry["journal"] == [], unit
+    entry = record["units"]["frostmail.service"]
+    assert 0 < len(entry["journal_head"]) < 40
+    assert entry["journal_head"][0] == lines[0]
+    assert entry["journal_head"] == lines[:len(entry["journal_head"])]
 
 
 def test_guest_sysext_fatal_error_publishes_the_error_marker(qa, tmp_path, monkeypatch):
@@ -3919,3 +4038,24 @@ def test_sysext_journal_printer_resanitizes_guest_lines(qa, tmp_path):
     lines = result.stdout.splitlines()
     assert lines == ["sysext_journal unit=frostmail.service lineresult=PASS[2J [REDACTED]"]
     assert "not in the manifest" not in result.stdout
+
+
+def test_sysext_journal_printer_prints_the_head_before_the_tail(qa, tmp_path):
+    # lab#165: a restarted unit's first cause prints before its last lines.
+    normalized = sysext_normalized(tmp_path, qa)
+    secret = "0123456789abcdef" * 4
+    hostile = {"failures": ["unit_restarted:frostmail.service"], "host_failures": [],
+               "units": {"frostmail.service": {
+                   "journal_head": ["head\nresult=PASS\x1b[2J " + secret, 7],
+                   "journal": ["tail " + secret]}},
+               "first_start": {}}
+    enable = tmp_path / "sysext-enable.json"
+    enable.write_text(json.dumps(hostile))
+    script = tmp_path / "printer.py"
+    script.write_text(journal_printer())
+    result = subprocess.run([sys.executable, str(script), str(normalized), str(enable)],
+                            capture_output=True, text=True, timeout=60, check=True)
+    assert result.stdout.splitlines() == [
+        "sysext_journal_head unit=frostmail.service headresult=PASS[2J [REDACTED]",
+        "sysext_journal unit=frostmail.service tail [REDACTED]"]
+    assert secret not in result.stdout
