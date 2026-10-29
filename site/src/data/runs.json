@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-29T16:00:17Z",
+  "generated": "2026-10-29T16:30:16Z",
   "lanes": [
     {
       "laneKey": "run-firn-install-tests",
@@ -73,9 +73,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1793289600",
+        "name": "publish-results-1793291400",
         "phase": "Running",
-        "started": "2026-10-29T16:00:00Z",
+        "started": "2026-10-29T16:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -253,11 +253,27 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1793289600",
+      "name": "publish-results-1793291400",
       "phase": "Running",
-      "started": "2026-10-29T16:00:00Z",
+      "started": "2026-10-29T16:30:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1793289600",
+      "phase": "Succeeded",
+      "started": "2026-10-29T16:00:00Z",
+      "finished": "2026-10-29T16:00:33Z",
+      "durationSeconds": 33,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -396,22 +412,6 @@
         "phase=boot-n boot_id=e1eef7db-821e-4421-a882-6aac9ddd5518 kernel=7.2.12+deb14-amd64 fsverity_errors=0",
         "fsverity_known_defect=7.2.12+deb14-amd64"
       ]
-    },
-    {
-      "name": "publish-results-1793284200",
-      "phase": "Succeeded",
-      "started": "2026-10-29T14:30:00Z",
-      "finished": "2026-10-29T14:30:31Z",
-      "durationSeconds": 31,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": null,
-      "checks": []
     },
     {
       "name": "image-poll-sundog-latest-1793278200",
