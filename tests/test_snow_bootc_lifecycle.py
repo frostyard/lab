@@ -3327,13 +3327,14 @@ def permissive_system_policy(strict):
             "transports": json.loads(json.dumps(strict["transports"]))}
 
 
-def policy_world(qa, tmp_path, monkeypatch, *, update=None, system=None):
+def policy_world(qa, tmp_path, monkeypatch, *, update=None, system=None, raw_update=None):
     """A guest that reaches the policy gate and the pull of N+1.
 
     `update` is the parsed strict update policy in /usr, or None for an image
-    before snosi ADR-0025, which ships no such file. The fake podman answers the
-    pull and then reports the wrong digest, so the probe stops after the pull
-    command the test inspects.
+    before snosi ADR-0025, which ships no such file. `raw_update` writes those
+    bytes to that path instead, so a present file can hold anything. The fake
+    podman answers the pull and then reports the wrong digest, so the probe
+    stops after the pull command the test inspects.
     """
     m = manifest()
     m["cosign_key_sha256"] = hashlib.sha256(b"public-key").hexdigest()
@@ -3354,7 +3355,9 @@ def policy_world(qa, tmp_path, monkeypatch, *, update=None, system=None):
     (root / "policy.json").write_text(json.dumps(SHIPPED_POLICY if system is None else system))
     (root / "key").write_bytes(b"public-key")
     update_path = root / "bootc-policy.json"
-    if update is not None:
+    if raw_update is not None:
+        update_path.write_bytes(raw_update)
+    elif update is not None:
         update_path.write_text(json.dumps(update))
     monkeypatch.setattr(qa, "GUEST_PATHS", {"boot_id": root / "boot_id",
         "policy": root / "policy.json", "update_policy": update_path,
@@ -3422,6 +3425,38 @@ def test_guest_rejects_a_new_layout_image_whose_update_policy_is_not_strict(qa, 
     strict = json.loads(json.dumps(SHIPPED_POLICY))
     strict["default"] = [{"type": "insecureAcceptAnything"}]
     creds, calls = policy_world(qa, tmp_path, monkeypatch, update=strict, system=strict)
+    with pytest.raises(qa.GateError, match="^policy$"):
+        qa.guest(creds)
+    assert not any(command[:2] == ["podman", "pull"] for command in calls)
+
+
+def test_guest_rejects_a_new_layout_image_that_omits_a_frostyard_scope(qa, tmp_path, monkeypatch):
+    # A scope missing from both files is not strict: with the permissive /etc
+    # default, an image of that repository would pull unsigned.
+    strict = json.loads(json.dumps(SHIPPED_POLICY))
+    system = permissive_system_policy(strict)
+    del strict["transports"]["docker"]["ghcr.io/frostyard/sundog"]
+    del system["transports"]["docker"]["ghcr.io/frostyard/sundog"]
+    creds, calls = policy_world(qa, tmp_path, monkeypatch, update=strict, system=system)
+    with pytest.raises(qa.GateError, match="^policy$"):
+        qa.guest(creds)
+    assert not any(command[:2] == ["podman", "pull"] for command in calls)
+
+
+def test_guest_rejects_a_present_update_policy_that_is_null(qa, tmp_path, monkeypatch):
+    # The file exists, so the image is a new layout: a literal null is invalid
+    # JSON for a policy and must not fall back to the old layout.
+    creds, calls = policy_world(qa, tmp_path, monkeypatch, raw_update=b"null\n")
+    with pytest.raises(qa.GateError, match="^policy$"):
+        qa.guest(creds)
+    assert not any(command[:2] == ["podman", "pull"] for command in calls)
+
+
+def test_guest_rejects_the_permissive_system_policy_without_an_update_policy(qa, tmp_path, monkeypatch):
+    # No file in /usr and a permissive /etc: the old layout check rejects it.
+    strict = json.loads(json.dumps(SHIPPED_POLICY))
+    creds, calls = policy_world(qa, tmp_path, monkeypatch, update=None,
+                                system=permissive_system_policy(strict))
     with pytest.raises(qa.GateError, match="^policy$"):
         qa.guest(creds)
     assert not any(command[:2] == ["podman", "pull"] for command in calls)

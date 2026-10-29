@@ -395,6 +395,20 @@ def test_floe_guest_pulls_with_the_strict_update_policy_of_a_new_layout_image(
             f"{FLOE}:qa-controlled"] in calls
 
 
+def test_floe_guest_rejects_a_new_layout_image_that_omits_a_frostyard_scope(
+        qa, floe_world, tmp_path, monkeypatch):
+    # A scope missing from both files would pull unsigned through the permissive
+    # /etc default, so the probe refuses before any pull.
+    strict = shipped()
+    system = snow.permissive_system_policy(strict)
+    for policy in (strict, system):
+        del policy["transports"]["docker"]["ghcr.io/frostyard/sundog"]
+    creds, calls = snow.policy_world(qa, tmp_path, monkeypatch, update=strict, system=system)
+    with pytest.raises(qa.GateError, match="^policy$"):
+        qa.guest(creds)
+    assert not any(command[:2] == ["podman", "pull"] for command in calls)
+
+
 def test_floe_guest_rejects_a_system_policy_with_a_weakened_floe_scope(
         qa, floe_world, tmp_path, monkeypatch):
     strict = shipped()
