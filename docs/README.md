@@ -25,6 +25,7 @@ Docs are split by the question they answer
 - [0009 — No artifact store: the workflow log is the surface, host disk the fallback](adr/0009-no-artifact-store-logs-are-the-surface.md)
 - [0010 — Vacuous success is forbidden: green must mean work was done](adr/0010-vacuous-success-is-forbidden.md)
 - [0011 — Roster product polls and qualify their QA evidence by digest and freshness](adr/0011-product-poll-qa-evidence-is-rostered-and-fresh.md) (product-only refinement to 0003/0004)
+- [0012 — The lifecycle lane takes its product from the hashed manifest](adr/0012-lifecycle-lane-product-comes-from-the-hashed-manifest.md)
 
 Org-wide decisions binding this repo: [org-adrs.md](org-adrs.md).
 
@@ -42,6 +43,8 @@ Org-wide decisions binding this repo: [org-adrs.md](org-adrs.md).
   — selected inputs, preflight record and submit runbook
 - [2026-10-28 — notesd and maild suite sysexts on an installed Snow (sysext probe)](plans/2026-10-28-snow-sysext-probe-run.md)
   — probe mode, dev run and result
+- [2026-10-28 — First Floe bootc N → N+1 update and rollback run](plans/2026-10-28-floe-bootc-lifecycle-run.md)
+  — selected inputs, known causes (snosi#1130), preflight record and submit runbook
 
 ### Uncategorized (indexed where they stand)
 

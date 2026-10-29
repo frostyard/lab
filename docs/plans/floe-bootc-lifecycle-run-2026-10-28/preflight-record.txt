@@ -1,0 +1,41 @@
+# Preflight record: run-snow-bootc-lifecycle manifest, product floe (read-only)
+# date: 2026-10-29T01:18:45Z to 01:20:14Z (UTC). Lab ConfigMap qa.py from branch murbella/floe-bootc-lifecycle.
+# command: PREFLIGHT_IMAGE=docker.io/library/debian:trixie PREFLIGHT_PULL=never \
+#   scripts/snow-lifecycle-preflight/run.sh docs/plans/floe-bootc-lifecycle-run-2026-10-28/manifest.json
+# runner image: docker.io/library/debian:trixie (local). Anonymous registry reads only.
+# target_ref PENDING is expected: no one has created ghcr.io/frostyard/floe:qa-controlled yet.
+tools: cosign devel; skopeo version 1.18.0; gpgv (GnuPG) 2.4.7
+manifest file sha256=641c396c9efde8e86783546027ef6fbc7e9856252712adf8276628a724576e76
+CHECK index_key_sha256 PASS shared/native-ab/keys/import-pubring.gpg@39cf19887547 sha256=977fe2de56de82dab559709178bbf335a28cc648237c69cb88ee3de008c0fc97
+CHECK cosign_key_sha256 PASS cosign.pub@39cf19887547 sha256=3e79750429976e1f1a01cb2a71d0aa1caf61ad918302553b2a8df397c4514fc5
+CHECK mok_cert_sha256 PASS shared/native-ab/keys/mok-2026.crt@39cf19887547 sha256=0446e4780b809711af17934da0b5a39487da1da35d1fe7dbaae5e7f9f39545b4
+CHECK index_key_fingerprint PASS F37282A35CB6BDFEBFC8FE775A2EAC5C8216FD68
+CHECK iso_index_signature PASS gpgv ok, VALIDSIG primary=F37282A35CB6BDFEBFC8FE775A2EAC5C8216FD68
+CHECK iso_index_entry PASS snosi-installer_20261028230444_x86-64.iso d045e27c50fe2224e74f8de352ecdaeb4fa8fba443dbd10fce43eaa303c45366 (1 entries in the index)
+CHECK iso_url_versioned PASS https://repository.frostyard.org/isos/native/v1/snosi-installer_20261028230444_x86-64.iso
+CHECK iso_sha256 PASS d045e27c50fe2224e74f8de352ecdaeb4fa8fba443dbd10fce43eaa303c45366 (886491136 bytes)
+CHECK iso_esp PASS GPT partition 2 is an ESP at byte 104448
+CHECK iso_initramfs PASS firn-installer/initrd.img 752194300 bytes
+CHECK iso_embedded:/usr/lib/snosi/cosign.pub PASS equals pinned cosign.pub
+CHECK iso_embedded:/usr/lib/snosi/os-update-pubring.gpg PASS equals pinned index.gpg
+CHECK iso_embedded:/usr/lib/snosi/mok.crt PASS equals pinned mok.crt
+CHECK iso_catalog PASS {"n":1,"ref":"ghcr.io/frostyard/floe:latest","key":"/usr/lib/snosi/cosign.pub"}
+CHECK iso_release PASS SNOSI_INSTALLER_VERSION=20261028230444 SNOSI_INSTALLER_BUILD_ID=firn-installer 
+CHECK iso_firn INFO sha256=2a965b924db115290280ddb27178ba06e5717f111c4ca38571efbf834c0497af version=0.10.0
+CHECK iso_bootc INFO no bootc in the installer initramfs: Firn runs bootc from image N with podman
+CHECK oci_signature_n PASS 1 claim(s), signed digest=sha256:fb6646f9dc9029d57132ed12fb799ed33e4cdb3f2f4b03d54da4c5423ecbf843
+CHECK oci_digest_n PASS sha256:fb6646f9dc9029d57132ed12fb799ed33e4cdb3f2f4b03d54da4c5423ecbf843
+CHECK oci_labels_n PASS {"v":"20261026191636","a":"bootc-1.16.8-storage-digest-v1","c":"true"} assembly=bootc-1.16.8-storage-digest-v1
+CHECK oci_version_annotation_n PASS 20261026191636 (application/vnd.oci.image.manifest.v1+json)
+CHECK version_tag_n PASS ghcr.io/frostyard/floe:20261026191636 -> sha256:fb6646f9dc9029d57132ed12fb799ed33e4cdb3f2f4b03d54da4c5423ecbf843
+CHECK oci_signature_n_plus_1 PASS 1 claim(s), signed digest=sha256:bb1269a59a224e05b429776661b419f909d5d58d92c16048129410082d95d592
+CHECK oci_digest_n_plus_1 PASS sha256:bb1269a59a224e05b429776661b419f909d5d58d92c16048129410082d95d592
+CHECK oci_labels_n_plus_1 PASS {"v":"20261028230726","a":"bootc-1.17.1-storage-digest-v1","c":"true"} assembly=bootc-1.17.1-storage-digest-v1
+CHECK oci_version_annotation_n_plus_1 PASS 20261028230726 (application/vnd.oci.image.manifest.v1+json)
+CHECK version_tag_n_plus_1 PASS ghcr.io/frostyard/floe:20261028230726 -> sha256:bb1269a59a224e05b429776661b419f909d5d58d92c16048129410082d95d592
+CHECK order_distinct PASS 20261026191636 < 20261028230726, digests distinct
+CHECK target_ref PENDING ghcr.io/frostyard/floe:qa-controlled does not exist yet (create it before submit)
+CHECK lane_validate PASS canonical manifest_sha256=cd2136b6ec66bd7a376f060447993e841226be931153d7822d9c6da45b9b6c59
+CHECK lane_preflight PASS qa.py preflight with only the target-tag resolve deferred
+lane preflight.json: {"assembly_n":"bootc-1.16.8-storage-digest-v1","assembly_n_plus_1":"bootc-1.17.1-storage-digest-v1","cosign_key_sha256":"3e79750429976e1f1a01cb2a71d0aa1caf61ad918302553b2a8df397c4514fc5","digest_n":"fb6646f9dc9029d57132ed12fb799ed33e4cdb3f2f4b03d54da4c5423ecbf843","digest_n_plus_1":"bb1269a59a224e05b429776661b419f909d5d58d92c16048129410082d95d592","firn_compatibility":"installer-vm-v2-recipe-validator-only","firn_provenance":"iso-esp-p2/firn-installer/initrd.img","firn_sha256":"2a965b924db115290280ddb27178ba06e5717f111c4ca38571efbf834c0497af","index_key_sha256":"977fe2de56de82dab559709178bbf335a28cc648237c69cb88ee3de008c0fc97","iso_sha256":"d045e27c50fe2224e74f8de352ecdaeb4fa8fba443dbd10fce43eaa303c45366","manifest_sha256":"cd2136b6ec66bd7a376f060447993e841226be931153d7822d9c6da45b9b6c59","mok_cert_sha256":"0446e4780b809711af17934da0b5a39487da1da35d1fe7dbaae5e7f9f39545b4","snosi_commit":"39cf19887547f83200866e94e5753888706b49fa","tags":{},"timestamp":"2026-10-29T01:20:14.923013+00:00","version_n":"20261026191636","version_n_plus_1":"20261028230726"}
+failures=0 target_ready=0

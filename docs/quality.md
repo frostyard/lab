@@ -195,7 +195,13 @@ operator-controlled N+1 target tag and submission interface are in the
 [README](../README.md#manual-snow-bootc-lifecycle). It is not scheduled, not a
 release gate. Its first manual main-lane PASS (`run-snow-bootc-lifecycle-tbjnp`,
 2026-10-26) is recorded in the
-[run plan](plans/2026-10-26-snow-bootc-lifecycle-run.md#result-2026-10-26-pass). Offline mocked tests cannot
+[run plan](plans/2026-10-26-snow-bootc-lifecycle-run.md#result-2026-10-26-pass). The manifest field
+`product` (`snow` or `floe`) selects the image
+([ADR-0012](adr/0012-lifecycle-lane-product-comes-from-the-hashed-manifest.md)); the result line
+and `checks.txt` do not name it, so read a result with its `manifest_sha256`.
+Floe has offline contract tests and a
+[run plan](plans/2026-10-28-floe-bootc-lifecycle-run.md), but no run yet: there is no Floe
+lifecycle evidence. Offline mocked tests cannot
 establish published ISO/OCI availability or Snowfield hardware qualification.
 Submission includes the JSON in the `argo` process argv; workflow/pod parameters
 and env are visible: no secrets in the manifest. After tool provisioning,

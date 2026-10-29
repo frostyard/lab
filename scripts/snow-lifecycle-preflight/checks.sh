@@ -1,5 +1,5 @@
 #!/bin/bash
-# In-container half of the read-only Snow lifecycle preflight (see run.sh).
+# In-container half of the read-only Snow or Floe lifecycle preflight (see run.sh).
 # Prints one line per check: "CHECK <name> <PASS|FAIL|PENDING|INFO> <detail>".
 # /work holds manifest.json and the ConfigMap qa.py; /iso.iso is an optional
 # local ISO copy to hash instead of a download. Nothing here writes to a
@@ -112,9 +112,10 @@ usr/lib/snosi/cosign.pub cosign.pub
 usr/lib/snosi/os-update-pubring.gpg index.gpg
 usr/lib/snosi/mok.crt mok.crt
 EOF
-  snow=$(jq -c '[.[] | select(.family == "bootc" and .name == "snow")] | {n: length, ref: .[0].ref, key: .[0].cosign_pub_key}' \
+  # The catalog entry is the one named like the manifest product (snow or floe).
+  entry=$(jq -c --arg p "$(j .product)" '[.[] | select(.family == "bootc" and .name == $p)] | {n: length, ref: .[0].ref, key: .[0].cosign_pub_key}' \
     "$T/x/etc/firn/catalog.json" 2>/dev/null)
-  same iso_catalog "$(jq -r '.n == 1 and .key == "/usr/lib/snosi/cosign.pub"' <<<"$snow" 2>/dev/null)" true "$snow"
+  same iso_catalog "$(jq -r '.n == 1 and .key == "/usr/lib/snosi/cosign.pub"' <<<"$entry" 2>/dev/null)" true "$entry"
   release=$(tr '\n' ' ' < "$T/x/etc/snosi-installer-release" 2>/dev/null)
   if [[ $release == *"$(j .iso_version)"* ]]; then check iso_release PASS "$release"; else check iso_release FAIL "$release"; fi
   firn_version=$(strings "$T/x/usr/bin/firn" 2>/dev/null | grep -m1 -E '^v?[0-9]+\.[0-9]+\.[0-9]+$')
