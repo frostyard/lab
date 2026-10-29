@@ -14,22 +14,23 @@ everything else is the lane that passed for Snow in the
 advisory and not a release gate
 ([ADR-0003](../adr/0003-unproven-is-distinct-from-failed.md),
 [ADR-0010](../adr/0010-vacuous-success-is-forbidden.md)). The field contract is
-in the [README](../../README.md#manual-snow-bootc-lifecycle). No run was
-submitted when this plan was written.
+in the [README](../../README.md#manual-snow-bootc-lifecycle).
+[Phase 4](#result-2026-10-29-pass) holds the result: the first manual
+main-lane Floe run ended `PASS: verified_five_fresh_boots` on 2026-10-29.
 
 ## Selected inputs
 
 The manifest is [`manifest.json`](floe-bootc-lifecycle-run-2026-10-28/manifest.json)
-(file SHA-256 `641c396c…a76e76`; canonical lane `manifest_sha256`
-`cd2136b6…b6c59`). Every value is public. Selected on 2026-10-29 at about 01:30Z; snosi was read
-only.
+(file SHA-256 `765d005e…c4399`; canonical lane `manifest_sha256`
+`f8fa7b8d…ec22c`). Every value is public. Selected on 2026-10-29 at about 01:30Z; the ISO
+fields were refreshed at 14:06Z after the index rotated. snosi was read only.
 
 | Input | Value | Why |
 | --- | --- | --- |
-| ISO | `snosi-installer_20261028230444_x86-64.iso`, SHA-256 `d045e27c…c45366` | The only entry in the signed `SHA256SUMS` index at selection. The index rotates with each ISO build, so expect step 2 below to refresh it (same procedure as the Snow plan). Its Firn catalog has exactly one `floe` bootc entry (snosi `test/firn-catalog-test.sh` requires the four bootc products). Firn 0.10.0, hash `2a965b92…497af`. The initramfs has no `bootc`, so Firn runs `bootc install` from image N through podman. |
+| ISO | `snosi-installer_20261029101909_x86-64.iso`, SHA-256 `28747d49…913b42` | The only entry in the signed `SHA256SUMS` index at 14:06Z on 2026-10-29. It replaced `20261028230444` (SHA-256 `d045e27c…c45366`, the ISO at selection); only the ISO fields changed. The index rotates with each ISO build, so expect step 2 below to refresh it again (same procedure as the Snow plan). Its Firn catalog has exactly one `floe` bootc entry (snosi `test/firn-catalog-test.sh` requires the four bootc products). Firn 0.10.0, hash `2a965b92…497af`. The initramfs has no `bootc`, so Firn runs `bootc install` from image N through podman. |
 | N | `20261026191636`, `sha256:fb6646f9…ecbf843` | The last Floe build with `bootc-1.16.8-storage-digest-v1` (snosi `b3d14e2c`, before the bootc 1.17.1 move in snosi#1157). Installed Floe hosts from earlier media run this assembly, so N → N+1 is the update those hosts take. |
 | N+1 | `20261028230726`, `sha256:bb1269a5…95d592` | `bootc-1.17.1-storage-digest-v1`, snosi `a148c664` (main at selection), `latest` at selection. The lane accepts a different assembly for each image (lab #153), as in the Snow 1.16.8 → 1.17.1 run `run-snow-bootc-lifecycle-l6596`. |
-| Target | `ghcr.io/frostyard/floe:qa-controlled` | Operator-owned. No snosi workflow writes it. It does not exist yet; Brian creates it at N+1 (step 3). |
+| Target | `ghcr.io/frostyard/floe:qa-controlled` | Operator-owned. No snosi workflow writes it. It did not exist at selection; Brian created it at N+1 before the run (step 3, see the [result](#result-2026-10-29-pass)). |
 | Trust pins | snosi `39cf1988`, index key `977fe2de…0fc97`, cosign key `3e797504…14fc5`, MOK cert `0446e478…545b4`, fingerprint `F37282A3…8216FD68` | The lane's pinned values, the same as for Snow. The three files are byte-identical at `39cf1988`, at `b3d14e2c` (N) and at `a148c664` (N+1). Floe images are signed with the same cosign key, and the shipped signature policy names `ghcr.io/frostyard/floe` with the same `sigstoreSigned` rule as Snow. |
 
 Floe is a headless guest. The lifecycle guest probe has no desktop check for
@@ -75,6 +76,9 @@ twice, and the host treats identical copies as one record.
   Floe contract; the Snow test files are unchanged.
 - **Done when:** the PR is merged and Argo CD `frostyard-lab` is `Synced` at
   that commit (step 1 below checks the ConfigMap).
+  Met: lab#167 merged as `25367a01`; on 2026-10-29 at 14:05Z Argo CD was
+  `Synced` and `Healthy` at `5faa2171` (after it), and the cluster ConfigMap
+  `qa.py` names `ghcr.io/frostyard/floe`.
 
 ## Phase 2 — Preflight (done 2026-10-29, read-only)
 
@@ -85,9 +89,11 @@ is deferred. It never writes to a registry, a tag or the cluster.
 
 - **Done when:** the [record](floe-bootc-lifecycle-run-2026-10-28/preflight-record.txt)
   shows every check `PASS`, `target_ref PENDING`, `lane_preflight PASS` and
-  `failures=0`. Met at 2026-10-29T01:20:14Z (ISO `20261028230444`, from this
-  branch's lane code): both images signed, both assembly labels accepted,
-  `iso_catalog` on the `floe` entry.
+  `failures=0`. Met at 2026-10-29T01:20:14Z (ISO `20261028230444`, from the
+  Phase 1 branch's lane code), and again at 2026-10-29T14:08:03Z (ISO
+  `20261029101909`, lane code from lab `main` `5faa2171`, Argo CD `Synced`
+  there): both images signed, both assembly labels accepted, `iso_catalog` on
+  the `floe` entry. The record holds the second run.
 
 ## Phase 3 — Submit (Brian)
 
@@ -178,6 +184,45 @@ holds the `snosi-vm-qa` semaphore, so a Snow run and this run never overlap.
   the manifest hash does. A `FAILED` or `BLOCKED` result is evidence too:
   record the code (see the known causes above), then fix forward.
 - **Done when:** the result is recorded here and the run data shows the run.
+
+### Result (2026-10-29): PASS
+
+`run-snow-bootc-lifecycle-v9bkv` (main lane at lab `bb3f99f4`, the same lane
+code as `5faa2171`; submitted 14:38:22Z, ended 14:50:56Z), canonical
+`manifest_sha256` `f8fa7b8d43ac65d57da3f61732669c35cb1a34d36d2cf876045dae64ba1ec22c`:
+
+```
+PASS: verified_five_fresh_boots;fsverity_known_defect=7.2.12+deb14-amd64
+```
+
+| Phase | Boot ID | Kernel | fs-verity errors |
+| --- | --- | --- | --- |
+| `installed-n` | `28d01222-1edd-4f6f-acff-01ed3337a9cf` | `7.2.12+deb14-amd64` | 0 |
+| `stage` | `2a27f40e-44d6-4abe-b21e-4f354bc171c0` | `7.2.12+deb14-amd64` | 1 |
+| `boot-n-plus-1` | `1c59225d-adda-415f-88eb-aef9170be5c3` | `7.2.12+deb14-amd64` | 0 |
+| `rollback` | `3cf3be77-74cb-40f8-a7d3-f99624eb1330` | `7.2.12+deb14-amd64` | 0 |
+| `boot-n` | `e1eef7db-821e-4421-a882-6aac9ddd5518` | `7.2.12+deb14-amd64` | 0 |
+
+- **Before submit.** Brian created `ghcr.io/frostyard/floe:qa-controlled` at
+  N+1 (he copied with `skopeo --insecure-policy`, because the snosi system
+  `policy.json` on his host rejected the copy). It resolved to
+  `sha256:bb1269a5…95d592` before submit. The final preflight (step 4), 14:37:02Z to
+  14:38:17Z, gave `target_ref PASS`, `lane_preflight PASS full qa.py
+  preflight` and `failures=0`; the signed index still held ISO
+  `20261029101909`. The run was submitted with `kubectl create` of a Workflow
+  that references the WorkflowTemplate, with the committed manifest as
+  `manifest-json` (the lab host has no `argo` CLI); it is equal to step 5.
+- **fs-verity.** One error in the `stage` boot, as expected: N's updater on
+  bootc 1.16.8 reads every composefs object of N+1 in full. The kernel
+  `7.2.12+deb14-amd64` is on the known-defect list
+  ([snosi#1130](https://github.com/frostyard/snosi/issues/1130)), so the lane
+  recorded it and did not fail. This PASS says nothing about the resolution
+  of #1130.
+- **What it shows.** A Firn-installed Floe host on bootc 1.16.8 takes the
+  signed update to the bootc 1.17.1 image, boots it, rolls back and boots N
+  again, with Secure Boot, lockdown, the measured UKI and the TPM-unlocked
+  LUKS root attested on each of the five boots. The lane stays advisory.
+- `qa-controlled` stays at N+1 (step 8).
 
 ## Open questions
 
