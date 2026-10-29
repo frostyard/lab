@@ -20,13 +20,13 @@ submitted when this plan was written.
 ## Selected inputs
 
 The manifest is [`manifest.json`](floe-bootc-lifecycle-run-2026-10-28/manifest.json)
-(file SHA-256 `641c396c…a76e76`; canonical lane `manifest_sha256`
-`cd2136b6…b6c59`). Every value is public. Selected on 2026-10-29 at about 01:30Z; snosi was read
-only.
+(file SHA-256 `765d005e…c4399`; canonical lane `manifest_sha256`
+`f8fa7b8d…ec22c`). Every value is public. Selected on 2026-10-29 at about 01:30Z; the ISO
+fields were refreshed at 14:06Z after the index rotated. snosi was read only.
 
 | Input | Value | Why |
 | --- | --- | --- |
-| ISO | `snosi-installer_20261028230444_x86-64.iso`, SHA-256 `d045e27c…c45366` | The only entry in the signed `SHA256SUMS` index at selection. The index rotates with each ISO build, so expect step 2 below to refresh it (same procedure as the Snow plan). Its Firn catalog has exactly one `floe` bootc entry (snosi `test/firn-catalog-test.sh` requires the four bootc products). Firn 0.10.0, hash `2a965b92…497af`. The initramfs has no `bootc`, so Firn runs `bootc install` from image N through podman. |
+| ISO | `snosi-installer_20261029101909_x86-64.iso`, SHA-256 `28747d49…913b42` | The only entry in the signed `SHA256SUMS` index at 14:06Z on 2026-10-29. It replaced `20261028230444` (SHA-256 `d045e27c…c45366`, the ISO at selection); only the ISO fields changed. The index rotates with each ISO build, so expect step 2 below to refresh it again (same procedure as the Snow plan). Its Firn catalog has exactly one `floe` bootc entry (snosi `test/firn-catalog-test.sh` requires the four bootc products). Firn 0.10.0, hash `2a965b92…497af`. The initramfs has no `bootc`, so Firn runs `bootc install` from image N through podman. |
 | N | `20261026191636`, `sha256:fb6646f9…ecbf843` | The last Floe build with `bootc-1.16.8-storage-digest-v1` (snosi `b3d14e2c`, before the bootc 1.17.1 move in snosi#1157). Installed Floe hosts from earlier media run this assembly, so N → N+1 is the update those hosts take. |
 | N+1 | `20261028230726`, `sha256:bb1269a5…95d592` | `bootc-1.17.1-storage-digest-v1`, snosi `a148c664` (main at selection), `latest` at selection. The lane accepts a different assembly for each image (lab #153), as in the Snow 1.16.8 → 1.17.1 run `run-snow-bootc-lifecycle-l6596`. |
 | Target | `ghcr.io/frostyard/floe:qa-controlled` | Operator-owned. No snosi workflow writes it. It does not exist yet; Brian creates it at N+1 (step 3). |
@@ -75,6 +75,9 @@ twice, and the host treats identical copies as one record.
   Floe contract; the Snow test files are unchanged.
 - **Done when:** the PR is merged and Argo CD `frostyard-lab` is `Synced` at
   that commit (step 1 below checks the ConfigMap).
+  Met: lab#167 merged as `25367a01`; on 2026-10-29 at 14:05Z Argo CD was
+  `Synced` and `Healthy` at `5faa2171` (after it), and the cluster ConfigMap
+  `qa.py` names `ghcr.io/frostyard/floe`.
 
 ## Phase 2 — Preflight (done 2026-10-29, read-only)
 
@@ -85,9 +88,11 @@ is deferred. It never writes to a registry, a tag or the cluster.
 
 - **Done when:** the [record](floe-bootc-lifecycle-run-2026-10-28/preflight-record.txt)
   shows every check `PASS`, `target_ref PENDING`, `lane_preflight PASS` and
-  `failures=0`. Met at 2026-10-29T01:20:14Z (ISO `20261028230444`, from this
-  branch's lane code): both images signed, both assembly labels accepted,
-  `iso_catalog` on the `floe` entry.
+  `failures=0`. Met at 2026-10-29T01:20:14Z (ISO `20261028230444`, from the
+  Phase 1 branch's lane code), and again at 2026-10-29T14:08:03Z (ISO
+  `20261029101909`, lane code from lab `main` `5faa2171`, Argo CD `Synced`
+  there): both images signed, both assembly labels accepted, `iso_catalog` on
+  the `floe` entry. The record holds the second run.
 
 ## Phase 3 — Submit (Brian)
 
