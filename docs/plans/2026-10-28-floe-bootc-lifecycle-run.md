@@ -14,8 +14,9 @@ everything else is the lane that passed for Snow in the
 advisory and not a release gate
 ([ADR-0003](../adr/0003-unproven-is-distinct-from-failed.md),
 [ADR-0010](../adr/0010-vacuous-success-is-forbidden.md)). The field contract is
-in the [README](../../README.md#manual-snow-bootc-lifecycle). No run was
-submitted when this plan was written.
+in the [README](../../README.md#manual-snow-bootc-lifecycle).
+[Phase 4](#result-2026-10-29-pass) holds the result: the first manual
+main-lane Floe run ended `PASS: verified_five_fresh_boots` on 2026-10-29.
 
 ## Selected inputs
 
@@ -183,6 +184,45 @@ holds the `snosi-vm-qa` semaphore, so a Snow run and this run never overlap.
   the manifest hash does. A `FAILED` or `BLOCKED` result is evidence too:
   record the code (see the known causes above), then fix forward.
 - **Done when:** the result is recorded here and the run data shows the run.
+
+### Result (2026-10-29): PASS
+
+`run-snow-bootc-lifecycle-v9bkv` (main lane at lab `bb3f99f4`, the same lane
+code as `5faa2171`; submitted 14:38:22Z, ended 14:50:56Z), canonical
+`manifest_sha256` `f8fa7b8d43ac65d57da3f61732669c35cb1a34d36d2cf876045dae64ba1ec22c`:
+
+```
+PASS: verified_five_fresh_boots;fsverity_known_defect=7.2.12+deb14-amd64
+```
+
+| Phase | Boot ID | Kernel | fs-verity errors |
+| --- | --- | --- | --- |
+| `installed-n` | `28d01222-1edd-4f6f-acff-01ed3337a9cf` | `7.2.12+deb14-amd64` | 0 |
+| `stage` | `2a27f40e-44d6-4abe-b21e-4f354bc171c0` | `7.2.12+deb14-amd64` | 1 |
+| `boot-n-plus-1` | `1c59225d-adda-415f-88eb-aef9170be5c3` | `7.2.12+deb14-amd64` | 0 |
+| `rollback` | `3cf3be77-74cb-40f8-a7d3-f99624eb1330` | `7.2.12+deb14-amd64` | 0 |
+| `boot-n` | `e1eef7db-821e-4421-a882-6aac9ddd5518` | `7.2.12+deb14-amd64` | 0 |
+
+- **Before submit.** Brian created `ghcr.io/frostyard/floe:qa-controlled` at
+  N+1 (he copied with `skopeo --insecure-policy`, because the snosi system
+  `policy.json` on his host rejected the copy). It resolved to
+  `sha256:bb1269a5…95d592` before submit. The final preflight (step 4), 14:37:02Z to
+  14:38:17Z, gave `target_ref PASS`, `lane_preflight PASS full qa.py
+  preflight` and `failures=0`; the signed index still held ISO
+  `20261029101909`. The run was submitted with `kubectl create` of a Workflow
+  that references the WorkflowTemplate, with the committed manifest as
+  `manifest-json` (the lab host has no `argo` CLI); it is equal to step 5.
+- **fs-verity.** One error in the `stage` boot, as expected: N's updater on
+  bootc 1.16.8 reads every composefs object of N+1 in full. The kernel
+  `7.2.12+deb14-amd64` is on the known-defect list
+  ([snosi#1130](https://github.com/frostyard/snosi/issues/1130)), so the lane
+  recorded it and did not fail. This PASS says nothing about the resolution
+  of #1130.
+- **What it shows.** A Firn-installed Floe host on bootc 1.16.8 takes the
+  signed update to the bootc 1.17.1 image, boots it, rolls back and boots N
+  again, with Secure Boot, lockdown, the measured UKI and the TPM-unlocked
+  LUKS root attested on each of the five boots. The lane stays advisory.
+- `qa-controlled` stays at N+1 (step 8).
 
 ## Open questions
 
