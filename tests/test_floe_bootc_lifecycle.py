@@ -550,9 +550,12 @@ def test_run_script_passes_five_fresh_boots_with_a_floe_manifest(floe_world, qa,
 def test_run_script_has_no_product_input_and_template_keeps_its_inputs():
     template = yaml.safe_load(TEMPLATE.read_text())
     assert "arguments" not in template["spec"]
-    text = TEMPLATE.read_text()
     assert "Floe" in template["metadata"]["annotations"]["description"]
-    assert "product" not in re.sub(r"(?s)^\s*description:.*$", "", text, flags=re.M).lower()
+    for entry in template["spec"]["templates"]:
+        names = [item["name"] for item in entry.get("inputs", {}).get("parameters", [])]
+        assert "product" not in names
+        if entry["name"] == template["spec"]["entrypoint"]:
+            assert names == ["manifest-json", "keep-vm-on-failure"]
 
 
 # 8. The guest is headless-safe.
@@ -618,6 +621,37 @@ def test_checks_jq_filter_selects_the_product_entry(tmp_path, product):
     out = subprocess.run(["jq", "-c", "--arg", "p", product, filt.group(1), str(catalog)],
                          capture_output=True, text=True, check=True).stdout
     assert json.loads(out) == {"n": 1, "ref": f"ghcr.io/frostyard/{product}:latest", "key": KEY}
+
+
+def iso_catalog_predicate():
+    text = CHECKS_SH.read_text()
+    match = re.search(r"same iso_catalog \"\$\(jq -r --arg r \"ghcr\.io/frostyard/\$\(j \.product\)\" \\\n\s*'([^']+)'", text)
+    assert match, "iso_catalog predicate"
+    return match.group(1)
+
+
+@pytest.mark.skipif(subprocess.run(["which", "jq"], capture_output=True).returncode != 0, reason="jq not installed")
+@pytest.mark.parametrize("product, ref, ok", [
+    ("floe", "ghcr.io/frostyard/floe:latest", True),
+    ("floe", "ghcr.io/frostyard/floe@sha256:" + "a" * 64, True),
+    ("snow", "ghcr.io/frostyard/snow:latest", True),
+    ("floe", "ghcr.io/frostyard/snow:latest", False),
+    ("snow", "ghcr.io/frostyard/floe:latest", False),
+    ("floe", "ghcr.io/frostyard/floe-ab:latest", False),
+    ("floe", "ghcr.io/frostyard/floex:latest", False),
+    ("floe", "ghcr.io/frostyard/floe", False),
+    ("floe", None, False),
+    ("floe", 7, False),
+])
+def test_checks_iso_catalog_requires_a_ref_in_the_product_repository(product, ref, ok):
+    entry = {"n": 1, "ref": ref, "key": KEY}
+    out = subprocess.run(["jq", "-r", "--arg", "r", "ghcr.io/frostyard/" + product, iso_catalog_predicate()],
+                         input=json.dumps(entry), capture_output=True, text=True, check=True).stdout.strip()
+    assert out == ("true" if ok else "false")
+    for damaged in ({**entry, "n": 0}, {**entry, "n": 2}, {**entry, "key": "/etc/cosign.pub"}):
+        out = subprocess.run(["jq", "-r", "--arg", "r", "ghcr.io/frostyard/" + product, iso_catalog_predicate()],
+                             input=json.dumps(damaged), capture_output=True, text=True, check=True).stdout.strip()
+        assert out == "false"
 
 
 def test_run_record_manifest_is_a_valid_floe_manifest(qa):

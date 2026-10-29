@@ -115,7 +115,11 @@ EOF
   # The catalog entry is the one named like the manifest product (snow or floe).
   entry=$(jq -c --arg p "$(j .product)" '[.[] | select(.family == "bootc" and .name == $p)] | {n: length, ref: .[0].ref, key: .[0].cosign_pub_key}' \
     "$T/x/etc/firn/catalog.json" 2>/dev/null)
-  same iso_catalog "$(jq -r '.n == 1 and .key == "/usr/lib/snosi/cosign.pub"' <<<"$entry" 2>/dev/null)" true "$entry"
+  # Same rule as qa.py snow_catalog: one entry, the pinned key, and a ref in the
+  # product's own repository (a tag or a digest, never a lookalike prefix).
+  same iso_catalog "$(jq -r --arg r "ghcr.io/frostyard/$(j .product)" \
+    '.n == 1 and .key == "/usr/lib/snosi/cosign.pub" and (.ref | type == "string" and (startswith($r + ":") or startswith($r + "@sha256:")))' \
+    <<<"$entry" 2>/dev/null)" true "$entry"
   release=$(tr '\n' ' ' < "$T/x/etc/snosi-installer-release" 2>/dev/null)
   if [[ $release == *"$(j .iso_version)"* ]]; then check iso_release PASS "$release"; else check iso_release FAIL "$release"; fi
   firn_version=$(strings "$T/x/usr/bin/firn" 2>/dev/null | grep -m1 -E '^v?[0-9]+\.[0-9]+\.[0-9]+$')
