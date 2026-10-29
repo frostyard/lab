@@ -31,8 +31,10 @@ SNOW = "ghcr.io/frostyard/snow"
 N, NEXT = snow.N, snow.NEXT
 KEY = "/usr/lib/snosi/cosign.pub"
 
-# shared/bootc-secure/tree/etc/containers/policy.json of frostyard/snosi at
-# origin/main (2026-10-28): it names five repositories, Snow and Floe among them.
+# shared/bootc-secure/tree/usr/lib/snosi/containers/bootc-policy.json of
+# frostyard/snosi since ADR-0025, byte-equal to the policy that
+# shared/bootc-secure/tree/etc/containers/policy.json held before it
+# (origin/main, 2026-10-28): it names five repositories, Snow and Floe among them.
 SHIPPED_POLICY_TEXT = """{
   "default": [
     {
@@ -378,6 +380,30 @@ def test_weakened_snow_entry_does_not_fail_floe_but_fails_the_whole_policy(qa):
     policy["transports"]["docker"][SNOW] = [{"type": "insecureAcceptAnything"}]
     assert not qa.policy_ok(policy, FLOE)
     assert not qa.policy_ok(policy, SNOW)
+
+
+def test_floe_guest_pulls_with_the_strict_update_policy_of_a_new_layout_image(
+        qa, floe_world, tmp_path, monkeypatch):
+    # snosi ADR-0025 ships the strict policy in /usr and a permissive system
+    # policy in /etc; the Floe guest pulls with the strict one.
+    strict = shipped()
+    creds, calls = snow.policy_world(qa, tmp_path, monkeypatch, update=strict,
+                                     system=snow.permissive_system_policy(strict))
+    with pytest.raises(qa.GateError, match="^pull_digest$"):
+        qa.guest(creds)
+    assert ["podman", "pull", "--signature-policy", str(tmp_path / "root/bootc-policy.json"),
+            f"{FLOE}:qa-controlled"] in calls
+
+
+def test_floe_guest_rejects_a_system_policy_with_a_weakened_floe_scope(
+        qa, floe_world, tmp_path, monkeypatch):
+    strict = shipped()
+    system = snow.permissive_system_policy(strict)
+    system["transports"]["docker"][FLOE] = [{"type": "insecureAcceptAnything"}]
+    creds, calls = snow.policy_world(qa, tmp_path, monkeypatch, update=strict, system=system)
+    with pytest.raises(qa.GateError, match="^policy$"):
+        qa.guest(creds)
+    assert not any(command[:2] == ["podman", "pull"] for command in calls)
 
 
 # 5. Preflight selects the Floe catalog entry.
