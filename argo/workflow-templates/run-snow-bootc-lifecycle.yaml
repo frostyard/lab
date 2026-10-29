@@ -4,7 +4,7 @@ metadata:
   name: run-snow-bootc-lifecycle
   namespace: argo
   annotations:
-    description: Manually invoked advisory Snow lifecycle probe; never a release gate.
+    description: Manually invoked advisory Snow or Floe lifecycle probe (the product comes from the manifest); never a release gate.
 spec:
   entrypoint: run
   # Includes semaphore queue time before the 17h entrypoint deadline starts.

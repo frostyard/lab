@@ -321,9 +321,17 @@ for the complete evidence and limits of the retired lane.
 ### Manual Snow bootc lifecycle
 
 [`run-snow-bootc-lifecycle`](argo/workflow-templates/run-snow-bootc-lifecycle.yaml)
-is an advisory WorkflowTemplate for Snow bootc only; it is not scheduled,
-not a release gate. Its first manual main-lane PASS
-(`run-snow-bootc-lifecycle-tbjnp`, 2026-10-26, bootc 1.16.8 N → N+1) is
+is an advisory WorkflowTemplate for the Snow and Floe bootc images; it is
+not scheduled, not a release gate. The manifest field `product` (`snow` or
+`floe`) selects the image
+([ADR-0012](docs/adr/0012-lifecycle-lane-product-comes-from-the-hashed-manifest.md));
+the template has no separate product parameter, so the product is bound to
+the canonical `manifest_sha256`. Floe is a headless guest: the guest probe has
+no desktop check for any product, so both run the same five boots. The
+[Floe run plan](docs/plans/2026-10-28-floe-bootc-lifecycle-run.md) holds the
+first Floe inputs; no Floe run is recorded yet.
+The lane's first manual main-lane PASS (Snow,
+`run-snow-bootc-lifecycle-tbjnp`, 2026-10-26, bootc 1.16.8 N → N+1) is
 recorded in the [run plan](docs/plans/2026-10-26-snow-bootc-lifecycle-run.md#result-2026-10-26-pass). It instantiates the
 existing console, concurrency, logging and non-vacuous-evidence decisions in
 [ADR-0005](docs/adr/0005-console-marker-protocol-for-agentless-guests.md),
@@ -342,18 +350,18 @@ secret in the manifest, workflow parameters, or submission command.
 
 | JSON key | Required value |
 |---|---|
-| `family` | `snow` (bootc, not snow-ab). |
-| `product` | `snow`. |
+| `family` | Equal to `product`: `snow` or `floe` (bootc, not snow-ab or floe-ab). |
+| `product` | `snow` or `floe`. It selects the repository `ghcr.io/frostyard/<product>` for every image and tag below, the Firn catalog entry of that name, and the signature-policy entry the guest requires. |
 | `iso_url` | Published immutable versioned `snosi-installer_<iso_version>_x86-64.iso` URL under `https://repository.frostyard.org/isos/native/v1/`; never `latest`. |
 | `iso_sha256` | Lowercase 64-hex SHA-256 of that ISO, independently checked against the signed ISO index. |
 | `iso_version` | 14-digit ISO version matching the URL and extracted release metadata. |
-| `image_n` | `ghcr.io/frostyard/snow@sha256:<64 lowercase hex>` for N. |
+| `image_n` | `ghcr.io/frostyard/<product>@sha256:<64 lowercase hex>` for N. |
 | `version_n` | 14-digit OCI image version for N. |
-| `version_tag_n` | Immutable `ghcr.io/frostyard/snow:<version_n>` mapping to `image_n`. |
-| `image_n_plus_1` | Distinct signed `ghcr.io/frostyard/snow@sha256:<64 lowercase hex>` for N+1. |
+| `version_tag_n` | Immutable `ghcr.io/frostyard/<product>:<version_n>` mapping to `image_n`. |
+| `image_n_plus_1` | Distinct signed `ghcr.io/frostyard/<product>@sha256:<64 lowercase hex>` for N+1. |
 | `version_n_plus_1` | 14-digit OCI version newer than N. |
-| `version_tag_n_plus_1` | Immutable `ghcr.io/frostyard/snow:<version_n_plus_1>` mapping to `image_n_plus_1`. |
-| `target_ref` | Operator-owned, non-`latest` mutable `ghcr.io/frostyard/snow:<controlled-tag>` mapping to N+1; not either version tag. |
+| `version_tag_n_plus_1` | Immutable `ghcr.io/frostyard/<product>:<version_n_plus_1>` mapping to `image_n_plus_1`. |
+| `target_ref` | Operator-owned, non-`latest` mutable `ghcr.io/frostyard/<product>:<controlled-tag>` mapping to N+1; not either version tag. |
 | `snosi_commit` | Exact pinned source commit `39cf19887547f83200866e94e5753888706b49fa`. |
 | `index_key_sha256` | SHA-256 of public `shared/native-ab/keys/import-pubring.gpg` at that commit. |
 | `cosign_key_sha256` | SHA-256 of public `cosign.pub` at that commit. |
@@ -417,7 +425,8 @@ N and N+1, so an N to N+1 run may cross a bootc version. The disposable
 installer VM then checks the Firn hash and narrow Firn v2 recipe validation
 before install (validator only, not full installed compatibility). Installed
 guest checks enforce the shipped signature policy (reject by default; every
-registry repository sigstore-signed with the pinned key, Snow exactly so) and
+registry repository sigstore-signed with the pinned key, the manifest
+product's repository exactly so) and
 signed pulls; read-only
 `skopeo inspect` tag resolution alone is **not** signature verification. Both
 immutable version tags are checked once in preflight; the
@@ -425,10 +434,11 @@ controlled mutable target tag is rechecked before install and each phase, and
 after stage, N+1 boot and rollback. The lane attempts a secure UEFI
 vTPM Firn v2 encrypted-btrfs install, then five distinct fresh boots:
 `installed-n`, `stage`, `boot-n-plus-1`, `rollback`, `boot-n`. The guest
-contract follows the real Firn installer and Snow updater. Firn installs with
+contract follows the real Firn installer and the shipped updater (the same
+`bootc-update-stage` on Snow and Floe). Firn installs with
 `--target-imgref`, so every phase must report `target_ref` as the bootc spec
 image (never `image_n`): `installed-n` and the pre-`stage` boot must be
-transport `registry`; after the Snow updater (`bootc switch --transport
+transport `registry`; after the updater (`bootc switch --transport
 containers-storage`) later phases may report `containers-storage` or
 `registry`, and the observed value is kept in the record. Any other transport
 fails. The `stage` phase runs `/usr/libexec/bootc-update-stage` and parses

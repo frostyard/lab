@@ -1,5 +1,5 @@
 #!/bin/bash
-# Dev submit for the manual Snow bootc lifecycle lane (Brian, 2026-10-26,
+# Dev submit for the manual Snow and Floe bootc lifecycle lane (Brian, 2026-10-26,
 # T237f): run the lane from an UNMERGED branch on the cluster, without Argo
 # CD and without changing the main WorkflowTemplate or ConfigMap.
 #

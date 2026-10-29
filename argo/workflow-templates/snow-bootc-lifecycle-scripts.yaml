@@ -1119,7 +1119,7 @@ data:
     : "${CREDENTIALS_DIRECTORY:?missing systemd credentials}"
     exec python3 /opt/snow-qa/qa.py guest "$CREDENTIALS_DIRECTORY"
   qa.py: |
-    """Fail-closed, read-only gates for a manually approved Snow bootc VM run.
+    """Fail-closed, read-only gates for a manually approved Snow or Floe bootc VM run.
 
     Operator must independently compare commit and all three key hashes to the
     committed trusted source before submitting. A manifest is NOT a trust root.
@@ -1141,7 +1141,10 @@ data:
     from contextlib import contextmanager
     from pathlib import Path
 
-    REPO = "ghcr.io/frostyard/snow"
+    # The manifest `product` picks the image repository. The manifest is canonical
+    # and hashed, so the product is bound to the evidence; no workflow input.
+    PRODUCTS = {"snow": "ghcr.io/frostyard/snow", "floe": "ghcr.io/frostyard/floe"}
+    REPO = PRODUCTS["snow"]
     ISO_BASE = "https://repository.frostyard.org/isos/native/v1/"
     FINGERPRINT = "F37282A35CB6BDFEBFC8FE775A2EAC5C8216FD68"
     SNOSI_COMMIT = "39cf19887547f83200866e94e5753888706b49fa"
@@ -1219,9 +1222,16 @@ data:
         return p
 
 
+    def product_repo(m):
+        return PRODUCTS[m["product"]]
+
+
     def normalize(m):
         require(type(m) is dict and set(m) in (FIELDS, SYSEXT_FIELDS), "manifest_fields")
-        require(m["family"] == "snow" and m["product"] == "snow", "snow_only")
+        # A repository of the other product must never pass: the family is the
+        # product, and every reference below uses that product's repository.
+        require(type(m["product"]) is str and m["product"] in PRODUCTS and m["family"] == m["product"], "product")
+        repo = product_repo(m)
         require(m["secureboot"] is True and m["encryption"] == "tpm2-luks-passphrase", "security_mode")
         for name in ("iso_sha256", "index_key_sha256", "cosign_key_sha256", "mok_cert_sha256"):
             require(full(r"[0-9a-f]{64}", m[name]), "hash_format")
@@ -1239,12 +1249,12 @@ data:
             require(m["version_n"] < m["version_n_plus_1"], "version_order")
         require(m["iso_url"] == ISO_BASE + "snosi-installer_" + m["iso_version"] + "_x86-64.iso", "iso_url")
         for name in ("image_n", "image_n_plus_1"):
-            require(full(re.escape(REPO) + r"@sha256:[0-9a-f]{64}", m[name]), "image_ref")
+            require(full(re.escape(repo) + r"@sha256:[0-9a-f]{64}", m[name]), "image_ref")
         require(m["image_n"] != m["image_n_plus_1"], "digest_distinct")
         for tag, version in (("version_tag_n", "version_n"), ("version_tag_n_plus_1", "version_n_plus_1")):
-            require(m[tag] == REPO + ":" + m[version], "immutable_tag")
-        require(full(re.escape(REPO) + r":[a-z0-9][a-z0-9._-]{0,127}", m["target_ref"])
-                and m["target_ref"] not in (REPO + ":latest", m["version_tag_n"], m["version_tag_n_plus_1"]), "target_ref")
+            require(m[tag] == repo + ":" + m[version], "immutable_tag")
+        require(full(re.escape(repo) + r":[a-z0-9][a-z0-9._-]{0,127}", m["target_ref"])
+                and m["target_ref"] not in (repo + ":latest", m["version_tag_n"], m["version_tag_n_plus_1"]), "target_ref")
         require(type(m["timeouts"]) is dict and set(m["timeouts"]) == set(LIMITS), "timeout_fields")
         for key, limit in LIMITS.items():
             require(type(m["timeouts"][key]) is int and 300 <= m["timeouts"][key] <= limit, "timeout_value")
@@ -1328,17 +1338,18 @@ data:
         require(image_info(ref)["Digest"] == "sha256:" + digest, "tag_drift")
 
 
-    def snow_catalog(catalog):
-        if type(catalog) is not list:
+    def snow_catalog(catalog, product="snow"):
+        # Name kept from the Snow lane; selects the entry of the manifest product.
+        if type(catalog) is not list or product not in PRODUCTS:
             return False
-        snow = [entry for entry in catalog if type(entry) is dict and
-                entry.get("family") == "bootc" and entry.get("name") == "snow"]
-        if len(snow) != 1:
+        repo = PRODUCTS[product]
+        entries = [entry for entry in catalog if type(entry) is dict and
+                   entry.get("family") == "bootc" and entry.get("name") == product]
+        if len(entries) != 1:
             return False
-        ref = snow[0].get("ref")
-        return (type(ref) is str and ref.startswith(("ghcr.io/frostyard/snow:",
-                                                    "ghcr.io/frostyard/snow@sha256:")) and
-                snow[0].get("cosign_pub_key") == "/usr/lib/snosi/cosign.pub")
+        ref = entries[0].get("ref")
+        return (type(ref) is str and ref.startswith((repo + ":", repo + "@sha256:")) and
+                entries[0].get("cosign_pub_key") == "/usr/lib/snosi/cosign.pub")
 
 
     def esp_offset(iso):
@@ -1413,7 +1424,7 @@ data:
             raise GateError("iso_catalog") from exc
         except (ValueError, UnicodeError) as exc:
             raise GateError("iso_catalog") from exc
-        require(snow_catalog(catalog), "iso_catalog")
+        require(snow_catalog(catalog, m["product"]), "iso_catalog")
         release = embedded["/etc/snosi-installer-release"]
         require(release.stat().st_size <= 4096 and m["iso_version"].encode() in release.read_bytes(), "iso_release")
         return sha(embedded["/usr/bin/firn"].read_bytes())
@@ -1603,7 +1614,7 @@ data:
         require(record["booted_digest"] == m["image_n_plus_1" if newer else "image_n"].rsplit(":", 1)[-1]
                 and record["booted_version"] == m["version_n_plus_1" if newer else "version_n"], "booted_image")
         # Firn installs with --target-imgref, so the spec names target_ref in every phase.
-        # The Snow updater switches the spec to containers-storage (same name).
+        # The Snow/Floe updater switches the spec to containers-storage (same name).
         require(record["spec_image"] == m["target_ref"], "target_spec")
         require(spec_transport_allowed(phase, record["spec_transport"]), "target_transport")
         require(record["staged_digest"] == (m["image_n_plus_1"].rsplit(":", 1)[-1] if phase == "stage" else None), "staged_image")
@@ -1934,18 +1945,19 @@ data:
     LOCAL_TRANSPORTS = ("containers-storage", "tarball", "docker-archive", "oci-archive", "dir", "oci")
 
 
-    def policy_ok(policy):
+    def policy_ok(policy, repo=REPO):
         # The shipped snosi policy (shared/bootc-secure/tree/etc/containers/policy.json):
         # reject by default; every registry repository it names is sigstore-signed
-        # with the pinned key, Snow exactly so; only local transports accept
-        # anything (run-snow-bootc-lifecycle-2tnjh audit, Snow 20261026105903).
+        # with the pinned key, the product's repository (Snow or Floe) exactly so;
+        # only local transports accept anything
+        # (run-snow-bootc-lifecycle-2tnjh audit, Snow 20261026105903).
         if type(policy) is not dict or set(policy) != {"default", "transports"}:
             return False
         transports = policy["transports"]
         if policy["default"] != [{"type": "reject"}] or type(transports) is not dict:
             return False
         docker = transports.get("docker")
-        if type(docker) is not dict or docker.get(REPO) != SNOW_POLICY or "" in docker:
+        if type(docker) is not dict or docker.get(repo) != SNOW_POLICY or "" in docker:
             return False
         if not all(type(name) is str and name.startswith("ghcr.io/frostyard/") and rules == SNOW_POLICY
                    for name, rules in docker.items()):
@@ -1955,6 +1967,9 @@ data:
 
 
     def guest(credentials):
+        # The probe is product-neutral and headless-safe: it reads bootc, policy,
+        # LUKS, TPM and boot state only, with no desktop check, so a Floe
+        # (headless server) guest runs it unchanged.
         # Credentials are installed by the VM's systemd unit from SMBIOS, not
         # echoed to serial. The normalized manifest is a private host-provided file.
         creds = Path(credentials)
@@ -1996,7 +2011,7 @@ data:
             parsed = json.loads(policy, object_pairs_hook=pairs)
         except (ValueError, UnicodeError) as exc:
             raise GateError("policy") from exc
-        require(policy_ok(parsed), "policy")
+        require(policy_ok(parsed, product_repo(m)), "policy")
         key = GUEST_PATHS["key"].read_bytes()
         require(0 < len(key) <= 16384 and sha(key) == m["cosign_key_sha256"], "policy_key")
         # No --signature-policy, --tls-verify=false or bypass of the installed root policy.
@@ -2437,7 +2452,10 @@ data:
         return "SNOW_SYSEXT_V1 " + sysext_truncate(record)
 
 
-    # On Snow, /dev/console is tty0 (graphical); the host reads only ttyS0
+    # On Snow, /dev/console is tty0 (graphical); on Floe (headless, no graphical
+    # stack) it can be ttyS0 itself, so the guest then writes the same line twice
+    # to ttyS0 and the host, which treats identical copies as one record, is
+    # unaffected. The host reads only ttyS0
     # (run-snow-bootc-lifecycle-2tnjh: the installed N booted, but its record
     # never reached the serial log). serial-getty@ttyS0 runs vhangup and may
     # flush output during its TTY setup, so the line is written to a fresh
