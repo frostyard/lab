@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-29T03:00:19Z",
+  "generated": "2026-10-29T03:30:22Z",
   "lanes": [
     {
       "laneKey": "run-firn-install-tests",
@@ -7,9 +7,9 @@
       "label": "firn installer matrix",
       "kind": "install",
       "latest": {
-        "name": "bootc-only-iso-install-ffbw7",
+        "name": "bootc-only-iso-install-mpt2v",
         "phase": "Running",
-        "started": "2026-10-29T02:55:39Z",
+        "started": "2026-10-29T03:23:13Z",
         "finished": null,
         "durationSeconds": null,
         "template": "run-firn-install-tests",
@@ -22,7 +22,7 @@
         "digest": null,
         "checks": []
       },
-      "runs": 6,
+      "runs": 7,
       "everGreen": true,
       "qaRun": null
     },
@@ -57,9 +57,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1793242800",
+        "name": "publish-results-1793244600",
         "phase": "Running",
-        "started": "2026-10-29T03:00:00Z",
+        "started": "2026-10-29T03:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -119,29 +119,62 @@
       "qaRun": null
     },
     {
+      "laneKey": "image-poll-floe-latest",
+      "template": "image-poller",
+      "label": "Registry digest poll",
+      "kind": "poll",
+      "latest": {
+        "name": "image-poll-floe-latest-1793244000",
+        "phase": "Succeeded",
+        "started": "2026-10-29T03:20:00Z",
+        "finished": "2026-10-29T03:21:53Z",
+        "durationSeconds": 113,
+        "template": "image-poller",
+        "laneKey": "image-poll-floe-latest",
+        "qaOutcome": "passed",
+        "kind": "poll",
+        "label": "Registry digest poll",
+        "trigger": "scheduled",
+        "result": "14 passed, 9 skipped",
+        "digest": "sha256:f1cbc9ec07ac3ecc704bd8331d03bd2b71d3d73d645d1eb8be77ebaf0d45ac94",
+        "checks": []
+      },
+      "runs": 3,
+      "everGreen": true,
+      "qaRun": {
+        "name": "image-poll-floe-latest-1793244000",
+        "finished": "2026-10-29T03:21:53Z",
+        "result": "14 passed, 9 skipped"
+      }
+    },
+    {
       "laneKey": "image-poll-snow-latest",
       "template": "image-poller",
       "label": "Registry digest poll",
       "kind": "poll",
       "latest": {
         "name": "image-poll-snow-latest-1793242800",
-        "phase": "Running",
+        "phase": "Succeeded",
         "started": "2026-10-29T03:00:00Z",
-        "finished": null,
-        "durationSeconds": null,
+        "finished": "2026-10-29T03:00:30Z",
+        "durationSeconds": 30,
         "template": "image-poller",
         "laneKey": "image-poll-snow-latest",
-        "qaOutcome": "unknown",
+        "qaOutcome": "carried",
         "kind": "poll",
         "label": "Registry digest poll",
         "trigger": "scheduled",
         "result": null,
-        "digest": null,
+        "digest": "sha256:7133edab5c42a1b1680e9e1671426a5f4899c918842211b07bfe0b77a22084ed",
         "checks": []
       },
-      "runs": 5,
+      "runs": 4,
       "everGreen": true,
-      "qaRun": null
+      "qaRun": {
+        "name": "image-poll-snow-latest-1793232000",
+        "finished": "2026-10-29T00:02:00Z",
+        "result": "20 passed, 3 skipped"
+      }
     },
     {
       "laneKey": "image-poll-sundog-latest",
@@ -200,58 +233,13 @@
         "finished": "2026-10-29T00:41:51Z",
         "result": "20 passed, 3 skipped"
       }
-    },
-    {
-      "laneKey": "image-poll-floe-latest",
-      "template": "image-poller",
-      "label": "Registry digest poll",
-      "kind": "poll",
-      "latest": {
-        "name": "image-poll-floe-latest-1793233200",
-        "phase": "Succeeded",
-        "started": "2026-10-29T00:20:00Z",
-        "finished": "2026-10-29T00:21:35Z",
-        "durationSeconds": 95,
-        "template": "image-poller",
-        "laneKey": "image-poll-floe-latest",
-        "qaOutcome": "passed",
-        "kind": "poll",
-        "label": "Registry digest poll",
-        "trigger": "scheduled",
-        "result": "14 passed, 9 skipped",
-        "digest": "sha256:bb1269a59a224e05b429776661b419f909d5d58d92c16048129410082d95d592",
-        "checks": []
-      },
-      "runs": 3,
-      "everGreen": true,
-      "qaRun": {
-        "name": "image-poll-floe-latest-1793233200",
-        "finished": "2026-10-29T00:21:35Z",
-        "result": "14 passed, 9 skipped"
-      }
     }
   ],
   "runs": [
     {
-      "name": "image-poll-snow-latest-1793242800",
+      "name": "publish-results-1793244600",
       "phase": "Running",
-      "started": "2026-10-29T03:00:00Z",
-      "finished": null,
-      "durationSeconds": null,
-      "template": "image-poller",
-      "laneKey": "image-poll-snow-latest",
-      "qaOutcome": "unknown",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1793242800",
-      "phase": "Running",
-      "started": "2026-10-29T03:00:00Z",
+      "started": "2026-10-29T03:30:00Z",
       "finished": null,
       "durationSeconds": null,
       "template": "publish",
@@ -265,9 +253,9 @@
       "checks": []
     },
     {
-      "name": "bootc-only-iso-install-ffbw7",
+      "name": "bootc-only-iso-install-mpt2v",
       "phase": "Running",
-      "started": "2026-10-29T02:55:39Z",
+      "started": "2026-10-29T03:23:13Z",
       "finished": null,
       "durationSeconds": null,
       "template": "run-firn-install-tests",
@@ -277,6 +265,70 @@
       "label": "firn installer matrix",
       "trigger": "manual",
       "result": null,
+      "digest": null,
+      "checks": []
+    },
+    {
+      "name": "image-poll-floe-latest-1793244000",
+      "phase": "Succeeded",
+      "started": "2026-10-29T03:20:00Z",
+      "finished": "2026-10-29T03:21:53Z",
+      "durationSeconds": 113,
+      "template": "image-poller",
+      "laneKey": "image-poll-floe-latest",
+      "qaOutcome": "passed",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": "14 passed, 9 skipped",
+      "digest": "sha256:f1cbc9ec07ac3ecc704bd8331d03bd2b71d3d73d645d1eb8be77ebaf0d45ac94",
+      "checks": []
+    },
+    {
+      "name": "image-poll-snow-latest-1793242800",
+      "phase": "Succeeded",
+      "started": "2026-10-29T03:00:00Z",
+      "finished": "2026-10-29T03:00:30Z",
+      "durationSeconds": 30,
+      "template": "image-poller",
+      "laneKey": "image-poll-snow-latest",
+      "qaOutcome": "carried",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": "sha256:7133edab5c42a1b1680e9e1671426a5f4899c918842211b07bfe0b77a22084ed",
+      "checks": []
+    },
+    {
+      "name": "publish-results-1793242800",
+      "phase": "Succeeded",
+      "started": "2026-10-29T03:00:00Z",
+      "finished": "2026-10-29T03:00:32Z",
+      "durationSeconds": 32,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": null,
+      "checks": []
+    },
+    {
+      "name": "bootc-only-iso-install-ffbw7",
+      "phase": "Failed",
+      "started": "2026-10-29T02:55:39Z",
+      "finished": "2026-10-29T03:17:15Z",
+      "durationSeconds": 1296,
+      "template": "run-firn-install-tests",
+      "laneKey": "run-firn-install-tests",
+      "qaOutcome": "unknown",
+      "kind": "install",
+      "label": "firn installer matrix",
+      "trigger": "manual",
+      "result": "FAILED: boot:no_report (bootc/sundog/none/sb=true) firn=firn_version_0.10.0_(Commit:_11133e6b801fc68a7490742244aa87e0313a8acd)_(Date:_2026-10-26T15:15:31Z)_(Built_by:_goreleaser)",
       "digest": null,
       "checks": []
     },
@@ -301,22 +353,6 @@
       "phase": "Succeeded",
       "started": "2026-10-29T02:00:00Z",
       "finished": "2026-10-29T02:00:31Z",
-      "durationSeconds": 31,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1793237400",
-      "phase": "Succeeded",
-      "started": "2026-10-29T01:30:00Z",
-      "finished": "2026-10-29T01:30:31Z",
       "durationSeconds": 31,
       "template": "publish",
       "laneKey": "publish",
@@ -505,22 +541,6 @@
       "checks": []
     },
     {
-      "name": "image-poll-floe-latest-1793211600",
-      "phase": "Succeeded",
-      "started": "2026-10-28T18:20:00Z",
-      "finished": "2026-10-28T18:21:42Z",
-      "durationSeconds": 102,
-      "template": "image-poller",
-      "laneKey": "image-poll-floe-latest",
-      "qaOutcome": "passed",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": "14 passed, 9 skipped",
-      "digest": "sha256:c5a42ce092fbc26707dda40f31261a1dea2510dcfaeab4c0b37aee69a07d90a9",
-      "checks": []
-    },
-    {
       "name": "orphan-pod-gc-1793211420",
       "phase": "Succeeded",
       "started": "2026-10-28T18:17:00Z",
@@ -534,22 +554,6 @@
       "trigger": "scheduled",
       "result": null,
       "digest": null,
-      "checks": []
-    },
-    {
-      "name": "image-poll-snow-latest-1793210400",
-      "phase": "Succeeded",
-      "started": "2026-10-28T18:00:00Z",
-      "finished": "2026-10-28T18:01:58Z",
-      "durationSeconds": 118,
-      "template": "image-poller",
-      "laneKey": "image-poll-snow-latest",
-      "qaOutcome": "passed",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": "20 passed, 3 skipped",
-      "digest": "sha256:70080efcdc182426f74409b6f1588b0479cef5ec9a1335d21bd846ac70e39de2",
       "checks": []
     },
     {
