@@ -1179,7 +1179,9 @@ data:
     GUEST_PATHS = {"boot_id": Path("/proc/sys/kernel/random/boot_id"),
                    "uptime": Path("/proc/uptime"),
                    "osrelease": Path("/proc/sys/kernel/osrelease"),
-                   "policy": Path("/etc/containers/policy.json"), "key": Path("/usr/lib/snosi/cosign.pub"),
+                   "policy": Path("/etc/containers/policy.json"),
+                   "update_policy": Path("/usr/lib/snosi/containers/bootc-policy.json"),
+                   "key": Path("/usr/lib/snosi/cosign.pub"),
                    "lockdown": Path("/sys/kernel/security/lockdown"),
                    "esp": Path("/run/task3-esp"),
                    "update_check": Path("/run/snosi/update-check"),
@@ -1943,13 +1945,20 @@ data:
     SNOW_POLICY = [{"type": "sigstoreSigned", "keyPath": "/usr/lib/snosi/cosign.pub",
                     "signedIdentity": {"type": "matchRepository"}}]
     LOCAL_TRANSPORTS = ("containers-storage", "tarball", "docker-archive", "oci-archive", "dir", "oci")
+    # The strict update policy names these five repositories and no other. An
+    # omitted scope is not strict: with the permissive system policy default, an
+    # image of that repository would pull unsigned.
+    FROSTYARD_SCOPES = ("ghcr.io/frostyard/cayo", "ghcr.io/frostyard/floe", "ghcr.io/frostyard/snow",
+                        "ghcr.io/frostyard/snowfield", "ghcr.io/frostyard/sundog")
 
 
     def policy_ok(policy, repo=REPO):
-        # The shipped snosi policy (shared/bootc-secure/tree/etc/containers/policy.json):
-        # reject by default; every registry repository it names is sigstore-signed
-        # with the pinned key, the product's repository (Snow or Floe) exactly so;
-        # only local transports accept anything
+        # The shipped snosi strict container policy
+        # (shared/bootc-secure/tree/usr/lib/snosi/containers/bootc-policy.json since
+        # snosi ADR-0025, shared/bootc-secure/tree/etc/containers/policy.json before
+        # it): reject by default; every registry repository it names is
+        # sigstore-signed with the pinned key, the product's repository (Snow or
+        # Floe) exactly so; only local transports accept anything
         # (run-snow-bootc-lifecycle-2tnjh audit, Snow 20261026105903).
         if type(policy) is not dict or set(policy) != {"default", "transports"}:
             return False
@@ -1964,6 +1973,16 @@ data:
             return False
         return all(name == "docker" or (name in LOCAL_TRANSPORTS and rules == {"": [{"type": "insecureAcceptAnything"}]})
                    for name, rules in transports.items())
+
+
+    def system_policy_ok(system, strict):
+        # snosi ADR-0025: on an image that ships the strict update policy, the
+        # system policy at /etc/containers/policy.json accepts workload images by
+        # default. Its transports must equal the strict policy's transports, so a
+        # Frostyard repository pulled by name still verifies its signature.
+        return (type(system) is dict and set(system) == {"default", "transports"} and
+                system["default"] == [{"type": "insecureAcceptAnything"}] and
+                system["transports"] == strict["transports"])
 
 
     def guest(credentials):
@@ -2005,17 +2024,36 @@ data:
             require(credential(key) == m[key], "credential")
         boot_id = GUEST_PATHS["boot_id"].read_text().strip()
         require(boot_id_valid(boot_id), "boot_identity")
-        policy = GUEST_PATHS["policy"].read_bytes()
-        require(len(policy) <= 16384, "policy")
-        try:
-            parsed = json.loads(policy, object_pairs_hook=pairs)
-        except (ValueError, UnicodeError) as exc:
-            raise GateError("policy") from exc
-        require(policy_ok(parsed, product_repo(m)), "policy")
+        def read_policy(name):
+            raw = GUEST_PATHS[name].read_bytes()
+            require(len(raw) <= 16384, "policy")
+            try:
+                return json.loads(raw, object_pairs_hook=pairs)
+            except (ValueError, UnicodeError) as exc:
+                raise GateError("policy") from exc
+        # Presence decides the layout, not the parsed value: a present file with a
+        # literal null must fail, never fall back to the old layout.
+        has_update = GUEST_PATHS["update_policy"].exists()
+        parsed = read_policy("policy")
+        update = read_policy("update_policy") if has_update else None
+        if not has_update:
+            # An image before snosi ADR-0025 keeps the strict policy at /etc.
+            require(policy_ok(parsed, product_repo(m)), "policy")
+        else:
+            # A newer image keeps the strict policy in /usr and lets /etc accept
+            # workload images by default, so that policy must name every scope.
+            require(policy_ok(update, product_repo(m)), "policy")
+            require(set(update["transports"]["docker"]) == set(FROSTYARD_SCOPES), "policy")
+            require(system_policy_ok(parsed, update), "policy")
         key = GUEST_PATHS["key"].read_bytes()
         require(0 < len(key) <= 16384 and sha(key) == m["cosign_key_sha256"], "policy_key")
-        # No --signature-policy, --tls-verify=false or bypass of the installed root policy.
-        guest_command(["podman", "pull", m["target_ref"]], "policy_pull", timeout=action_timeout("policy_pull"))
+        # When the image ships the strict update policy in /usr, the pull passes it
+        # with --signature-policy; otherwise it relies on the installed root policy.
+        # The probe never passes --tls-verify=false or a permissive policy.
+        pull = ["podman", "pull", m["target_ref"]]
+        if has_update:
+            pull = ["podman", "pull", "--signature-policy", str(GUEST_PATHS["update_policy"]), m["target_ref"]]
+        guest_command(pull, "policy_pull", timeout=action_timeout("policy_pull"))
         pulled = guest_command(["podman", "image", "inspect", "--format", "{{.Digest}}", m["target_ref"]], "pull_digest").decode().strip()
         # Podman may report a platform-child digest while skopeo resolved an
         # index digest. Until that relationship is verified on the pinned

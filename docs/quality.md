@@ -258,7 +258,14 @@ authenticates the ISO index only, not an A/B update index. Registry tag
 resolution is read-only (`skopeo inspect`), not a signature check: cosign
 verification and the guest policy check (the shipped snosi policy: reject by
 default, every registry repository sigstore-signed with the pinned key, only
-local transports open) plus signed pull checks are separate. On a composefs
+local transports open) plus signed pull checks are separate. Since snosi
+ADR-0025 the strict policy ships at
+`/usr/lib/snosi/containers/bootc-policy.json` and `/etc/containers/policy.json`
+accepts workload images by default: the guest reads both, requires that strict
+policy there, requires the system transports to equal its transports, and pulls
+with `--signature-policy` on that file. An image before ADR-0025 keeps the
+strict policy at `/etc/containers/policy.json` and the guest pulls with no
+policy flag. On a composefs
 boot `/` is an overlay, so the btrfs root check reads `/sysroot`.
 `checks.json` records the preflight checks of both immutable version tags and
 controlled target-tag rechecks before install and each phase and after stage,

@@ -695,8 +695,9 @@ def test_success_preflight_and_tag_recheck(qa, tmp_path, monkeypatch):
 
 
 PHASES = ("installed-n", "stage", "boot-n-plus-1", "rollback", "boot-n")
-# As shipped by snosi (shared/bootc-secure/tree/etc/containers/policy.json) and
-# observed on Snow 20261026105903.
+# As shipped by snosi (shared/bootc-secure/tree/usr/lib/snosi/containers/bootc-policy.json
+# since snosi ADR-0025, shared/bootc-secure/tree/etc/containers/policy.json before
+# it) and observed on Snow 20261026105903.
 SIGNED = [{"type": "sigstoreSigned", "keyPath": "/usr/lib/snosi/cosign.pub", "signedIdentity": {"type": "matchRepository"}}]
 SHIPPED_POLICY = {"default": [{"type": "reject"}], "transports": {
     "docker": {f"ghcr.io/frostyard/{name}": SIGNED for name in ("cayo", "floe", "snow", "snowfield", "sundog")},
@@ -936,7 +937,9 @@ def test_guest_stage_probes_and_emits_allowlisted_single_record(qa, tmp_path, mo
     (esp / UKI_PATH.lstrip("/")).parent.mkdir(parents=True)
     (esp / UKI_PATH.lstrip("/")).write_bytes(b"mock-uki")
     (esp / "loader/entries/snow.conf").write_text("title Snow\nuki " + UKI_PATH + "\n")
+    # No strict update policy file: the image predates snosi ADR-0025.
     monkeypatch.setattr(qa, "GUEST_PATHS", {"boot_id": root / "boot_id", "policy": root / "policy.json",
+        "update_policy": root / "bootc-policy.json",
         "key": root / "key", "update_check": root / "update-check", "update_staged": root / "update-staged",
         "esp": esp, "uptime": root / "uptime", "osrelease": root / "osrelease"})
     calls = []
@@ -2369,8 +2372,10 @@ def test_guest_never_emits_evidence_for_failed_probe_or_action(qa, tmp_path, mon
     (esp / UKI_PATH.lstrip("/")).parent.mkdir(parents=True)
     (esp / UKI_PATH.lstrip("/")).write_bytes(b"mock-uki")
     (esp / "loader/entries/snow.conf").write_text("uki " + (UKI_PATH.replace("d" * 128, "a" * 128) if damage == "bls_wrong" else UKI_PATH) + "\n" + ("linux /vmlinuz\n" if damage == "bls_linux" else ""))
+    # update_policy is absent: this image predates snosi ADR-0025.
     monkeypatch.setattr(qa, "GUEST_PATHS", {**{key: tmp_path / key for key in
-        ("boot_id", "policy", "key", "update_check", "update_staged", "uptime", "osrelease")}, "esp": esp})
+        ("boot_id", "policy", "key", "update_check", "update_staged", "uptime", "osrelease")},
+        "update_policy": tmp_path / "bootc-policy.json", "esp": esp})
     monkeypatch.setattr(qa, "guest_lockdown", lambda: True)
     booted = NEXT if phase == "rollback" else N
     version = m["version_n_plus_1"] if phase == "rollback" else m["version_n"]
@@ -3310,6 +3315,159 @@ def test_guest_policy_rejects_weakened_policies(qa, change):
     policy = json.loads(json.dumps(SHIPPED_POLICY))
     change(policy)
     assert not qa.policy_ok(policy)
+
+
+# snosi ADR-0025: an image may ship the strict policy in /usr and a permissive
+# system policy in /etc. The guest then pulls with the strict update policy.
+NEW_LAYOUT_PATH = "/usr/lib/snosi/containers/bootc-policy.json"
+
+
+def permissive_system_policy(strict):
+    return {"default": [{"type": "insecureAcceptAnything"}],
+            "transports": json.loads(json.dumps(strict["transports"]))}
+
+
+def policy_world(qa, tmp_path, monkeypatch, *, update=None, system=None, raw_update=None):
+    """A guest that reaches the policy gate and the pull of N+1.
+
+    `update` is the parsed strict update policy in /usr, or None for an image
+    before snosi ADR-0025, which ships no such file. `raw_update` writes those
+    bytes to that path instead, so a present file can hold anything. The fake
+    podman answers the pull and then reports the wrong digest, so the probe
+    stops after the pull command the test inspects.
+    """
+    m = manifest()
+    m["cosign_key_sha256"] = hashlib.sha256(b"public-key").hexdigest()
+    normalized = tmp_path / "normalized.json"
+    normalized.write_bytes(qa.canonical(m))
+    monkeypatch.setattr(qa, "GUEST_MANIFEST", normalized)
+    creds = tmp_path / "creds"
+    creds.mkdir()
+    for name, value in {"phase": "stage", "nonce": NONCE, "image_n": m["image_n"],
+                        "image_n_plus_1": m["image_n_plus_1"],
+                        "target_ref": m["target_ref"]}.items():
+        (creds / name).write_text(value + "\n")
+    (creds / "unit_started").write_text("1000.00\n")
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "boot_id").write_text("12345678-1234-4234-8234-123456789abc\n")
+    (root / "uptime").write_text("1000.00 50.00\n")
+    (root / "policy.json").write_text(json.dumps(SHIPPED_POLICY if system is None else system))
+    (root / "key").write_bytes(b"public-key")
+    update_path = root / "bootc-policy.json"
+    if raw_update is not None:
+        update_path.write_bytes(raw_update)
+    elif update is not None:
+        update_path.write_text(json.dumps(update))
+    monkeypatch.setattr(qa, "GUEST_PATHS", {"boot_id": root / "boot_id",
+        "policy": root / "policy.json", "update_policy": update_path,
+        "key": root / "key", "uptime": root / "uptime"})
+    calls = []
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        if args[:2] == ["podman", "pull"]:
+            return subprocess.CompletedProcess(args, 0, b"", b"")
+        if args[:2] == ["podman", "image"]:
+            return subprocess.CompletedProcess(args, 0, ("sha256:" + N).encode(), b"")
+        pytest.fail(f"unexpected guest tool {args}")
+
+    monkeypatch.setattr(qa.subprocess, "run", fake_run)
+    return creds, calls
+
+
+def test_guest_paths_name_the_strict_update_policy(qa):
+    assert str(qa.GUEST_PATHS["update_policy"]) == NEW_LAYOUT_PATH
+
+
+def test_guest_pulls_with_the_strict_update_policy_of_a_new_layout_image(qa, tmp_path, monkeypatch):
+    strict = json.loads(json.dumps(SHIPPED_POLICY))
+    creds, calls = policy_world(qa, tmp_path, monkeypatch, update=strict,
+                                system=permissive_system_policy(strict))
+    with pytest.raises(qa.GateError, match="^pull_digest$"):
+        qa.guest(creds)
+    assert ["podman", "pull", "--signature-policy", str(tmp_path / "root/bootc-policy.json"),
+            f"{REPO}:qa-controlled"] in calls
+    assert not any("--tls-verify" in argument for command in calls for argument in command)
+
+
+def test_guest_keeps_the_plain_pull_on_an_old_layout_image(qa, tmp_path, monkeypatch):
+    # Before snosi ADR-0025 the strict policy is /etc/containers/policy.json itself.
+    creds, calls = policy_world(qa, tmp_path, monkeypatch, update=None)
+    with pytest.raises(qa.GateError, match="^pull_digest$"):
+        qa.guest(creds)
+    assert ["podman", "pull", f"{REPO}:qa-controlled"] in calls
+    assert not any("--signature-policy" in argument for command in calls for argument in command)
+
+
+@pytest.mark.parametrize("change", [
+    lambda system, strict: system.__setitem__("default", [{"type": "reject"}]),
+    lambda system, strict: system.__setitem__("default", [{"type": "insecureAcceptAnything"},
+                                                           {"type": "reject"}]),
+    lambda system, strict: system["transports"]["docker"].pop(REPO),
+    lambda system, strict: system["transports"]["docker"].__setitem__(
+        REPO, [{"type": "insecureAcceptAnything"}]),
+    lambda system, strict: system["transports"].pop("oci"),
+    lambda system, strict: system["transports"].__setitem__("docker-daemon", {"": [{"type": "reject"}]}),
+    lambda system, strict: system.__setitem__("extra", True),
+])
+def test_guest_rejects_a_system_policy_that_does_not_match_the_update_policy(qa, tmp_path, monkeypatch, change):
+    strict = json.loads(json.dumps(SHIPPED_POLICY))
+    system = permissive_system_policy(strict)
+    change(system, strict)
+    creds, calls = policy_world(qa, tmp_path, monkeypatch, update=strict, system=system)
+    with pytest.raises(qa.GateError, match="^policy$"):
+        qa.guest(creds)
+    assert not any(command[:2] == ["podman", "pull"] for command in calls)
+
+
+def test_guest_rejects_a_new_layout_image_whose_update_policy_is_not_strict(qa, tmp_path, monkeypatch):
+    strict = json.loads(json.dumps(SHIPPED_POLICY))
+    strict["default"] = [{"type": "insecureAcceptAnything"}]
+    creds, calls = policy_world(qa, tmp_path, monkeypatch, update=strict, system=strict)
+    with pytest.raises(qa.GateError, match="^policy$"):
+        qa.guest(creds)
+    assert not any(command[:2] == ["podman", "pull"] for command in calls)
+
+
+def test_guest_rejects_a_new_layout_image_that_omits_a_frostyard_scope(qa, tmp_path, monkeypatch):
+    # A scope missing from both files is not strict: with the permissive /etc
+    # default, an image of that repository would pull unsigned.
+    strict = json.loads(json.dumps(SHIPPED_POLICY))
+    system = permissive_system_policy(strict)
+    del strict["transports"]["docker"]["ghcr.io/frostyard/sundog"]
+    del system["transports"]["docker"]["ghcr.io/frostyard/sundog"]
+    creds, calls = policy_world(qa, tmp_path, monkeypatch, update=strict, system=system)
+    with pytest.raises(qa.GateError, match="^policy$"):
+        qa.guest(creds)
+    assert not any(command[:2] == ["podman", "pull"] for command in calls)
+
+
+def test_guest_rejects_a_present_update_policy_that_is_null(qa, tmp_path, monkeypatch):
+    # The file exists, so the image is a new layout: a literal null is invalid
+    # JSON for a policy and must not fall back to the old layout.
+    creds, calls = policy_world(qa, tmp_path, monkeypatch, raw_update=b"null\n")
+    with pytest.raises(qa.GateError, match="^policy$"):
+        qa.guest(creds)
+    assert not any(command[:2] == ["podman", "pull"] for command in calls)
+
+
+def test_guest_rejects_the_permissive_system_policy_without_an_update_policy(qa, tmp_path, monkeypatch):
+    # No file in /usr and a permissive /etc: the old layout check rejects it.
+    strict = json.loads(json.dumps(SHIPPED_POLICY))
+    creds, calls = policy_world(qa, tmp_path, monkeypatch, update=None,
+                                system=permissive_system_policy(strict))
+    with pytest.raises(qa.GateError, match="^policy$"):
+        qa.guest(creds)
+    assert not any(command[:2] == ["podman", "pull"] for command in calls)
+
+
+def test_system_policy_ok_requires_the_permissive_default_and_equal_transports(qa):
+    strict = json.loads(json.dumps(SHIPPED_POLICY))
+    assert qa.system_policy_ok(permissive_system_policy(strict), strict)
+    assert not qa.system_policy_ok(strict, strict)
+    assert not qa.system_policy_ok([], strict)
+    assert not qa.system_policy_ok({"default": [{"type": "insecureAcceptAnything"}]}, strict)
 
 
 def test_guest_accepts_both_tpm_pubkey_spellings_and_bootctl_double_slash(qa, monkeypatch, tmp_path):
