@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-29T11:00:16Z",
+  "generated": "2026-10-29T11:30:16Z",
   "lanes": [
     {
       "laneKey": "run-firn-install-tests",
@@ -73,9 +73,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1793271600",
+        "name": "publish-results-1793273400",
         "phase": "Running",
-        "started": "2026-10-29T11:00:00Z",
+        "started": "2026-10-29T11:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -253,11 +253,27 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1793271600",
+      "name": "publish-results-1793273400",
       "phase": "Running",
-      "started": "2026-10-29T11:00:00Z",
+      "started": "2026-10-29T11:30:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1793271600",
+      "phase": "Succeeded",
+      "started": "2026-10-29T11:00:00Z",
+      "finished": "2026-10-29T11:00:30Z",
+      "durationSeconds": 30,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -363,22 +379,6 @@
         "serial_tty=ok",
         "sysroot=btrfs"
       ]
-    },
-    {
-      "name": "publish-results-1793266200",
-      "phase": "Succeeded",
-      "started": "2026-10-29T09:30:00Z",
-      "finished": "2026-10-29T09:30:30Z",
-      "durationSeconds": 30,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": null,
-      "checks": []
     },
     {
       "name": "image-poll-floe-latest-1793265600",
