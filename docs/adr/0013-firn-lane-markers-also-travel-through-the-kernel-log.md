@@ -35,24 +35,36 @@ lane reports `no_report`, which does not say why.
   before the ttyS0 write. The 2 final replays (all `FIRN_QA__CHECK` lines plus
   `FIRN_QA__CHECKS_DONE`) go through kmsg first, 1 line per open.
 - **Bounded ttyS0 writes.** Every guest write to `/dev/ttyS0` runs under
-  `timeout 5`, so a TTY that stopped transmitting cannot stop the script or
+  `timeout -k 2 5`, so a TTY that stopped transmitting cannot stop the script or
   the kmsg copy.
 - **Serial health probe.** After the serial-getty wait, the script opens
-  `/dev/ttyS0` with `O_NONBLOCK`, writes a probe line and calls
-  `termios.tcdrain` under `timeout 10`, and emits `serial_tty=ok` (drained),
+  `/dev/ttyS0` with `O_NONBLOCK`, writes the whole probe line (it retries
+  EAGAIN and short writes, and any other write error gives `unknown`), then calls
+  `termios.tcdrain`, all under `timeout -k 2 10`, and emits `serial_tty=ok` (drained),
   `stalled` (killed by `timeout`) or `unknown` (any other failure). For a
   value other than `ok` it also writes 2 `FIRN_QA__DIAG` lines (the TIOCOUTQ
   byte count and the `stty -a` flags) to the journal and kmsg. They are not
   `CHECK` lines.
+- **Complete records only.** The host strips `\r` and accepts a marker only when
+  its value runs to the end of the line (a kernel prefix before the marker is
+  fine). Kernel printk can cut into a userspace line without a newline, for
+  example `FIRN_QA__CHECK serial_tty=o[   12.3] kernel text`; that fragment is
+  dropped, not kept as a wrong value. After the extraction each key must have
+  1 distinct value. The guest emits each key once per run, so 2 complete values
+  for 1 key mean a corrupted record, and the lane fails `boot:checks_ambiguous`
+  before the judge runs and prints the conflicting lines.
+- **Bounded children.** Every new guest `timeout` is `timeout -k 2 N`, so a
+  process that ignores TERM is killed. A probe killed that way (rc 137) counts
+  as `stalled`, like rc 124.
 - **Judge.** The judge fails `boot:serial_check_missing` when `serial_tty` is
   absent, `boot:serial_tty_stalled` when it is `stalled`, and
   `boot:serial_tty_unknown` for any other value except `ok`. The checks run
   after the fs-verity checks and before the PASS line; no earlier code or its
   order changes.
 
-The host side needs no change: the marker greps match anywhere in a line, so a
-kernel-log line such as `[   39.1] FIRN_QA__CHECK booted=ok` is found, and
-`sort -u` merges the ttyS0 and kernel-log copies.
+The marker greps match anywhere in a line, so a kernel-log line such as
+`[   39.1] FIRN_QA__CHECK booted=ok` is found, and `sort -u` merges the
+identical ttyS0 and kernel-log copies.
 
 ## Consequences
 
@@ -61,10 +73,15 @@ kernel-log line such as `[   39.1] FIRN_QA__CHECK booted=ok` is found, and
   instead of `boot:no_report`. A stalled TTY is a failure of the lane even
   when every other check passes, because the serial getty is the evidence path
   and a user's serial login.
-- Every marker appears up to 3 times in the log (kernel log and ttyS0). The
-  collector keeps `sort -u`, so duplicates are harmless.
+- Each `FIRN_QA__CHECK` line is sent 3 times on each of the 2 paths (emit plus
+  2 replays), so up to 6 copies reach the log. `FIRN_QA__CHECKS_DONE` is sent 2
+  times on each path, so up to 4 copies. `sort -u` merges identical copies.
+  A cut copy is dropped by the complete-record rule; 2 different complete values
+  fail the lane as `boot:checks_ambiguous`, which is the safe answer for a log
+  that cannot be trusted.
 - A kernel line adds a timestamp prefix and is subject to printk limits. The
-  extraction pattern does not depend on the line start.
+  extraction pattern does not depend on the line start, but it needs the value
+  to end the line.
 - The guest script writes to the kernel log of the system under test. This
   changes no image and adds no agent.
 - The probe line and the `FIRN_QA__DIAG` lines are noise on the console; the
