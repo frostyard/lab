@@ -77,3 +77,4 @@ mechanisms that work against unmodified images:
   [argo/workflow-templates/run-incus-vm-tests.yaml](../../argo/workflow-templates/run-incus-vm-tests.yaml)
 - Related: [ADR-0004](0004-one-way-evidence-pipeline.md),
   [ADR-0009](0009-no-artifact-store-logs-are-the-surface.md)
+- Amended by: [ADR-0013](0013-firn-lane-markers-also-travel-through-the-kernel-log.md)

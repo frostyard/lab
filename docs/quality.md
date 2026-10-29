@@ -101,7 +101,15 @@ judged. The guest check unit writes each `FIRN_QA__CHECK` line to
 `/run/firn-qa-checks.txt` and to a fresh `/dev/ttyS0` open per line, then
 replays the file plus `FIRN_QA__CHECKS_DONE` twice after serial-getty has set
 up the TTY, because its `TTYVHangup` revokes older serial fds
-([snosi#1123](https://github.com/frostyard/snosi/issues/1123)). Neither a passing VM nor offline contract
+([snosi#1123](https://github.com/frostyard/snosi/issues/1123)). Every line
+also goes to the guest kernel log (`/dev/kmsg`, 1 open per line, before the
+ttyS0 write), and every ttyS0 write is bounded by `timeout 5`, so results still
+reach the host when the guest's ttyS0 stops transmitting
+([ADR-0013](adr/0013-firn-lane-markers-also-travel-through-the-kernel-log.md)).
+A `serial_tty` check probes ttyS0 with `tcdrain`; `serial_tty=stalled` fails the
+cell as `boot:serial_tty_stalled` (`boot:serial_check_missing` and
+`boot:serial_tty_unknown` cover a missing or odd value), with
+`FIRN_QA__DIAG` lines in the console log as evidence. Neither a passing VM nor offline contract
 tests qualify hardware, graphical login, encrypted unlock or upgrades. No
 run or pass is claimed by the submit file alone.
 
