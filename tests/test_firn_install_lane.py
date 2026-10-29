@@ -6,6 +6,7 @@ import subprocess
 import hashlib
 import json
 import re
+import time
 
 import pytest
 import yaml
@@ -224,6 +225,7 @@ GOOD_CHECKS = (
     f"bootc=bootc_1.0\nlogin=active\nbootc_image={EXPECTED_IMAGE}\n"
     f"bootc_digest={EXPECTED_DIGEST}\n"
     "cfs_compressed_objects=0\nfsverity_errors=0\nkernel=7.3.1+deb14-amd64\nkernel_btrfs_verity_canary=clean\n"
+    "serial_tty=ok\n"
 )
 
 
@@ -298,6 +300,16 @@ GOOD_CHECKS = (
          f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST}"),
         ({"kernel_btrfs_verity_canary": None, "kernel": None},
          f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST}"),
+        # ADR-0013: the serial TTY probe. Its codes come after every older check.
+        ({"serial_tty": "ok"},
+         f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST}"),
+        ({"serial_tty": None}, "FAILED: boot:serial_check_missing (bootc/floe/none/sb=false)"),
+        ({"serial_tty": "stalled"}, "FAILED: boot:serial_tty_stalled (bootc/floe/none/sb=false)"),
+        ({"serial_tty": "unknown"}, "FAILED: boot:serial_tty_unknown (bootc/floe/none/sb=false)"),
+        ({"serial_tty": "garbage"}, "FAILED: boot:serial_tty_unknown (bootc/floe/none/sb=false)"),
+        ({"serial_tty": "stalled", "fsverity_errors": "7"}, "FAILED: boot:fsverity_errors_7 (bootc/floe/none/sb=false)"),
+        ({"serial_tty": "stalled", "login": "inactive"}, "FAILED: boot:login_unavailable (bootc/floe/none/sb=false)"),
+        ({"serial_tty": None, "cfs_compressed_objects": "3"}, "FAILED: boot:cfs_compressed_objects_3 (bootc/floe/none/sb=false)"),
     ],
 )
 def test_judge_checks_under_errexit(lane, tmp_path, change, expected):
@@ -348,7 +360,7 @@ def test_guest_checks_report_bootc_status_sysroot_and_missing_binary(lane, tmp_p
 M_CHECK=FIRN_QA__CHECK; M_DONE=FIRN_QA__CHECKS_DONE
 IMAGE=floe
 systemctl() { if [[ "$1" == show ]]; then printf 0; else printf active; fi; }
-timeout() { shift; "$@"; }
+timeout() { if [[ "$1" == -k ]]; then shift 3; else shift; fi; "$@"; }
 sleep() { SECONDS=$((SECONDS + $1)); }
 sync() { return 0; }
 findmnt() { if [[ "${@: -1}" == /sysroot ]]; then printf btrfs; else printf overlay; fi; }
@@ -361,8 +373,7 @@ bootc() { if [[ "$1" == --version ]]; then printf 'bootc 1.0'; else printf '%s' 
     generated = subprocess.run(["bash", "-c", script], env={**os.environ, "STATUS": status},
                                capture_output=True, text=True, check=True).stdout
     # Keep the real guest paths out of the test run.
-    generated = generated.replace("/dev/ttyS0", str(tmp_path / "ttyS0")).replace(
-        "/run/firn-qa-checks.txt", str(tmp_path / "checks.txt"))
+    generated = _sandboxed(generated, tmp_path)
     guest = subprocess.run(["bash", "-c", script.split(creation)[0] + generated],
                            env={**os.environ, "STATUS": status}, capture_output=True, text=True, check=True)
     assert f"FIRN_QA__CHECK login=active" in guest.stdout
@@ -475,21 +486,77 @@ def _render_check(lane):
     ).stdout
 
 
+def _sandboxed(generated, tmp_path, kmsg="kmsg", ttys0="ttyS0"):
+    """Point the guest's kernel log, serial port and results file into tmp_path."""
+    return (generated.replace("> /dev/kmsg", ">> " + str(tmp_path / kmsg))
+            .replace("> /dev/ttyS0", ">> " + str(tmp_path / ttys0))
+            .replace("/dev/ttyS0", str(tmp_path / ttys0))
+            .replace("/run/firn-qa-checks.txt", str(tmp_path / "checks.txt")))
+
+
 def test_guest_check_uses_fresh_serial_opens_not_long_lived_tee(lane):
     generated = _render_check(lane)
     assert "tee" not in generated
     assert not re.search(r"^\s*exec\s*>", generated, re.MULTILINE)
     emit = generated.split("emit() {", 1)[1].split("\n}\n", 1)[0]
     assert ">> /run/firn-qa-checks.txt" in emit
-    assert '> /dev/ttyS0 2>/dev/null || true' in emit
+    assert """timeout -k 2 5 bash -c 'printf "%s\\n" "$1" > /dev/ttyS0' _ "$line" 2>/dev/null || true""" in emit
     assert "frostyard/snosi#1123" in generated
-    assert generated.count("> /dev/ttyS0") >= 3  # emit plus two replays
+    assert generated.count("> /dev/ttyS0") >= 2  # emit plus the replay function
 
 
-def _run_check_tail(lane, tmp_path, getty_state, getty_pid):
+def test_guest_emit_writes_the_kernel_log_before_ttyS0(lane):
     generated = _render_check(lane)
-    generated = generated.replace("> /dev/ttyS0", ">> " + str(tmp_path / "ttyS0")).replace(
-        "/run/firn-qa-checks.txt", str(tmp_path / "checks.txt"))  # a real tty does not truncate
+    kmsg = generated.split("kmsg() {", 1)[1].split("\n}\n", 1)[0]
+    # A fresh bounded child per line: its own open of /dev/kmsg, killed after TERM and KILL if it hangs.
+    assert """timeout -k 2 5 bash -c 'printf "<4>%s\\n" "$1" 2>/dev/null > /dev/kmsg' _ "$1" 2>/dev/null || true""" in kmsg
+    assert "devkmsg" in generated.split("kmsg() {", 1)[0]  # the why is written down
+    emit = generated.split("emit() {", 1)[1].split("\n}\n", 1)[0]
+    assert emit.index('>> /run/firn-qa-checks.txt') < emit.index('kmsg "$line"') < emit.index("/dev/ttyS0")
+    assert emit.index('printf \'%s\\n\' "$line"\n') < emit.index('kmsg "$line"')
+
+
+def test_guest_every_ttyS0_write_is_under_timeout(lane):
+    generated = _render_check(lane)
+    writes = [line for line in generated.splitlines() if "> /dev/ttyS0" in line]
+    assert len(writes) == 2  # emit and the replay function
+    for line in writes:
+        assert re.search(r"\btimeout -k 2 5 bash -c '[^']*> /dev/ttyS0", line), line
+    # The probe and the diagnostics open ttyS0 with O_NONBLOCK, under a timeout.
+    for opener in generated.split('os.open("/dev/ttyS0"')[:-1]:
+        assert re.search(r"timeout -k 2 (10|5) python3 -c '[^']*$", opener), opener[-200:]
+    assert "timeout -k 2 5 stty -a -F /dev/ttyS0" in generated
+    # Every bounded kmsg, ttyS0, probe and diagnostic command also has a KILL after TERM.
+    assert not re.search(r"\btimeout (5|10) (bash|python3|stty)\b", generated)
+    assert len(re.findall(r"\btimeout -k 2 (5|10) (bash|python3|stty)\b", generated)) == 6
+    assert not re.search(r"^\s*(cat|printf|echo)\b[^\n]*> /dev/ttyS0", generated, re.MULTILINE)
+
+
+def test_guest_blocked_ttyS0_never_stops_the_kernel_log_copy(lane, tmp_path):
+    fifo = tmp_path / "ttyS0"
+    os.mkfifo(fifo)  # no reader: an open for writing blocks, like a TTY that stopped
+    generated = _sandboxed(_render_check(lane), tmp_path)
+    head = generated[:generated.index("emit booted ok")]
+    result = subprocess.run(["bash", "-c", head + "emit a b\necho after\n"],
+                            capture_output=True, text=True, check=False, timeout=20)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == ["FIRN_QA__CHECK a=b", "after"]
+    assert (tmp_path / "kmsg").read_text() == "<4>FIRN_QA__CHECK a=b\n"
+
+
+def test_guest_emit_orders_file_journal_kmsg_then_ttyS0(lane, tmp_path):
+    generated = _sandboxed(_render_check(lane), tmp_path, kmsg="both", ttys0="both")
+    head = generated[:generated.index("emit booted ok")]
+    result = subprocess.run(["bash", "-c", head + "emit a b\n"], capture_output=True, text=True, check=False, timeout=10)
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "both").read_text().splitlines() == ["<4>FIRN_QA__CHECK a=b", "FIRN_QA__CHECK a=b"]
+
+
+def _run_check_tail(lane, tmp_path, getty_state, getty_pid, python_rc=0, real_tools=False, serial=None):
+    # A real tty does not truncate, so the fake one is appended to.
+    generated = _sandboxed(_render_check(lane), tmp_path)
+    if serial:
+        generated = generated.replace(str(tmp_path / "ttyS0"), serial)
     start = generated.index("emit booted ok")
     head = generated[:start]
     tail = generated[generated.index("SERIAL_WAIT_SECONDS=30"):]
@@ -504,19 +571,27 @@ def _run_check_tail(lane, tmp_path, getty_state, getty_pid):
         '    show) printf "%s\\n" "$GETTY_PID" ;;\n'
         '  esac\n'
         '}\n'
-        'timeout() { shift; "$@"; }\n'
         'sleep() { echo "$1" >> "$SLEEPS"; SECONDS=$((SECONDS + $1)); }\n'
         'sync() { echo sync >> "$SLEEPS"; }\n'
     )
+    if not real_tools:
+        stubs += (
+            # The probe python exits with PY_RC (124: killed by timeout); the diagnostic python prints a byte count.
+            'timeout() { if [[ "$1" == -k ]]; then shift 3; else shift; fi; "$@"; }\n'
+            'python3() { if [[ "$*" == *TIOCOUTQ* ]]; then echo 42; return 0; fi; return "$PY_RC"; }\n'
+            'stty() { printf "speed 115200 baud; rows 0; columns 0; line = 0;\\n-parenb cs8\\n-ixon crtscts\\n"; }\n'
+        )
     sleeps = tmp_path / "sleeps"
     sleeps.write_text("")
     result = subprocess.run(
         ["bash", "-c", stubs + head + body + tail],
-        env={**os.environ, "GETTY_STATE": getty_state, "GETTY_PID": getty_pid, "SLEEPS": str(sleeps)},
-        capture_output=True, text=True, check=False, timeout=10,
+        env={**os.environ, "GETTY_STATE": getty_state, "GETTY_PID": getty_pid, "SLEEPS": str(sleeps),
+             "PY_RC": str(python_rc)},
+        capture_output=True, text=True, check=False, timeout=30,
     )
     assert result.returncode == 0, result.stderr
-    return result, (tmp_path / "ttyS0").read_text().splitlines(), sleeps.read_text().split()
+    serial_lines = (tmp_path / "ttyS0").read_text().splitlines() if (tmp_path / "ttyS0").exists() else []
+    return result, serial_lines, sleeps.read_text().split()
 
 
 CHECK_LINES = [
@@ -524,6 +599,7 @@ CHECK_LINES = [
     "FIRN_QA__CHECK login_unit=display-manager.service",
     "FIRN_QA__CHECK bootc_digest=sha256:abc",
 ]
+SERIAL_OK = "FIRN_QA__CHECK serial_tty=ok"
 
 
 @pytest.mark.parametrize("state,pid,max_waits", [
@@ -533,12 +609,13 @@ CHECK_LINES = [
 ])
 def test_guest_final_replay_is_bounded_and_repeated(lane, tmp_path, state, pid, max_waits):
     result, serial, sleeps = _run_check_tail(lane, tmp_path, state, pid)
-    block = CHECK_LINES + ["FIRN_QA__CHECKS_DONE"]
+    lines = CHECK_LINES + [SERIAL_OK]
+    block = lines + ["FIRN_QA__CHECKS_DONE"]
     # Each check goes out once at emit time, then the whole block twice.
-    assert serial == CHECK_LINES + block + block
+    assert serial == lines + block + block
     assert serial[-len(block):] == block
     assert result.stdout.splitlines()[-1] == "FIRN_QA__CHECKS_DONE"
-    assert (tmp_path / "checks.txt").read_text().splitlines() == CHECK_LINES
+    assert (tmp_path / "checks.txt").read_text().splitlines() == lines
     waits = [x for x in sleeps if x == "1"]
     assert len(waits) <= max_waits
     assert sleeps[-3:] == ["sync", "2"] or sleeps[-2:] == ["sync", "2"]
@@ -547,13 +624,130 @@ def test_guest_final_replay_is_bounded_and_repeated(lane, tmp_path, state, pid, 
         assert waits == []
 
 
+def test_guest_replays_go_through_the_kernel_log_and_end_with_the_done_marker(lane, tmp_path):
+    result, serial, sleeps = _run_check_tail(lane, tmp_path, "inactive", "0")
+    lines = CHECK_LINES + [SERIAL_OK]
+    block = [f"<4>{line}" for line in lines] + ["<4>FIRN_QA__CHECKS_DONE"]
+    kmsg = (tmp_path / "kmsg").read_text().splitlines()
+    # 1 kernel-log line per open: each emit once, then the whole block twice.
+    assert kmsg == [f"<4>{line}" for line in lines] + block + block
+    assert kmsg[-1] == "<4>FIRN_QA__CHECKS_DONE" and serial[-1] == "FIRN_QA__CHECKS_DONE"
+    # Static order: kmsg lines, then the done marker, then the bounded ttyS0 block; twice, with sync between.
+    generated = _render_check(lane)
+    fn = generated.split("replay_checks() {", 1)[1].split("\n}\n", 1)[0]
+    assert fn.index('kmsg "$line"') < fn.index('kmsg "FIRN_QA__CHECKS_DONE"') < fn.index("timeout -k 2 5 bash -c")
+    assert fn.rstrip().endswith("|| true")
+    calls = generated.split("replay_checks() {", 1)[1].split("\n}\n", 1)[1]
+    assert calls.index("replay_checks") < calls.index("sync || true") < calls.index("sleep 2 || true") < calls.rindex("replay_checks")
+    assert calls.count("replay_checks") == 2
+    assert generated.index("FIRN_QA__CHECKS_DONE") > generated.index("emit kernel_btrfs_verity_canary")
+
+
+@pytest.mark.parametrize("python_rc,want", [(0, "ok"), (124, "stalled"), (137, "stalled"), (1, "unknown"), (2, "unknown")])
+def test_guest_serial_probe_reports_ok_stalled_or_unknown(lane, tmp_path, python_rc, want):
+    result, serial, _ = _run_check_tail(lane, tmp_path, "inactive", "0", python_rc=python_rc)
+    checks = (tmp_path / "checks.txt").read_text().splitlines()
+    assert checks[-1] == f"FIRN_QA__CHECK serial_tty={want}"
+    assert f"FIRN_QA__CHECK serial_tty={want}" in result.stdout.splitlines()
+    kmsg = (tmp_path / "kmsg").read_text().splitlines()
+    diag = ["FIRN_QA__DIAG ttyS0_outq=42", "FIRN_QA__DIAG ttyS0_stty_flags=-parenb cs8 -ixon crtscts "]
+    if want == "ok":
+        assert not any("FIRN_QA__DIAG" in line for line in result.stdout.splitlines() + kmsg)
+    else:
+        # Diagnostics reach the journal and the kernel log, never the CHECK file or the host's greps.
+        assert [line for line in result.stdout.splitlines() if "FIRN_QA__DIAG" in line] == diag
+        assert [line for line in kmsg if "FIRN_QA__DIAG" in line] == [f"<4>{line}" for line in diag]
+        assert not any("DIAG" in line for line in checks)
+        assert not re.search(r"FIRN_QA__CHECK [a-z_]+=", "\n".join(diag))
+    # The probe runs after the getty wait and before the replays.
+    generated = _render_check(lane)
+    assert generated.index("SERIAL_WAIT_SECONDS=30") < generated.index("timeout -k 2 10 python3") < generated.index('emit serial_tty "') < generated.index("replay_checks() {")
+    assert "termios.tcdrain(fd)" in generated and "os.O_WRONLY | os.O_NOCTTY | os.O_NONBLOCK" in generated
+
+
+def _probe_python(lane):
+    generated = _render_check(lane)
+    match = re.search(r"timeout -k 2 10 python3 -c '\n(.*?)\n' >/dev/null", generated, re.S)
+    assert match
+    return match.group(1)
+
+
+# Runs the rendered probe python with os.write, os.open and tcdrain replaced: no tty is needed.
+PROBE_HARNESS = r"""
+import errno, json, os, sys, termios
+mode, log = sys.argv[1], sys.argv[2]
+events, calls = [], [0]
+real_open = os.open
+os.open = lambda path, flags, *a: real_open("/dev/null", os.O_WRONLY)
+def fake_write(fd, data):
+    calls[0] += 1
+    if mode == "error":
+        raise OSError(errno.EIO, "I/O error")
+    if mode == "eagain" or (mode == "eagain_then_ok" and calls[0] <= 3):
+        raise BlockingIOError(errno.EAGAIN, "would block")
+    n = 4 if mode == "short" else len(data)
+    events.append(("write", data[:n].decode()))
+    return n
+os.write = fake_write
+def fake_drain(fd):
+    events.append(("drain", ""))
+    json.dump(events, open(log, "w"))
+termios.tcdrain = fake_drain
+exec(compile(sys.stdin.read(), "probe", "exec"))
+"""
+
+
+@pytest.mark.parametrize("mode,rc_ok,drained", [
+    ("full", True, True),
+    ("short", True, True),           # 4 bytes per write: the rest is written before tcdrain
+    ("eagain_then_ok", True, True),  # a full buffer is retried, not ignored
+    ("error", False, False),         # any other OSError exits non-zero, tcdrain is never reached
+])
+def test_probe_python_sends_the_whole_line_before_tcdrain(lane, tmp_path, mode, rc_ok, drained):
+    log = tmp_path / "events.json"
+    result = subprocess.run(["python3", "-c", PROBE_HARNESS, mode, str(log)], input=_probe_python(lane),
+                            capture_output=True, text=True, check=False, timeout=20)
+    assert (result.returncode == 0) == rc_ok, result.stderr
+    if not rc_ok:
+        assert result.returncode != 124 and "OSError" in result.stderr and not log.exists()
+        return
+    events = json.loads(log.read_text())
+    assert events[-1] == ["drain", ""]
+    assert "".join(text for kind, text in events if kind == "write") == "FIRN_QA__DIAG serial_probe\n"
+    assert all(kind == "write" for kind, _ in events[:-1])
+    if mode == "short":
+        assert len(events) > 3
+
+
+def test_probe_python_retries_eagain_until_the_timeout_kills_it(lane, tmp_path):
+    # A stalled TTY keeps answering EAGAIN: the loop stays inside the outer timeout, which gives rc 124.
+    started = time.monotonic()
+    result = subprocess.run(["timeout", "-k", "2", "1", "python3", "-c", PROBE_HARNESS, "eagain", str(tmp_path / "e.json")],
+                            input=_probe_python(lane), capture_output=True, text=True, check=False, timeout=20)
+    assert result.returncode == 124, result.stderr
+    assert 0.9 < time.monotonic() - started < 5
+    assert not (tmp_path / "e.json").exists()  # tcdrain was never reached
+
+
+def test_guest_serial_probe_python_runs_against_a_real_pty(lane, tmp_path):
+    import pty
+    master, slave = pty.openpty()
+    try:
+        result, serial, _ = _run_check_tail(lane, tmp_path, "inactive", "0", real_tools=True, serial=os.ttyname(slave))
+    finally:
+        os.close(master)
+        os.close(slave)
+    assert "FIRN_QA__CHECK serial_tty=ok" in (tmp_path / "checks.txt").read_text().splitlines()
+    assert "FIRN_QA__DIAG" not in result.stdout
+
+
 @pytest.mark.parametrize("serial_path", ["/nonexistent-dir/ttyS0"])
 def test_guest_serial_write_failure_never_stops_script(lane, tmp_path, serial_path):
     generated = _render_check(lane).replace("/dev/ttyS0", serial_path).replace(
-        "/run/firn-qa-checks.txt", str(tmp_path / "checks.txt"))
+        "/dev/kmsg", "/nonexistent-dir/kmsg").replace("/run/firn-qa-checks.txt", str(tmp_path / "checks.txt"))
     head = generated[:generated.index("emit booted ok")]
     tail = generated[generated.index("SERIAL_WAIT_SECONDS=30"):]
-    script = ('systemctl() { return 3; }\ntimeout() { shift; "$@"; }\nsleep() { :; }\nsync() { :; }\n'
+    script = ('systemctl() { return 3; }\ntimeout() { if [[ "$1" == -k ]]; then shift 3; else shift; fi; "$@"; }\nsleep() { :; }\nsync() { :; }\n'
               + head + "emit a b\n" + tail + '\necho reached-end\n')
     result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False, timeout=10)
     assert result.returncode == 0, result.stderr
@@ -718,10 +912,106 @@ def test_mok_uuid_failure_uses_fail_helper(lane, tmp_path):
     assert (tmp_path / "result-summary.txt").read_text() == "FAILED: mok:uuid (bootc/floe/none/sb=true) firn=firn_0.6.0"
 
 
+def _collect_slice(source):
+    """Host-side extraction and the 1-value-per-key check, up to the judge."""
+    return source[source.index("# Only complete records count"):source.index("# ── judge: fixed order")]
+
+
+def _collect_and_judge(lane, tmp_path, console_lines, extra=()):
+    """Run the host's collection, the ambiguity check and the judge over a fake serial log."""
+    source = lane["script"]["source"]
+    fail = source[source.index("fail() {"):source.index("\n}", source.index("fail() {")) + 2]
+    judge = source[source.index("judge() {"):source.index("\n}", source.index("judge() {")) + 2]
+    console = tmp_path / "console.log"
+    console.write_text("\n".join(console_lines) + "\n")
+    script = ("set -euo pipefail\nFIRN_VERSION=firn_0.6.0\nM_CHECK=FIRN_QA__CHECK\n"
+              'console_log() { cat "$CONSOLE_FILE"; }\n' + fail + "\n"
+              + _collect_slice(source) + "\n" + judge + '\njudge /tmp/results/checks.txt\n')
+    result = subprocess.run(
+        ["bash", "-c", script.replace("/tmp/results", str(tmp_path))],
+        env={**os.environ, "CELL": "c", "IMAGE": "floe", "ENC": "none", "IMAGE_DIGEST": EXPECTED_DIGEST,
+             "CONSOLE_FILE": str(console)},
+        text=True, capture_output=True, check=False)
+    summary = tmp_path / "result-summary.txt"
+    return result, summary.read_text() if summary.exists() else None
+
+
+def _good_console():
+    return [f"FIRN_QA__CHECK {line}" for line in GOOD_CHECKS.splitlines()] + ["FIRN_QA__CHECKS_DONE"]
+
+
+def test_collection_to_judge_passes_on_complete_records_and_kernel_prefixes(lane, tmp_path):
+    console = [f"[   39.1] {line}\r" if i % 2 else line + "\r" for i, line in enumerate(_good_console())]
+    console += _good_console()  # the second path's copy of every line: identical values merge
+    result, summary = _collect_and_judge(lane, tmp_path, console)
+    assert result.returncode == 0, result.stderr
+    assert summary.startswith("PASS: c ")
+    assert sorted((tmp_path / "checks.txt").read_text().splitlines()) == sorted(GOOD_CHECKS.splitlines())
+
+
+@pytest.mark.parametrize("cut", [
+    "FIRN_QA__CHECK serial_tty=o[   12.3] kernel text",          # printk cut into the line, no newline
+    "FIRN_QA__CHECK serial_tty=[   12.3] kernel text",
+    "FIRN_QA__CHECK serial_tty=o\n[   12.3] kernel text",         # split: the head ends the line only by accident
+])
+def test_truncated_copy_next_to_a_complete_copy_loses(lane, tmp_path, cut):
+    console = [cut, "k"] + _good_console()  # "k" is the rest of the userspace line after the kernel text
+    # In the third case the head `serial_tty=o` ends its line, so it looks complete: the ambiguity check catches it.
+    result, summary = _collect_and_judge(lane, tmp_path, console)
+    checks = (tmp_path / "checks.txt").read_text().splitlines()
+    assert "serial_tty=ok" in checks
+    if "\n" in cut:
+        assert result.returncode == 1 and summary == "FAILED: boot:checks_ambiguous (c) firn=firn_0.6.0"
+        assert "serial_tty=o" in result.stderr and "serial_tty=ok" in result.stderr
+    else:
+        assert result.returncode == 0, result.stderr
+        assert summary.startswith("PASS: c ")
+        assert not any(line.startswith("serial_tty=o[") or line.startswith("serial_tty=[") for line in checks)
+        assert sum(line.startswith("serial_tty=") for line in checks) == 1
+
+
+def test_a_record_cut_by_kernel_text_alone_is_not_a_value(lane, tmp_path):
+    good = [line for line in _good_console() if "serial_tty" not in line]
+    result, summary = _collect_and_judge(lane, tmp_path, ["FIRN_QA__CHECK serial_tty=o[   12.3] kernel text"] + good)
+    assert result.returncode == 1
+    assert summary == "FAILED: boot:serial_check_missing (c) firn=firn_0.6.0"
+    assert "serial_tty" not in (tmp_path / "checks.txt").read_text()
+
+
+def test_kernel_text_after_the_value_is_rejected(lane, tmp_path):
+    good = [line for line in _good_console() if "login=" not in line]
+    result, summary = _collect_and_judge(lane, tmp_path, good + ["FIRN_QA__CHECK login=active [   5.0] kernel text"])
+    assert summary == "FAILED: boot:login_unavailable (c) firn=firn_0.6.0"
+    assert "login=" not in (tmp_path / "checks.txt").read_text()
+
+
+def test_two_complete_conflicting_values_fail_as_checks_ambiguous(lane, tmp_path):
+    console = _good_console() + ["[   40.0] FIRN_QA__CHECK serial_tty=stalled", "FIRN_QA__CHECK kernel=7.9.9"]
+    result, summary = _collect_and_judge(lane, tmp_path, console)
+    assert result.returncode == 1
+    assert summary == "FAILED: boot:checks_ambiguous (c) firn=firn_0.6.0"
+    assert "--- conflicting check values ---" in result.stderr
+    err = result.stderr.split("--- conflicting check values ---", 1)[1]
+    assert "serial_tty=ok" in err and "serial_tty=stalled" in err
+    assert "kernel=7.9.9" in err and "kernel=7.3.1+deb14-amd64" in err
+    assert "booted=ok" not in err
+    assert "PASS" not in result.stderr  # the judge never ran
+
+
+def test_the_guest_emits_each_check_key_once(lane):
+    # The host fails on 2 values for 1 key, so no key may legitimately differ within a run. Each key
+    # is emitted from 1 site (luks and bootc pick one of 2 mutually exclusive calls).
+    guest = _render_check(lane)
+    keys = re.findall(r"^\s*(?:if [^\n]*; then )?emit ([a-z_]+) ", guest, re.MULTILINE)
+    keys += re.findall(r"\belse emit ([a-z_]+) ", guest)
+    dups = {k for k in set(keys) if keys.count(k) > 1}
+    assert dups <= {"luks", "bootc"}, dups
+    assert guest.count("emit luks ") == 2 and guest.count("emit bootc ") == 2  # if/else pairs, never both
+
+
 def test_console_collection_preserves_underscore_check_keys(lane, tmp_path):
     source = lane["script"]["source"]
-    collect = source[source.index('console_log | grep -aoE "${M_CHECK}'):
-                     source.index('echo "--- post-install checks ---"')]
+    collect = _collect_slice(source)
     result = subprocess.run(
         ["bash", "-c", 'set -euo pipefail\nM_CHECK=FIRN_QA__CHECK\n'
          + 'console_log() { printf "%s\\n" "FIRN_QA__CHECK bootc_image=ghcr.io/frostyard/floe:latest" '
@@ -733,6 +1023,28 @@ def test_console_collection_preserves_underscore_check_keys(lane, tmp_path):
     assert (tmp_path / "checks.txt").read_text() == (
         "bootc_digest=sha256:aaa\nbootc_image=ghcr.io/frostyard/floe:latest\n"
     )
+
+
+def test_console_collection_extracts_kernel_log_prefixed_check_lines(lane, tmp_path):
+    source = lane["script"]["source"]
+    collect = _collect_slice(source)
+    console = [
+        "[   39.123456] FIRN_QA__CHECK booted=ok",
+        "FIRN_QA__CHECK booted=ok\r",            # the same line from the ttyS0 path
+        "<4>[   39.2] FIRN_QA__CHECK serial_tty=stalled",
+        "[   39.3] FIRN_QA__DIAG ttyS0_outq=4096",    # diagnostics are not CHECK lines
+        "[   39.4] FIRN_QA__CHECKS_DONE",
+    ]
+    wait_for = source[source.index("wait_for() {"):source.index("\n}", source.index("wait_for() {")) + 2]
+    result = subprocess.run(
+        ["bash", "-c", 'set -euo pipefail\nM_CHECK=FIRN_QA__CHECK\nM_DONE=FIRN_QA__CHECKS_DONE\n'
+         + 'console_log() { printf "%b\\n" "$CONSOLE"; }\n'
+         + wait_for + '\nwait_for "${M_DONE}" 5 installed-boot\n'  # the done marker may arrive as a kernel line
+         + collect.replace('/tmp/results', str(tmp_path))],
+        env={**os.environ, "CONSOLE": "\n".join(console)}, capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "checks.txt").read_text() == "booted=ok\nserial_tty=stalled\n"
 
 
 def _probe_functions(lane):

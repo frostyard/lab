@@ -1,0 +1,27 @@
+# bootc-only-iso-install-ffbw7, installed boot (boot 1), serial console excerpts
+# ESC bytes are shown as <ESC>. Full log: minideb ~/lab-consoles/snosi-1123-20261029/
+# fq-bootc-only-iso-install-ffbw7.boot1.log (188239 bytes). After the size query below the log
+# holds only kernel printk lines: no systemd status line, no journald console line, no getty
+# prompt, no FIRN_QA__CHECK line. No 'login:' anywhere in the log.
+
+## Switch-root: PID 1 console reset (the ANSI reset after <ESC>8 never comes)
+emd).
+[    5.268922] NET: Registered PF_VSOCK protocol family
+<ESC>[0;21;39mNET: Registered PF_VSOCK protocol family<ESC>[0m
+<ESC>[18t<ESC>7<ESC>[32766;32766H<ESC>[6n<ESC>8[    5.631757] systemd[1]: systemd 262-1 running in system mode (+PAM +AUDIT +SELINUX +APPARMOR +IMA +IPE +SMACK +SECCOMP -GNUTLS +OPENSSL +ACL +BLKID +CURL +ELFUTILS +FIDO2
+
+## End of the log (nothing more for 900 s)
+="STATUS" operation="profile_load" profile="unconfined" name="ch-checkns" pid=688 comm="apparmor_parser"
+[   10.820700] RPC: Registered named UNIX socket transport module.
+[   10.821799] RPC: Registered udp transport module.
+[   10.822636] RPC: Registered tcp transport module.
+[   10.823466] RPC: Registered tcp-with-tls transport module.
+[   10.824370] RPC: Registered tcp NFSv4.1 backchannel transport module.
+
+
+
+# For comparison: hand run on minideb (PASS), same place
+emd).
+[    5.168747] NET: Registered PF_VSOCK protocol family
+<ESC>[0;21;39mNET: Registered PF_VSOCK protocol family<ESC>[0m
+<ESC>[18t<ESC>7<ESC>[32766;32766H<ESC>[6n<ESC>8<ESC>[!p<ESC>]104<ESC>\<ESC>[0m<ESC>[?7h<ESC>[1G<ESC>[0J[    5.866254] systemd[1]: systemd 262-1 running in system mode (+PAM +AUDIT +SELINUX +APPARMOR +IMA +IPE +SMACK +SECCOMP -GNUTLS +OPENSSL +ACL +

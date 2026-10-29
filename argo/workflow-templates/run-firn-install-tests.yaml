@@ -376,12 +376,27 @@ spec:
         # pipe to ttyS0 loses the rest of the output. Open /dev/ttyS0 afresh for each
         # write, and replay all results after the getty TTY setup is done.
         # See frostyard/snosi#1123. Stdout stays in the journal.
+        # Kernel printk still reaches the serial console when userspace writes to
+        # ttyS0 stall (lab run bootc-only-iso-install-ffbw7, ADR-0013), so every
+        # marker also goes to /dev/kmsg. Open it afresh for each line: devkmsg
+        # rate-limits per open (10 lines per 5 s). Level 4 prints on the console
+        # at console_loglevel 7. The write runs in a bounded child (TERM, then KILL),
+        # so it never stops the script.
+        kmsg() {
+          # shellcheck disable=SC2016  # \$1 expands in the inner bash
+          timeout -k 2 5 bash -c 'printf "<4>%s\n" "\$1" 2>/dev/null > /dev/kmsg' _ "\$1" 2>/dev/null || true
+        }
         : > /run/firn-qa-checks.txt || true
+        # The file, stdout (journal) and kmsg come first. The ttyS0 write comes
+        # last and is bounded: a TTY that stopped transmitting must not stop the
+        # script or the kmsg copy.
         emit() {
           local line="${M_CHECK} \$1=\$2"
           printf '%s\n' "\$line" >> /run/firn-qa-checks.txt || true
           printf '%s\n' "\$line"
-          printf '%s\n' "\$line" > /dev/ttyS0 2>/dev/null || true
+          kmsg "\$line"
+          # shellcheck disable=SC2016  # \$1 expands in the inner bash
+          timeout -k 2 5 bash -c 'printf "%s\n" "\$1" > /dev/ttyS0' _ "\$line" 2>/dev/null || true
         }
         emit booted ok
         emit rootfs "\$(findmnt -no FSTYPE / 2>/dev/null || echo unknown)"
@@ -559,11 +574,62 @@ spec:
           if (( SECONDS >= serial_deadline )); then break; fi
           sleep 1 || true
         done
+        # Serial health probe. With O_NONBLOCK the open cannot hang. The probe
+        # line must go out whole before tcdrain counts: a full buffer (EAGAIN)
+        # is retried until the 10 s timeout, a short write sends the rest, and
+        # any other write error exits non-zero. A TTY that stopped transmitting
+        # never drains and never takes the line, so the timeout (rc 124, or 137
+        # when TERM was ignored and KILL followed) marks it stalled (ADR-0013).
+        # Any other failure is unknown.
+        SERIAL_TTY=unknown
+        SERIAL_RC=0
+        timeout -k 2 10 python3 -c '
+        import os, termios, time
+        fd = os.open("/dev/ttyS0", os.O_WRONLY | os.O_NOCTTY | os.O_NONBLOCK)
+        data = b"FIRN_QA__DIAG serial_probe\n"
+        while data:
+            try:
+                data = data[os.write(fd, data):]
+            except BlockingIOError:
+                time.sleep(0.05)
+        termios.tcdrain(fd)
+        os.close(fd)
+        ' >/dev/null 2>&1 || SERIAL_RC=\$?
+        if (( SERIAL_RC == 0 )); then
+          SERIAL_TTY=ok
+        elif (( SERIAL_RC == 124 || SERIAL_RC == 137 )); then
+          SERIAL_TTY=stalled
+        fi
+        emit serial_tty "\${SERIAL_TTY}"
+        if [[ "\${SERIAL_TTY}" != ok ]]; then
+          # Diagnostics for a human, not CHECK lines: journal and kmsg only.
+          DIAG_OUTQ="\$(timeout -k 2 5 python3 -c '
+        import fcntl, os, struct, termios
+        fd = os.open("/dev/ttyS0", os.O_WRONLY | os.O_NOCTTY | os.O_NONBLOCK)
+        print(struct.unpack("i", fcntl.ioctl(fd, termios.TIOCOUTQ, struct.pack("i", 0)))[0])
+        ' 2>/dev/null || true)"
+          DIAG_FLAGS="\$(timeout -k 2 5 stty -a -F /dev/ttyS0 2>/dev/null | awk '!/=/' | tr '\n' ' ' || true)"
+          DIAG_LINE="FIRN_QA__DIAG ttyS0_outq=\${DIAG_OUTQ:-unknown}"
+          printf '%s\n' "\${DIAG_LINE}"
+          kmsg "\${DIAG_LINE}"
+          DIAG_LINE="FIRN_QA__DIAG ttyS0_stty_flags=\${DIAG_FLAGS:-unknown}"
+          printf '%s\n' "\${DIAG_LINE}"
+          kmsg "\${DIAG_LINE}"
+        fi
+        # Replay every result through kmsg first (1 line per open), then to
+        # ttyS0 under a timeout, so a stalled TTY cannot hold back the kmsg copy.
+        replay_checks() {
+          local line
+          while IFS= read -r line || [[ -n "\$line" ]]; do kmsg "\$line"; done 2>/dev/null < /run/firn-qa-checks.txt
+          kmsg "${M_DONE}"
+          # shellcheck disable=SC2016  # \$1 expands in the inner bash
+          timeout -k 2 5 bash -c '{ cat /run/firn-qa-checks.txt; printf "%s\n" "\$1"; } > /dev/ttyS0' _ "${M_DONE}" 2>/dev/null || true
+        }
         echo "${M_DONE}"
-        { cat /run/firn-qa-checks.txt; printf '%s\n' "${M_DONE}"; } 2>/dev/null > /dev/ttyS0 || true
+        replay_checks
         sync || true
         sleep 2 || true
-        { cat /run/firn-qa-checks.txt; printf '%s\n' "${M_DONE}"; } 2>/dev/null > /dev/ttyS0 || true
+        replay_checks
         SCRIPT
         )
         C_B64="$(printf '%s' "${CHECK_SH}" | base64 -w0)"
@@ -592,14 +658,26 @@ spec:
         fi
 
         # `|| true` is load-bearing (pipefail + set -e): see the native lane.
-        console_log | grep -aoE "${M_CHECK} [a-z_]+=[^[:space:]]+" | sed "s/${M_CHECK} //" | sort -u \
+        # Only complete records count (ADR-0013): after `\r` is stripped, the value
+        # must run to the end of the line, so a record that kernel printk cut
+        # into (`...serial_tty=o[   12.3] kernel text`) is dropped, not kept as a
+        # wrong value. A kernel prefix before the marker is fine.
+        console_log | tr -d '\r' | grep -aoE "${M_CHECK} [a-z_]+=[^[:space:]]+$" | sed "s/${M_CHECK} //" | sort -u \
           > /tmp/results/checks.txt || true
         echo "--- post-install checks ---" >&2
         cat /tmp/results/checks.txt >&2
+        # Each key is emitted once per run, so one key with 2 distinct complete
+        # values is a corrupted record: fail before the judge reads either.
+        CHECK_DUP_KEYS="$(cut -d= -f1 /tmp/results/checks.txt | sort | uniq -d || true)"
+        if [[ -n "${CHECK_DUP_KEYS}" ]]; then
+          echo "--- conflicting check values ---" >&2
+          while IFS= read -r dup_key; do grep -a "^${dup_key}=" /tmp/results/checks.txt >&2 || true; done <<< "${CHECK_DUP_KEYS}"
+          fail boot checks_ambiguous
+        fi
 
         # ── judge: fixed order; first failing check wins ──
         judge() {
-          local checks_file="$1" bootc_image bootc_digest cfs_objects fsverity_errors fsverity_kernel fsverity_kernels fsverity_known entry fsverity_note=""
+          local checks_file="$1" bootc_image bootc_digest cfs_objects fsverity_errors fsverity_kernel fsverity_kernels fsverity_known entry fsverity_note="" serial_tty
           # Kernels with the known upstream btrfs fs-verity defect (frostyard/snosi#1130,
           # kdave/linux dcf8811f63af). Remove an entry when the kernel canary says
           # `clean` on it or a fixed kernel ships. Keep identical in every lane.
@@ -665,6 +743,12 @@ spec:
               fail boot "fsverity_errors_${fsverity_errors}"
             fi
           fi
+          # Third: the serial TTY must still drain (ADR-0013). The markers of a
+          # stalled run arrive through the kernel log, so it is judged here.
+          serial_tty="$(grep -m1 '^serial_tty=' "${checks_file}" | cut -d= -f2- || true)"
+          if [[ -z "${serial_tty}" ]]; then fail boot serial_check_missing; fi
+          if [[ "${serial_tty}" == stalled ]]; then fail boot serial_tty_stalled; fi
+          if [[ "${serial_tty}" != ok ]]; then fail boot serial_tty_unknown; fi
           printf '%s' "PASS: ${CELL} image=${bootc_image} digest=${bootc_digest}${fsverity_note} firn=${FIRN_VERSION}" > /tmp/results/result-summary.txt
           cat /tmp/results/result-summary.txt >&2
         }

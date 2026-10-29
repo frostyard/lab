@@ -26,6 +26,7 @@ Docs are split by the question they answer
 - [0010 — Vacuous success is forbidden: green must mean work was done](adr/0010-vacuous-success-is-forbidden.md)
 - [0011 — Roster product polls and qualify their QA evidence by digest and freshness](adr/0011-product-poll-qa-evidence-is-rostered-and-fresh.md) (product-only refinement to 0003/0004)
 - [0012 — The lifecycle lane takes its product from the hashed manifest](adr/0012-lifecycle-lane-product-comes-from-the-hashed-manifest.md)
+- [0013 — Firn lane markers also travel through the kernel log](adr/0013-firn-lane-markers-also-travel-through-the-kernel-log.md) (amends 0005)
 
 Org-wide decisions binding this repo: [org-adrs.md](org-adrs.md).
 
@@ -45,6 +46,8 @@ Org-wide decisions binding this repo: [org-adrs.md](org-adrs.md).
   — probe mode, dev run and result
 - [2026-10-28 — First Floe bootc N → N+1 update and rollback run](plans/2026-10-28-floe-bootc-lifecycle-run.md)
   — selected inputs, known causes (snosi#1130), preflight record and submit runbook
+- [2026-10-29 — Sundog fresh-install rerun with console capture (snosi#1123)](plans/2026-10-29-sundog-fresh-install-rerun.md)
+  — runs, the ffbw7 serial stall and the kernel-log marker fix
 
 ### Uncategorized (indexed where they stand)
 
