@@ -1153,7 +1153,7 @@ data:
     : "${CREDENTIALS_DIRECTORY:?missing systemd credentials}"
     exec python3 /opt/snow-qa/qa.py guest "$CREDENTIALS_DIRECTORY"
   qa.py: |
-    """Fail-closed, read-only gates for a manually approved Snow or Floe bootc VM run.
+    """Fail-closed, read-only gates for a manually approved Snow, Floe or Sundog bootc VM run.
 
     Operator must independently compare commit and all three key hashes to the
     committed trusted source before submitting. A manifest is NOT a trust root.
@@ -1177,7 +1177,8 @@ data:
 
     # The manifest `product` picks the image repository. The manifest is canonical
     # and hashed, so the product is bound to the evidence; no workflow input.
-    PRODUCTS = {"snow": "ghcr.io/frostyard/snow", "floe": "ghcr.io/frostyard/floe"}
+    PRODUCTS = {"snow": "ghcr.io/frostyard/snow", "floe": "ghcr.io/frostyard/floe",
+                "sundog": "ghcr.io/frostyard/sundog"}
     REPO = PRODUCTS["snow"]
     ISO_BASE = "https://repository.frostyard.org/isos/native/v1/"
     FINGERPRINT = "F37282A35CB6BDFEBFC8FE775A2EAC5C8216FD68"
@@ -1655,7 +1656,7 @@ data:
         require(record["booted_digest"] == m["image_n_plus_1" if newer else "image_n"].rsplit(":", 1)[-1]
                 and record["booted_version"] == m["version_n_plus_1" if newer else "version_n"], "booted_image")
         # Firn installs with --target-imgref, so the spec names target_ref in every phase.
-        # The Snow/Floe updater switches the spec to containers-storage (same name).
+        # The Snow/Floe/Sundog updater switches the spec to containers-storage (same name).
         require(record["spec_image"] == m["target_ref"], "target_spec")
         require(spec_transport_allowed(phase, record["spec_transport"]), "target_transport")
         require(record["staged_digest"] == (m["image_n_plus_1"].rsplit(":", 1)[-1] if phase == "stage" else None), "staged_image")
@@ -2553,7 +2554,7 @@ data:
         return "SNOW_SYSEXT_V1 " + sysext_truncate(record)
 
 
-    # On Snow, /dev/console is tty0 (graphical); on Floe (headless, no graphical
+    # On Snow and Sundog, /dev/console is tty0 (graphical); on Floe (headless, no graphical
     # stack) it can be ttyS0 itself, so the guest then writes the same line twice
     # to ttyS0 and the host, which treats identical copies as one record, is
     # unaffected. The host reads only ttyS0

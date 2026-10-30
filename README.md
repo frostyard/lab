@@ -321,15 +321,20 @@ for the complete evidence and limits of the retired lane.
 ### Manual Snow bootc lifecycle
 
 [`run-snow-bootc-lifecycle`](argo/workflow-templates/run-snow-bootc-lifecycle.yaml)
-is an advisory WorkflowTemplate for the Snow and Floe bootc images; it is
-not scheduled, not a release gate. The manifest field `product` (`snow` or
-`floe`) selects the image
+is an advisory WorkflowTemplate for the Snow, Floe and Sundog bootc images; it is
+not scheduled, not a release gate. The manifest field `product` (`snow`,
+`floe` or `sundog`) selects the image
 ([ADR-0012](docs/adr/0012-lifecycle-lane-product-comes-from-the-hashed-manifest.md));
 the template has no separate product parameter, so the product is bound to
 the canonical `manifest_sha256`. Floe is a headless guest: the guest probe has
-no desktop check for any product, so both run the same five boots. The
+no desktop check for any product, so every product runs the same five boots. The
 [Floe run plan](docs/plans/2026-10-28-floe-bootc-lifecycle-run.md) holds the
-first Floe inputs; no Floe run is recorded yet.
+Floe inputs and its first main-lane PASS (`run-snow-bootc-lifecycle-v9bkv`,
+2026-10-29). Sundog is the KDE Plasma
+desktop image: it has the same updater, signature policy rule, cosign key and
+Firn ISO as Snow and Floe. The
+[Sundog run plan](docs/plans/2026-10-30-sundog-bootc-lifecycle-run.md) holds its
+inputs; no Sundog run is recorded yet.
 The lane's first manual main-lane PASS (Snow,
 `run-snow-bootc-lifecycle-tbjnp`, 2026-10-26, bootc 1.16.8 N → N+1) is
 recorded in the [run plan](docs/plans/2026-10-26-snow-bootc-lifecycle-run.md#result-2026-10-26-pass). It instantiates the
@@ -350,8 +355,8 @@ secret in the manifest, workflow parameters, or submission command.
 
 | JSON key | Required value |
 |---|---|
-| `family` | Equal to `product`: `snow` or `floe` (bootc, not snow-ab or floe-ab). |
-| `product` | `snow` or `floe`. It selects the repository `ghcr.io/frostyard/<product>` for every image and tag below, the Firn catalog entry of that name, and the signature-policy entry the guest requires. |
+| `family` | Equal to `product`: `snow`, `floe` or `sundog` (bootc, not snow-ab or floe-ab). |
+| `product` | `snow`, `floe` or `sundog`. It selects the repository `ghcr.io/frostyard/<product>` for every image and tag below, the Firn catalog entry of that name, and the signature-policy entry the guest requires. |
 | `iso_url` | Published immutable versioned `snosi-installer_<iso_version>_x86-64.iso` URL under `https://repository.frostyard.org/isos/native/v1/`; never `latest`. |
 | `iso_sha256` | Lowercase 64-hex SHA-256 of that ISO, independently checked against the signed ISO index. |
 | `iso_version` | 14-digit ISO version matching the URL and extracted release metadata. |
@@ -435,7 +440,7 @@ after stage, N+1 boot and rollback. The lane attempts a secure UEFI
 vTPM Firn v2 encrypted-btrfs install, then five distinct fresh boots:
 `installed-n`, `stage`, `boot-n-plus-1`, `rollback`, `boot-n`. The guest
 contract follows the real Firn installer and the shipped updater (the same
-`bootc-update-stage` on Snow and Floe). Firn installs with
+`bootc-update-stage` on Snow, Floe and Sundog). Firn installs with
 `--target-imgref`, so every phase must report `target_ref` as the bootc spec
 image (never `image_n`): `installed-n` and the pre-`stage` boot must be
 transport `registry`; after the updater (`bootc switch --transport

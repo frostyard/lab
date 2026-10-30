@@ -1,0 +1,22 @@
+{
+  "family": "sundog",
+  "product": "sundog",
+  "iso_url": "https://repository.frostyard.org/isos/native/v1/snosi-installer_20261030183923_x86-64.iso",
+  "iso_sha256": "f5fce13ca2ee37654eec53b171a30d409853a8a1f7a3f161172f01c1fc00e7f2",
+  "iso_version": "20261030183923",
+  "image_n": "ghcr.io/frostyard/sundog@sha256:87c02c9347699b30ec604ab814626bf688d90aebf11ba81aa8154f4b24795795",
+  "version_n": "20261026191618",
+  "version_tag_n": "ghcr.io/frostyard/sundog:20261026191618",
+  "image_n_plus_1": "ghcr.io/frostyard/sundog@sha256:199ca9898e04c4db048af413ff82e3a88c35bfcb38cb39800e1929bea8b65da4",
+  "version_n_plus_1": "20261030194311",
+  "version_tag_n_plus_1": "ghcr.io/frostyard/sundog:20261030194311",
+  "target_ref": "ghcr.io/frostyard/sundog:qa-controlled",
+  "snosi_commit": "39cf19887547f83200866e94e5753888706b49fa",
+  "index_key_sha256": "977fe2de56de82dab559709178bbf335a28cc648237c69cb88ee3de008c0fc97",
+  "cosign_key_sha256": "3e79750429976e1f1a01cb2a71d0aa1caf61ad918302553b2a8df397c4514fc5",
+  "mok_cert_sha256": "0446e4780b809711af17934da0b5a39487da1da35d1fe7dbaae5e7f9f39545b4",
+  "trust_fingerprint": "F37282A35CB6BDFEBFC8FE775A2EAC5C8216FD68",
+  "secureboot": true,
+  "encryption": "tpm2-luks-passphrase",
+  "timeouts": {"iso_boot": 1800, "install": 7200, "installed_boot": 1800, "stage": 3600, "reboot": 1800}
+}

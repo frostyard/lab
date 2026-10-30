@@ -1,5 +1,5 @@
 #!/bin/bash
-# Read-only operator preflight for a run-snow-bootc-lifecycle manifest (Snow or Floe).
+# Read-only operator preflight for a run-snow-bootc-lifecycle manifest (Snow, Floe or Sundog).
 #
 # Usage: scripts/snow-lifecycle-preflight/run.sh MANIFEST.json [LOCAL_ISO]
 #
