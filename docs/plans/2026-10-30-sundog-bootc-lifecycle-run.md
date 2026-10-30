@@ -15,8 +15,8 @@ Everything else is the lane that passed for Snow in the
 advisory and not a release gate
 ([ADR-0003](../adr/0003-unproven-is-distinct-from-failed.md),
 [ADR-0010](../adr/0010-vacuous-success-is-forbidden.md)). The field contract is
-in the [README](../../README.md#manual-snow-bootc-lifecycle). No Sundog run is
-recorded yet.
+in the [README](../../README.md#manual-snow-bootc-lifecycle). Its first dev run
+[passed](#result-2026-10-30-dev-run-pass).
 
 ## Selected inputs
 
@@ -101,7 +101,50 @@ WorkflowTemplate or ConfigMap (standing permission T551a). Keep
   here. A `FAILED` or `BLOCKED` result is evidence too: record the code and fix
   forward.
 
-RESULT: not run yet
+### Result (2026-10-30, dev run): PASS
+
+`dev-snow-bootc-lifecycle-rs6sh` (dev run from this branch at lab
+`d88fa83f`, label `snosi.io/trigger=dev`; submitted 23:33:12Z, ended
+23:48:30Z), canonical `manifest_sha256`
+`b6999392e1e7b70445c4145f96471a0216e78b41b104fd4030f1838993d1c201`:
+
+```
+PASS: verified_five_fresh_boots;fsverity_known_defect=7.2.12+deb14-amd64
+```
+
+| Phase | Boot ID | Kernel | fs-verity errors |
+| --- | --- | --- | --- |
+| `installed-n` | `a3d7609a-0957-48c2-93f9-6e8ae1dbd5f2` | `7.2.12+deb14-amd64` | 3 |
+| `stage` | `cfd323de-e142-4001-a76c-a702333a23f4` | `7.2.12+deb14-amd64` | 2 |
+| `boot-n-plus-1` | `2db3f367-37da-4e4b-9b34-f3a3f8fe7d10` | `7.2.12+deb14-amd64` | 0 |
+| `rollback` | `de1eae63-51c2-43f9-af3f-a2e671f0dfb3` | `7.2.12+deb14-amd64` | 1 |
+| `boot-n` | `25c2184e-a317-4d6a-8d7a-0d55fd045ec6` | `7.2.12+deb14-amd64` | 1 |
+
+- **Before submit.** Brian created `ghcr.io/frostyard/sundog:qa-controlled`
+  at N+1 (desk ask T589a). The final preflight, 23:31:32Z to 23:33:01Z, gave
+  `target_ref PASS` (`sha256:199ca989…65da4`), `lane_preflight PASS full qa.py
+  preflight` and `failures=0`; the signed index still held ISO
+  `20261030183923`. Submitted with `scripts/snow-lifecycle-dev-submit.sh`
+  (`SUBMIT` through `ssh minideb sudo -n k3s kubectl create`) under the
+  `lab-dev` lease (thread T589). It published nothing and moved no tag.
+- **fs-verity.** 7 errors over the five boots, all on `7.2.12+deb14-amd64`,
+  which is on the known-defect list
+  ([snosi#1130](https://github.com/frostyard/snosi/issues/1130)), so the lane
+  recorded them and did not fail. Unlike Floe (1 error, `stage` only), Sundog
+  also logged errors in the fresh `installed-n` boot and in both N boots after
+  rollback. The cause of that spread is not checked; the larger desktop image
+  most likely reads more large files at boot. This PASS
+  says nothing about the resolution of #1130.
+- **Serial and memory.** Every phase record arrived on `ttyS0`: the Sundog
+  switch-root stall seen in the Firn lane (lab#168) did not occur in these
+  five boots. The 8 GiB VM finished each phase without a timeout.
+- **What it shows.** A Firn-installed Sundog host on bootc 1.16.8 takes the
+  signed update to the bootc 1.17.1 image, boots it, rolls back and boots N
+  again, with Secure Boot, lockdown, the measured UKI and the TPM-unlocked
+  LUKS root attested on each of the five boots. It is a dev run of the branch
+  lane; the lane stays advisory and the main lane has no Sundog run yet.
+- `qa-controlled` stays at N+1 (do not delete it in the GitHub package UI:
+  that deletes N+1 by digest).
 
 - **Done when:** the result is recorded here.
 

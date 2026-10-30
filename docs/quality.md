@@ -213,7 +213,8 @@ and `checks.txt` do not name it, so read a result with its `manifest_sha256`.
 Floe has offline contract tests and a
 [run plan](plans/2026-10-28-floe-bootc-lifecycle-run.md) with its first main-lane PASS
 (`run-snow-bootc-lifecycle-v9bkv`, 2026-10-29). Sundog has offline contract tests and a
-[run plan](plans/2026-10-30-sundog-bootc-lifecycle-run.md), but no run yet. Offline mocked tests cannot
+[run plan](plans/2026-10-30-sundog-bootc-lifecycle-run.md) with a dev-run PASS
+(`dev-snow-bootc-lifecycle-rs6sh`, 2026-10-30), but no main-lane run yet. Offline mocked tests cannot
 establish published ISO/OCI availability or Snowfield hardware qualification.
 Submission includes the JSON in the `argo` process argv; workflow/pod parameters
 and env are visible: no secrets in the manifest. After tool provisioning,

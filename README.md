@@ -334,7 +334,8 @@ Floe inputs and its first main-lane PASS (`run-snow-bootc-lifecycle-v9bkv`,
 desktop image: it has the same updater, signature policy rule, cosign key and
 Firn ISO as Snow and Floe. The
 [Sundog run plan](docs/plans/2026-10-30-sundog-bootc-lifecycle-run.md) holds its
-inputs; no Sundog run is recorded yet.
+inputs and its first dev-run PASS (`dev-snow-bootc-lifecycle-rs6sh`,
+2026-10-30, from the unmerged lane branch); no main-lane Sundog run yet.
 The lane's first manual main-lane PASS (Snow,
 `run-snow-bootc-lifecycle-tbjnp`, 2026-10-26, bootc 1.16.8 N → N+1) is
 recorded in the [run plan](docs/plans/2026-10-26-snow-bootc-lifecycle-run.md#result-2026-10-26-pass). It instantiates the
