@@ -3570,6 +3570,10 @@ SECRET_PATH = "/etc/credstore.encrypted/frostmail-secrets-key"
 DEV_PLAN = Path(__file__).resolve().parents[1] / "docs/plans/snow-sysext-probe-2026-10-28/manifest.json"
 
 
+# snosi#1189 evidence: the target's load state as the guest records it.
+SYSEXT_TARGET = {"LoadState": "loaded", "NeedDaemonReload": "no", "Upholds": "frostnotes.service"}
+
+
 def sysext_manifest():
     m = manifest()
     m["sysext_probe"] = json.loads(json.dumps(SYSEXT_PROBE))
@@ -3585,7 +3589,8 @@ def sysext_normalized(tmp_path, qa, m=None):
 def sysext_record(phase="sysext-enable", **overrides):
     record = dict(phase=phase, nonce=NONCE, boot_id=SYSEXT_BOOT_ID, booted_digest=N,
                   updex={}, merged={"names": ["maild", "notesd"], "reported": ["maild", "notesd"]},
-                  links={"notesd": "notesd.raw", "maild": "maild.raw"}, units={}, first_start={},
+                  links={"notesd": "notesd.raw", "maild": "maild.raw"}, units={}, target=dict(SYSEXT_TARGET),
+                  first_start={},
                   sysusers={"fragments": [], "users": {}, "groups": {}, "memberships": {}},
                   extra_journal={}, failures=[])
     record.update(overrides)
@@ -3740,6 +3745,72 @@ def test_sysext_phase_rejects_untrustworthy_records(qa, tmp_path, capsys, damage
     assert not out.exists()
 
 
+def sysext_unit_entry(**overrides):
+    entry = {"ActiveState": "active", "LoadState": "loaded", "NeedDaemonReload": "no"}
+    entry.update(overrides)
+    return entry
+
+
+def run_sysext_phase(qa, tmp_path, record):
+    normalized = sysext_normalized(tmp_path, qa)
+    serial = tmp_path / "serial"
+    serial.write_text(sysext_serial(qa, record))
+    out = tmp_path / "sysext-enable.json"
+    code = qa.main(["sysext-phase", str(normalized), "sysext-enable", NONCE, "none", str(serial), str(out)])
+    return code, out
+
+
+def test_sysext_phase_accepts_the_load_evidence_and_keeps_it(qa, tmp_path, capsys):
+    record = sysext_record(units={"frostnotes.service": sysext_unit_entry(LoadState=None)},
+                           target={"LoadState": None, "NeedDaemonReload": None, "Upholds": ""})
+    code, out = run_sysext_phase(qa, tmp_path, record)
+    assert code == 0
+    written = json.loads(out.read_text())
+    assert written["target"] == record["target"] and written["units"] == record["units"]
+
+
+def test_sysext_need_daemon_reload_changes_no_verdict(qa, tmp_path, capsys):
+    record = sysext_record(units={"frostnotes.service": sysext_unit_entry(NeedDaemonReload="yes")},
+                           target=dict(SYSEXT_TARGET, NeedDaemonReload="yes"))
+    code, _ = run_sysext_phase(qa, tmp_path, record)
+    assert code == 0
+    assert capsys.readouterr().out.splitlines() == [SYSEXT_BOOT_ID, "failures=none"]
+
+
+@pytest.mark.parametrize("damage", [
+    lambda r: r.pop("target"),
+    lambda r: r.update(target="loaded"),
+    lambda r: r["target"].pop("Upholds"),
+    lambda r: r["target"].update(NeedDaemonReload=False),
+    lambda r: r["target"].update(LoadState=["loaded"]),
+    lambda r: r["target"].update(Upholds="x" * 1025),
+    lambda r: r["target"].update(extra="x"),
+    lambda r: r["units"]["frostnotes.service"].pop("LoadState"),
+    lambda r: r["units"]["frostnotes.service"].update(NeedDaemonReload=1),
+])
+def test_sysext_phase_rejects_malformed_load_evidence(qa, tmp_path, capsys, damage):
+    record = sysext_record(units={"frostnotes.service": sysext_unit_entry()})
+    damage(record)
+    code, out = run_sysext_phase(qa, tmp_path, record)
+    assert code == 1 and not out.exists()
+    assert "qa_failed:record_" in capsys.readouterr().err
+
+
+def test_sysext_reboot_does_not_compare_the_load_evidence(qa, tmp_path, capsys):
+    normalized = sysext_normalized(tmp_path, qa)
+    enable = sysext_record("sysext-enable", target=dict(SYSEXT_TARGET, NeedDaemonReload="yes"),
+                           units={"frostnotes.service": sysext_unit_entry(LoadState="not-found")})
+    enable_path = tmp_path / "sysext-enable.json"
+    enable_path.write_bytes(qa.canonical(enable))
+    serial = tmp_path / "serial"
+    serial.write_text(sysext_serial(qa, sysext_record("sysext-reboot",
+                                    units={"frostnotes.service": sysext_unit_entry()})))
+    out = tmp_path / "sysext-reboot.json"
+    assert qa.main(["sysext-phase", str(normalized), "sysext-reboot", NONCE, "none",
+                    str(serial), str(out), str(enable_path)]) == 0
+    assert capsys.readouterr().out.splitlines() == [SYSEXT_BOOT_ID, "failures=none"]
+
+
 def test_sysext_phase_ignores_a_copy_that_does_not_decode(qa, tmp_path, capsys):
     normalized = sysext_normalized(tmp_path, qa)
     garbage = "SNOW_SYSEXT_V1 " + base64.urlsafe_b64encode(b"not zlib").decode().rstrip("=")
@@ -3840,9 +3911,13 @@ def test_sysext_probe_unit_orders_after_multi_user_target():
 
 SYSEXT_STATES = {
     "frostnotes.service": {"ActiveState": "active", "SubState": "running", "Result": "success",
-                          "NRestarts": "0", "ActiveEnterTimestampMonotonic": "5000000"},
+                          "NRestarts": "0", "ActiveEnterTimestampMonotonic": "5000000",
+                          "LoadState": "loaded", "NeedDaemonReload": "no"},
     "frostmail.service": {"ActiveState": "active", "SubState": "running", "Result": "success",
-                          "NRestarts": "0", "ActiveEnterTimestampMonotonic": "5000000"},
+                          "NRestarts": "0", "ActiveEnterTimestampMonotonic": "5000000",
+                          "LoadState": "loaded", "NeedDaemonReload": "no"},
+    "multi-user.target": {"LoadState": "loaded", "NeedDaemonReload": "no",
+                          "Upholds": "frostnotes.service frostmail.service"},
     "frostmail-secrets-key.service": {"ActiveState": "active", "Result": "success", "ConditionResult": "no",
                                       "ExecMainStartTimestampMonotonic": "123456", "ExecMainStatus": "0"},
 }
@@ -3964,6 +4039,48 @@ def test_guest_sysext_collects_a_passing_record(qa, tmp_path, monkeypatch):
     assert ["systemd-sysext", "status", "--json=short"] in calls
     assert ["updex", "features", "enable", "maild", "--now"] in calls
     assert "truncated" not in record
+
+
+def test_guest_sysext_records_the_load_state_of_units_and_the_target(qa, tmp_path, monkeypatch):
+    # snosi#1189: evidence only. NeedDaemonReload=yes on the target changes no verdict.
+    states = json.loads(json.dumps(SYSEXT_STATES))
+    states["multi-user.target"] = {"LoadState": "loaded", "NeedDaemonReload": "yes", "Upholds": ""}
+    states["frostmail.service"]["NeedDaemonReload"] = "yes"
+    states["frostnotes.service"]["LoadState"] = "not-found"
+    credentials, calls, _, _ = sysext_guest(qa, tmp_path, monkeypatch, states=states)
+    record = sysext_payload(qa.sysext(credentials))
+    assert record["failures"] == []
+    assert record["target"] == {"LoadState": "loaded", "NeedDaemonReload": "yes", "Upholds": ""}
+    assert record["units"]["frostmail.service"]["NeedDaemonReload"] == "yes"
+    assert record["units"]["frostnotes.service"]["LoadState"] == "not-found"
+    assert ["systemctl", "show", "--property=LoadState,NeedDaemonReload,Upholds", "multi-user.target"] in calls
+
+
+def test_guest_sysext_samples_the_target_after_the_settle_wait(qa, tmp_path, monkeypatch):
+    after = json.loads(json.dumps(SYSEXT_STATES))
+    after["multi-user.target"]["NeedDaemonReload"] = "yes"
+    credentials, _, _, _ = sysext_guest(qa, tmp_path, monkeypatch, after_states=after)
+    assert sysext_payload(qa.sysext(credentials))["target"]["NeedDaemonReload"] == "yes"
+
+
+def test_guest_sysext_keeps_a_long_upholds_list_within_its_bound(qa, tmp_path, monkeypatch):
+    states = json.loads(json.dumps(SYSEXT_STATES))
+    states["multi-user.target"]["Upholds"] = " ".join("unit-%03d.service" % n for n in range(200))
+    credentials, _, _, _ = sysext_guest(qa, tmp_path, monkeypatch, states=states)
+    upholds = sysext_payload(qa.sysext(credentials))["target"]["Upholds"]
+    assert upholds.startswith("unit-000.service unit-001.service") and len(upholds) == qa.SYSEXT_UPHOLDS_MAX
+
+
+def test_guest_sysext_load_evidence_survives_truncation(qa, tmp_path, monkeypatch):
+    blob = ("\n".join(sysext_blob()) + "\n").encode()
+    after = json.loads(json.dumps(SYSEXT_STATES))
+    after["frostmail.service"]["NRestarts"] = "1"
+    credentials, _, _, _ = sysext_guest(qa, tmp_path, monkeypatch, after_states=after, journal=blob,
+                                        token_max=2500)
+    record = sysext_payload(qa.sysext(credentials))
+    assert record["truncated"] is True
+    assert record["target"]["LoadState"] == "loaded"
+    assert record["units"]["frostmail.service"]["LoadState"] == "loaded"
 
 
 def test_guest_sysext_reports_an_inactive_unit_with_its_journal(qa, tmp_path, monkeypatch):
@@ -4242,9 +4359,13 @@ def test_sysext_reboot_host_codes_come_only_from_manifest_units_and_valid_names(
     assert json.loads(out.read_text())["host_failures"] == []
 
 
-def journal_printer():
+def journal_printer(which="journal"):
+    """The embedded pod-log printer: the load-state one comes first, the journal one second."""
     run = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
-    start = run.index('python3 - "$WORK/normalized.json" "$WORK/sysext-enable.json"')
+    marker = 'python3 - "$WORK/normalized.json" "$WORK/sysext-enable.json"'
+    start = run.index(marker)
+    if which == "journal":
+        start = run.index(marker, start + 1)
     body = run[run.index("<<'PY'", start):]
     body = body[body.index("\n") + 1:]
     return body[:body.index("\nPY\n")]
@@ -4290,3 +4411,36 @@ def test_sysext_journal_printer_prints_the_head_before_the_tail(qa, tmp_path):
         "sysext_journal_head unit=frostmail.service headresult=PASS[2J [REDACTED]",
         "sysext_journal unit=frostmail.service tail [REDACTED]"]
     assert secret not in result.stdout
+
+
+def test_sysext_state_printer_lists_every_unit_with_the_load_state(qa, tmp_path):
+    # snosi#1189: printed for every probed unit, also when the run passes; guest text is re-sanitized.
+    normalized = sysext_normalized(tmp_path, qa)
+    secret = "0123456789abcdef" * 4
+    data = {"units": {"frostnotes.service": {"ActiveState": "inactive", "LoadState": "loaded",
+                                             "NeedDaemonReload": "no"},
+                      "frostmail.service": {"ActiveState": "active", "LoadState": "x\ny " + secret,
+                                            "NeedDaemonReload": None},
+                      "other.service": {"ActiveState": "active"}},
+            "target": {"LoadState": "loaded", "NeedDaemonReload": "yes",
+                       "Upholds": "a.service\nINJECTED  b.socket"}}
+    enable = tmp_path / "sysext-enable.json"
+    enable.write_text(json.dumps(data))
+    script = tmp_path / "printer.py"
+    script.write_text(journal_printer("state"))
+    result = subprocess.run([sys.executable, str(script), str(normalized), str(enable),
+                             str(tmp_path / "missing.json")],
+                            capture_output=True, text=True, timeout=60, check=True)
+    assert result.stdout.splitlines() == [
+        "sysext_state phase=sysext-enable unit=frostnotes.service ActiveState=inactive LoadState=loaded"
+        " NeedDaemonReload=no",
+        "sysext_state phase=sysext-enable unit=frostmail.service ActiveState=active"
+        " LoadState=x_y_[REDACTED] NeedDaemonReload=-",
+        "sysext_target phase=sysext-enable LoadState=loaded NeedDaemonReload=yes"
+        " Upholds=a.service INJECTED b.socket",
+    ]
+
+
+def test_run_script_prints_the_load_state_whenever_the_probe_ran():
+    run = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    assert 'if [[ "$sysext_mode" == 1 ]]; then\n  python3 - "$WORK/normalized.json"' in run

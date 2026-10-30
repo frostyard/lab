@@ -1037,6 +1037,40 @@ data:
         sleep 5
       done
     done
+    # snosi#1189 evidence: every probed unit's load state and the target's Upholds, pass or fail.
+    if [[ "$sysext_mode" == 1 ]]; then
+      python3 - "$WORK/normalized.json" "$WORK/sysext-enable.json" "$WORK/sysext-reboot.json" >&2 <<'PY' || true
+    import json, re, sys
+    from pathlib import Path
+    def clean(value, limit=240, space='_'):
+        if not isinstance(value, str):
+            return '-'
+        value = re.sub(r'[\x00-\x1f\x7f-\x9f\u2028\u2029\s]+', space, value[:4096])
+        value = re.sub(r'[0-9a-fA-F]{32,}', '[REDACTED]', value)
+        return value[:limit] or '-'
+    manifest = json.loads(Path(sys.argv[1]).read_bytes()[:16384])
+    probe = manifest['sysext_probe']
+    for phase, name in zip(('sysext-enable', 'sysext-reboot'), sys.argv[2:]):
+        try:
+            data = json.loads(Path(name).read_bytes()[:1048576])
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        entries = data.get('units')
+        for unit in probe['units']:
+            entry = entries.get(unit) if isinstance(entries, dict) else None
+            entry = entry if isinstance(entry, dict) else {}
+            print('sysext_state phase=%s unit=%s ActiveState=%s LoadState=%s NeedDaemonReload=%s' % (
+                phase, unit, clean(entry.get('ActiveState')), clean(entry.get('LoadState')),
+                clean(entry.get('NeedDaemonReload'))))
+        target = data.get('target')
+        target = target if isinstance(target, dict) else {}
+        print('sysext_target phase=%s LoadState=%s NeedDaemonReload=%s Upholds=%s' % (
+            phase, clean(target.get('LoadState')), clean(target.get('NeedDaemonReload')),
+            clean(target.get('Upholds'), 1024, ' ')))
+    PY
+    fi
     # Judged after all five boots so a failure keeps every phase's evidence
     # (frostyard/snosi#1130). A count above 0 on a known-defect kernel is the
     # upstream defect (rare on uncompressed objects, almost every extent on
@@ -1156,7 +1190,7 @@ data:
               "stage": 3600, "reboot": 1800}
     PHASES = ("installed-n", "stage", "boot-n-plus-1", "rollback", "boot-n")
     SYSEXT_PHASES = ("sysext-enable", "sysext-reboot")
-    SYSEXT_RECORD_FIELDS = set("phase nonce boot_id booted_digest updex merged links units first_start sysusers extra_journal failures".split())
+    SYSEXT_RECORD_FIELDS = set("phase nonce boot_id booted_digest updex merged links units target first_start sysusers extra_journal failures".split())
     SYSEXT_FIELDS = FIELDS | {"sysext_probe"}
     # The host accepts a token of at most this many characters; the guest drops the
     # oldest journal lines until its record fits.
@@ -1168,6 +1202,11 @@ data:
     # So the probe samples again after a settle window and keeps the head too.
     SYSEXT_SETTLE = 30
     SYSEXT_HEAD_LINES = 40
+    # snosi#1189 evidence: the load state of every unit and of the target that Upholds them.
+    SYSEXT_TARGET = "multi-user.target"
+    SYSEXT_TARGET_KEYS = ("LoadState", "NeedDaemonReload", "Upholds")
+    SYSEXT_UNIT_LOAD_KEYS = ("LoadState", "NeedDaemonReload")
+    SYSEXT_UPHOLDS_MAX = 1024
     SYSEXT_STATE = Path("/var/lib/snow-qa")
     SYSEXT_EXTENSIONS = Path("/var/lib/extensions")
     SYSUSERS_DIR = Path("/usr/lib/sysusers.d")
@@ -1767,6 +1806,22 @@ data:
         return json.loads(records.pop(), object_pairs_hook=pairs)
 
 
+    def sysext_load_evidence(record):
+        """The LoadState evidence fields: exact keys, text or null, bounded."""
+        def text(value, limit):
+            return value is None or (type(value) is str and len(value) <= limit)
+
+        target = record["target"]
+        require(type(target) is dict and set(target) == set(SYSEXT_TARGET_KEYS) and
+                all(text(target[key], SYSEXT_UPHOLDS_MAX if key == "Upholds" else 240)
+                    for key in SYSEXT_TARGET_KEYS), "record_target")
+        units = record["units"]
+        require(type(units) is dict and all(
+            type(entry) is dict and all(key in entry and text(entry[key], 240)
+                                        for key in SYSEXT_UNIT_LOAD_KEYS)
+            for entry in units.values()), "record_unit_load")
+
+
     def sysext_phase_attest(m, phase, nonce, prior, serial, destination, enable=None):
         require("sysext_probe" in m and phase in SYSEXT_PHASES and nonce_valid(nonce) and
                 (prior == "none" or boot_id_valid(prior)), "phase_arguments")
@@ -1779,6 +1834,8 @@ data:
         require(type(record["failures"]) is list and len(record["failures"]) <= 128 and
                 all(full(SYSEXT_CODE, code) for code in record["failures"]),
                 "record_failures")
+        # Evidence only (snosi#1189): shape-checked, never compared and never a failure.
+        sysext_load_evidence(record)
         # The guest's own codes are not recomputed; a reboot record is compared with
         # the enable record for the files and accounts it must not change.
         units = [entry["unit"] for entry in m["sysext_probe"]["first_start"]]
@@ -2124,12 +2181,12 @@ data:
     SYSUSERS_BEFORE = "sysusers-before.json"
 
 
-    def sanitize(value):
+    def sanitize(value, limit=240):
         """One captured line: UTF-8 text, no control characters, no long hex runs."""
         text = value.decode("utf-8", "replace") if isinstance(value, bytes) else str(value)
         text = re.sub(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]", "", text)
         text = re.sub(r"[0-9a-fA-F]{32,}", "[REDACTED]", text)
-        return text[:240]
+        return text[:limit]
 
 
     def tail_lines(raw, limit):
@@ -2157,7 +2214,7 @@ data:
         for line in out.splitlines():
             key, separator, value = line.decode("utf-8", "replace").partition("=")
             if separator and key in keys and key not in values:
-                values[key] = sanitize(value)
+                values[key] = sanitize(value, SYSEXT_UPHOLDS_MAX if key == "Upholds" else 240)
         return values
 
 
@@ -2227,12 +2284,17 @@ data:
 
 
     def sysext_settle(units):
-        """Sample every probed unit, wait SYSEXT_SETTLE once, then sample again."""
-        properties = "ActiveState,SubState,Result,NRestarts,ActiveEnterTimestampMonotonic"
+        """Sample every probed unit, wait SYSEXT_SETTLE once, then sample again.
+
+        The target is sampled with the second sample, so it shows the state after the wait.
+        """
+        properties = ("ActiveState,SubState,Result,NRestarts,ActiveEnterTimestampMonotonic,"
+                      "LoadState,NeedDaemonReload")
         before = {unit: sysext_show(unit, properties) for unit in units}
         time.sleep(SYSEXT_SETTLE)
         after = {unit: sysext_show(unit, properties) for unit in units}
-        return before, after
+        target = sysext_show(SYSEXT_TARGET, ",".join(SYSEXT_TARGET_KEYS))
+        return before, after, {key: target.get(key) for key in SYSEXT_TARGET_KEYS}
 
 
     def sysext_unit_codes(unit, before, after):
@@ -2260,7 +2322,8 @@ data:
     def sysext_unit_state(unit, before, after):
         """One unit's state after the settle window, with both samples' evidence."""
         first, last = before.get(unit, {}), after.get(unit, {})
-        entry = {key: last.get(key) for key in ("ActiveState", "SubState", "Result", "NRestarts")}
+        entry = {key: last.get(key) for key in
+                 ("ActiveState", "SubState", "Result", "NRestarts") + SYSEXT_UNIT_LOAD_KEYS}
         entry["NRestartsBefore"] = first.get("NRestarts")
         entry["ActiveEnterBefore"] = first.get("ActiveEnterTimestampMonotonic")
         entry["ActiveEnterAfter"] = last.get("ActiveEnterTimestampMonotonic")
@@ -2449,7 +2512,7 @@ data:
             before = sysusers_before()
             updex = {}
             sysext_poll(probe["units"])
-        settle_before, settle_after = sysext_settle(probe["units"])
+        settle_before, settle_after, target = sysext_settle(probe["units"])
         merged = sysext_merged()
         links = {feature: sysext_link(feature) for feature in probe["features"]}
         units = {unit: sysext_unit_state(unit, settle_before, settle_after) for unit in probe["units"]}
@@ -2483,7 +2546,7 @@ data:
         if booted_digest != m["image_n"].rsplit(":", 1)[-1]:
             failures.add("booted_image")
         record = dict(phase=phase, nonce=nonce, boot_id=boot_id, booted_digest=booted_digest,
-                      updex=updex, merged=merged, links=links, units=units,
+                      updex=updex, merged=merged, links=links, units=units, target=target,
                       first_start=first_start, sysusers=sysusers, extra_journal=extra_journal,
                       failures=sorted(failures))
         require(set(record) == SYSEXT_RECORD_FIELDS, "record_fields")

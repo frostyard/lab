@@ -472,6 +472,23 @@ samples as `active` between two restarts. So every `units` entry must also stay
 `ActiveEnterTimestampMonotonic` at both samples, else the code is
 `unit_inactive:<unit>` or `unit_restarted:<unit>` (lab#165, see
 [ADR 0010](docs/adr/0010-vacuous-success-is-forbidden.md)).
+Load-state evidence (snosi#1189, evidence only: no failure code, no verdict
+change, not compared between the two boots): each `units` entry also has
+`LoadState` and `NeedDaemonReload`, and the record has one `target` object with
+`LoadState`, `NeedDaemonReload` and `Upholds` of `multi-user.target`. Units come
+from the second settle sample and `target` is sampled right after it, so both
+show the state after the 30 s wait. Every value is text (control characters
+removed, at most 240 characters; `Upholds` at most 1024) or `null` when
+`systemctl show` gave none; a missing key or another type fails the record
+(`record_target`, `record_unit_load`). `systemctl show` can load a unit file on
+demand, so `LoadState=loaded` alone does not prove that PID 1 read the new
+files: `NeedDaemonReload=yes` on the target, or an `Upholds` list without the
+units that the sysext's `multi-user.target.d` drop-in upholds, shows that the
+drop-ins were not loaded. Not every probed unit is upheld (a setup unit can
+pull one in with `Wants=`), and a list cut at 1024 characters cannot show that
+a unit is absent. This evidence never enters the verdict. The pod log prints one
+`sysext_state` line per probed unit and one `sysext_target` line per boot, also
+when the run passes.
 Each boot publishes one `SNOW_SYSEXT_V1` record: merged `/usr` extensions, the
 file each `/var/lib/extensions/<feature>.raw` resolves to, unit states, the
 first-start file size/mode/sha256, the new sysusers accounts, and a sorted
