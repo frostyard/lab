@@ -48,7 +48,9 @@ Probed units (lab#142, "must be active after merge"):
 | nix | `nix.mount`, `nix-sysext-setup.service`, `nix-daemon.socket` |
 
 `coder.service` is not probed: it is skipped by design until
-`/etc/coder.d/coder.env` has content (its `ExecCondition=` gate), and
+`/etc/coder.d/coder.env` holds a usable configuration (a non-empty
+`CODER_ACCESS_URL` and a bind address that its `ExecCondition=` helper
+`/usr/lib/coder-sysext/coder-configured` accepts), and
 `coder-sysext-setup.service` only `Wants=` it.
 
 Sysext versions in the repository at submit time (`/ext/<name>/SHA256SUMS`,
@@ -103,9 +105,12 @@ Unit states after the reboot (second sample of the settle window):
 | `nix-sysext-setup.service` | active (exited) | 0 |
 | `nix-daemon.socket` | active (running) | — |
 
-**After the reboot, lab#142's check passes:** the snosi#1114 `Upholds=`
-design starts every unit once and none restarts in the settle window (no
-snosi#1100 start loop).
+**After the reboot, lab#142's check passes for the settle window:** all 9
+units are active at both samples, with an unchanged, non-zero
+`ActiveEnterTimestampMonotonic` across the 30 s window, and the 5 services
+have `NRestarts=0`. So no unit re-entered `active` in the window: no sign of
+the snosi#1100 start loop there. The probe keeps no journal for a passing
+unit, so this run does not prove exactly 1 start over the whole boot.
 
 **In the enable boot, PID 1 never starts the units.** The probable cause,
 not proven by this run: the suite sysexts ship an `extension-release` file
