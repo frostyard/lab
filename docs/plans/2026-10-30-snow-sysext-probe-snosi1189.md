@@ -63,15 +63,46 @@ points at N+1 `20261026133822` (`sha256:008bfa69…2192aa`), checked 2026-10-30.
   the target in both sysext boots, and the comparison of A and B is written in
   snosi#1189.
 
-## Result
+## Result (2026-10-30): cause shown; a merged key starts the units in the enable boot
 
-Pending.
+Both runs from branch head `1c47693a`, under the `lab-dev` lease (T558). The
+VMs were deleted by the lane's teardown; `qa-controlled` was not moved.
+
+**Run A — `dev-snow-bootc-lifecycle-mm4s5` (control, 15:48Z–16:04Z):
+`FAILED: sysext_failed:unit_inactive:…,unit_restarted:…` (the 9 units) in the
+enable boot, no failure after the reboot.** `updex features enable … --now` rc 0
+for `incus`, `coder`, `nix`; all merged and linked (`incus` r5, `coder` r3,
+`nix` r5).
+
+| Boot | `multi-user.target` | 9 probed units |
+| --- | --- | --- |
+| `sysext-enable` | `LoadState=loaded`, `NeedDaemonReload=yes`, `Upholds=` empty | `LoadState=loaded`, `ActiveState=inactive` (dead), `ActiveEnterTimestampMonotonic=0`, no journal entries |
+| `sysext-reboot` | `NeedDaemonReload=no`, `Upholds=` the 7 upheld units | all active, 0 restarts, settled |
+
+`LoadState=loaded` comes from `systemctl show`, which loads a unit file on
+demand; the target's `NeedDaemonReload=yes` and empty `Upholds=` show that PID 1
+never reloaded after the live refresh, so the `multi-user.target.d` drop-ins
+were not applied.
+
+**Run B — `dev-snow-bootc-lifecycle-4hr54` (lodge first, 16:04Z–16:17Z):
+`PASS: verified_sysext_probe`.** In the enable boot the target had
+`NeedDaemonReload=no` and `Upholds=` with the 7 units and `lodge.service`; all
+10 units were `loaded` and active, unchanged across the settle window, with 0
+restarts. Each feature's units entered `active` after its own enable (incus
+about 26.9 s, coder 30.7 s, nix 33.0 s monotonic). Same after the reboot.
+
+So a merged `EXTENSION_RELOAD_MANAGER=1` (here from `lodge`) makes the updex
+refresh reload PID 1, and the units start in the same boot. snosi#1193 adds the
+key to every sysext that ships system units. After its republish, rerun
+`manifest-control.json`: it must then pass in the enable boot. The pod log of
+a passing run is removed with its pod (`podGC: OnWorkflowSuccess`); run B's
+values come from the private evidence `sysext-enable.json` and
+`sysext-reboot.json` on the lab host.
 
 ## Open questions
 
-- **Live enable of a non-suite sysext:** does a merged `EXTENSION_RELOAD_MANAGER=1`
-  from another sysext (run B) make PID 1 load the new units? Decide by the
-  results of both runs, in snosi#1189.
+- None for the lane. The product follow-up is the rerun after snosi#1193
+  republishes the sysexts.
 
 ## References
 
