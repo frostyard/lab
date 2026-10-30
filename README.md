@@ -458,8 +458,8 @@ The optional manifest key `sysext_probe` replaces the five-boot plan with a
 three-boot probe of the installed N image: `installed-n` (the full attestation
 and fs-verity record), `sysext-enable` and `sysext-reboot`. It is an object
 with exactly `features`, `units` and `first_start`: 1-8 unique updex feature
-names (`[a-z][a-z0-9-]{0,31}`), 1-16 unique unit names ending in `.service` or
-`.socket`, and 0-4 first-start entries with exactly `unit` (a `.service` name)
+names (`[a-z][a-z0-9-]{0,31}`), 1-16 unique unit names ending in `.service`,
+`.socket` or `.mount`, and 0-4 first-start entries with exactly `unit` (a `.service` name)
 and `path` (a file below `/etc`, no `..` part). With this key the rule
 `version_n < version_n_plus_1` becomes `version_distinct`, because the lane
 never stages N+1; N+1 is only the current target of the controlled tag.

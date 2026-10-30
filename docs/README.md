@@ -48,6 +48,8 @@ Org-wide decisions binding this repo: [org-adrs.md](org-adrs.md).
   — selected inputs, known causes (snosi#1130), preflight record and submit runbook
 - [2026-10-29 — Sundog fresh-install rerun with console capture (snosi#1123)](plans/2026-10-29-sundog-fresh-install-rerun.md)
   — runs, the ffbw7 serial stall and the kernel-log marker fix
+- [2026-10-29 — incus, coder and nix sysext activation on an installed Snow (lab#142)](plans/2026-10-29-snow-sysext-probe-lab142.md)
+  — `.mount` units in the probe, dev run and result
 
 ### Uncategorized (indexed where they stand)
 

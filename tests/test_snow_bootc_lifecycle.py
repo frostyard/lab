@@ -3623,6 +3623,12 @@ def test_sysext_dev_plan_normalizes_with_a_distinct_version_rule(qa):
     lambda p: p.update(features=["feature-%d" % index for index in range(9)]),
     lambda p: p.update(units=["frostmail"]),
     lambda p: p.update(units=["frostmail.service", "frostmail.service"]),
+    # lab#142: only .service, .socket and .mount are accepted.
+    lambda p: p.update(units=["nix.automount"]),
+    lambda p: p.update(units=["x.timer"]),
+    lambda p: p.update(units=["x.path"]),
+    lambda p: p.update(units=["x.target"]),
+    lambda p: p.update(first_start=[{"unit": "nix.mount", "path": "/etc/x"}]),
     lambda p: p.update(units=["frostmail.service"] + ["unit%d.service" % index for index in range(16)]),
     lambda p: p.update(first_start=[{"unit": "frostmail-secrets-key.socket", "path": "/etc/x"}]),
     lambda p: p.update(first_start=[{"unit": "key.service", "path": "etc/credstore"}]),
@@ -3636,6 +3642,25 @@ def test_sysext_probe_rejects_unsafe_input(qa, change):
     change(m["sysext_probe"])
     with pytest.raises(qa.GateError, match=r"^[a-z_]+$"):
         qa.normalize(m)
+
+
+LAB142_PLAN = Path(__file__).resolve().parents[1] / "docs/plans/snow-sysext-probe-2026-10-29/manifest.json"
+
+
+def test_lab142_dev_plan_normalizes_with_the_mount_unit(qa):
+    # lab#142: incus, coder and nix, with nix.mount; coder.service is skipped by design.
+    plan = json.loads(LAB142_PLAN.read_text())
+    probe = qa.normalize(plan)["sysext_probe"]
+    assert probe["features"] == ["incus", "coder", "nix"]
+    assert "nix.mount" in probe["units"] and "coder-sysext-setup.service" in probe["units"]
+    assert "coder.service" not in probe["units"]
+
+
+def test_sysext_probe_accepts_a_mount_unit(qa):
+    # lab#142: the probe must check nix.mount.
+    m = sysext_manifest()
+    m["sysext_probe"]["units"] = ["frostmail.service", "nix.mount"]
+    assert qa.normalize(m)["sysext_probe"]["units"] == ["frostmail.service", "nix.mount"]
 
 
 def test_version_rule_follows_the_sysext_mode(qa):
@@ -4047,6 +4072,54 @@ def test_guest_sysext_socket_unit_without_restart_count_passes(qa, tmp_path, mon
     entry = record["units"]["frostmail.socket"]
     assert entry["ActiveState"] == "active" and entry["journal"] == []
     assert entry["journal_head"] == []
+
+
+def sysext_mount_states(after_overrides=None):
+    states = json.loads(json.dumps(SYSEXT_STATES))
+    states["nix.mount"] = {"ActiveState": "active", "SubState": "mounted",
+                           "Result": "success", "ActiveEnterTimestampMonotonic": "4000000"}
+    after = json.loads(json.dumps(states))
+    after["nix.mount"].update(after_overrides or {})
+    return after
+
+
+def sysext_mount_manifest():
+    m = sysext_manifest()
+    m["sysext_probe"]["units"] = ["frostnotes.service", "nix.mount"]
+    return m
+
+
+def test_guest_sysext_mount_unit_without_restart_count_passes(qa, tmp_path, monkeypatch):
+    # lab#142: a .mount reports no NRestarts, so an absent value is not a restart.
+    after = sysext_mount_states()
+    states = json.loads(json.dumps(after))
+    credentials, _, _, _ = sysext_guest(qa, tmp_path, monkeypatch, states=states,
+                                        manifest=sysext_mount_manifest())
+    record = sysext_payload(qa.sysext(credentials))
+    assert record["failures"] == []
+    entry = record["units"]["nix.mount"]
+    assert entry["ActiveState"] == "active" and entry["SubState"] == "mounted"
+    assert entry["journal"] == [] and entry["journal_head"] == []
+
+
+def test_guest_sysext_inactive_mount_unit_fails(qa, tmp_path, monkeypatch):
+    # lab#142: a .mount that is inactive in the second sample fails.
+    states = sysext_mount_states()
+    after = sysext_mount_states({"ActiveState": "inactive", "SubState": "dead"})
+    credentials, _, _, _ = sysext_guest(qa, tmp_path, monkeypatch, states=states,
+                                        after_states=after, manifest=sysext_mount_manifest())
+    record = sysext_payload(qa.sysext(credentials))
+    assert record["failures"] == ["unit_inactive:nix.mount"]
+
+
+def test_guest_sysext_restarted_mount_unit_fails(qa, tmp_path, monkeypatch):
+    # lab#142: a new ActiveEnterTimestampMonotonic means the .mount restarted.
+    states = sysext_mount_states()
+    after = sysext_mount_states({"ActiveEnterTimestampMonotonic": "9000000"})
+    credentials, _, _, _ = sysext_guest(qa, tmp_path, monkeypatch, states=states,
+                                        after_states=after, manifest=sysext_mount_manifest())
+    record = sysext_payload(qa.sysext(credentials))
+    assert record["failures"] == ["unit_restarted:nix.mount"]
 
 
 def test_guest_sysext_failing_unit_keeps_the_journal_head_and_the_tail(qa, tmp_path, monkeypatch):

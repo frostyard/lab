@@ -1209,7 +1209,7 @@ data:
                 all(full(r"[a-z][a-z0-9-]{0,31}", name) for name in features) and
                 len(set(features)) == len(features), "sysext_features")
         require(type(units) is list and 1 <= len(units) <= 16 and
-                all(full(r"[A-Za-z0-9@._-]{1,64}\.(?:service|socket)", name) for name in units) and
+                all(full(r"[A-Za-z0-9@._-]{1,64}\.(?:service|socket|mount)", name) for name in units) and
                 len(set(units)) == len(units), "sysext_units")
         require(type(first) is list and len(first) <= 4, "sysext_first_start")
         seen = set()
@@ -2240,7 +2240,7 @@ data:
 
         A Type=simple unit in a crash loop samples as active between two
         restarts, so both samples must be active, with the same NRestarts and
-        the same ActiveEnterTimestampMonotonic. A .socket has no NRestarts.
+        the same ActiveEnterTimestampMonotonic. A .socket or .mount has no NRestarts.
         """
         codes = []
         if before.get("ActiveState") != "active" or after.get("ActiveState") != "active":
