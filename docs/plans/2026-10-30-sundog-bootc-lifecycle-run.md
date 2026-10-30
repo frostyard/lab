@@ -131,9 +131,10 @@ PASS: verified_five_fresh_boots;fsverity_known_defect=7.2.12+deb14-amd64
   which is on the known-defect list
   ([snosi#1130](https://github.com/frostyard/snosi/issues/1130)), so the lane
   recorded them and did not fail. Unlike Floe (1 error, `stage` only), Sundog
-  also logged errors in the fresh `installed-n` boot and in both N boots after
-  rollback. The cause of that spread is not checked; the larger desktop image
-  most likely reads more large files at boot. This PASS
+  also logged 3 errors during `installed-n` (N), 1 during `rollback` (still
+  booted on N+1) and 1 during `boot-n` (N). The cause of that spread is not
+  checked; the larger desktop image most likely reads more large files at
+  boot. This PASS
   says nothing about the resolution of #1130.
 - **Serial and memory.** Every phase record arrived on `ttyS0`: the Sundog
   switch-root stall seen in the Firn lane (lab#168) did not occur in these
