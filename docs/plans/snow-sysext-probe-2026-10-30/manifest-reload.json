@@ -1,0 +1,49 @@
+{
+  "family": "snow",
+  "product": "snow",
+  "iso_url": "https://repository.frostyard.org/isos/native/v1/snosi-installer_20261030103127_x86-64.iso",
+  "iso_sha256": "8fa433306449e23a5008225d2b9af4cfb6ee59a5e2d2e873a2d4024ff267ed57",
+  "iso_version": "20261030103127",
+  "image_n": "ghcr.io/frostyard/snow@sha256:73a0c90781379602649fcbae838b44561e90fdd8040f376332a0e56181a93300",
+  "version_n": "20261029193641",
+  "version_tag_n": "ghcr.io/frostyard/snow:20261029193641",
+  "image_n_plus_1": "ghcr.io/frostyard/snow@sha256:008bfa6909e628025a785f5ffc48aeac70d1f65a6e53e688f7415190a22192aa",
+  "version_n_plus_1": "20261026133822",
+  "version_tag_n_plus_1": "ghcr.io/frostyard/snow:20261026133822",
+  "target_ref": "ghcr.io/frostyard/snow:qa-controlled",
+  "snosi_commit": "39cf19887547f83200866e94e5753888706b49fa",
+  "index_key_sha256": "977fe2de56de82dab559709178bbf335a28cc648237c69cb88ee3de008c0fc97",
+  "cosign_key_sha256": "3e79750429976e1f1a01cb2a71d0aa1caf61ad918302553b2a8df397c4514fc5",
+  "mok_cert_sha256": "0446e4780b809711af17934da0b5a39487da1da35d1fe7dbaae5e7f9f39545b4",
+  "trust_fingerprint": "F37282A35CB6BDFEBFC8FE775A2EAC5C8216FD68",
+  "secureboot": true,
+  "encryption": "tpm2-luks-passphrase",
+  "timeouts": {
+    "iso_boot": 1800,
+    "install": 7200,
+    "installed_boot": 1800,
+    "stage": 3600,
+    "reboot": 1800
+  },
+  "sysext_probe": {
+    "features": [
+      "lodge",
+      "incus",
+      "coder",
+      "nix"
+    ],
+    "units": [
+      "incus-sysext-setup.service",
+      "incus.socket",
+      "incus-user.socket",
+      "incus-startup.service",
+      "incus-lxcfs.service",
+      "coder-sysext-setup.service",
+      "nix.mount",
+      "nix-sysext-setup.service",
+      "nix-daemon.socket",
+      "lodge.service"
+    ],
+    "first_start": []
+  }
+}

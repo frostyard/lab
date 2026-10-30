@@ -50,6 +50,8 @@ Org-wide decisions binding this repo: [org-adrs.md](org-adrs.md).
   — runs, the ffbw7 serial stall and the kernel-log marker fix
 - [2026-10-29 — incus, coder and nix sysext activation on an installed Snow (lab#142)](plans/2026-10-29-snow-sysext-probe-lab142.md)
   — `.mount` units in the probe, dev run and result
+- [2026-10-30 — Load-state evidence for the sysext probe (snosi#1189)](plans/2026-10-30-snow-sysext-probe-snosi1189.md)
+  — `LoadState` and `NeedDaemonReload` in the record, control and reload dev runs
 
 ### Uncategorized (indexed where they stand)
 
