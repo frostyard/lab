@@ -483,7 +483,10 @@ removed, at most 240 characters; `Upholds` at most 1024) or `null` when
 (`record_target`, `record_unit_load`). `systemctl show` can load a unit file on
 demand, so `LoadState=loaded` alone does not prove that PID 1 read the new
 files: `NeedDaemonReload=yes` on the target, or an `Upholds` list without the
-probed units, shows that the drop-ins were not loaded. The pod log prints one
+units that the sysext's `multi-user.target.d` drop-in upholds, shows that the
+drop-ins were not loaded. Not every probed unit is upheld (a setup unit can
+pull one in with `Wants=`), and a list cut at 1024 characters cannot show that
+a unit is absent. This evidence never enters the verdict. The pod log prints one
 `sysext_state` line per probed unit and one `sysext_target` line per boot, also
 when the run passes.
 Each boot publishes one `SNOW_SYSEXT_V1` record: merged `/usr` extensions, the
