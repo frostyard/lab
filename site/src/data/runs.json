@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-31T16:30:17Z",
+  "generated": "2026-10-31T17:00:17Z",
   "lanes": [
     {
       "laneKey": "run-firn-install-tests",
@@ -38,7 +38,7 @@
           "sysroot=btrfs"
         ]
       },
-      "runs": 10,
+      "runs": 9,
       "everGreen": true,
       "qaRun": null
     },
@@ -73,9 +73,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1793464200",
+        "name": "publish-results-1793466000",
         "phase": "Running",
-        "started": "2026-10-31T16:30:00Z",
+        "started": "2026-10-31T17:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -253,11 +253,27 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1793464200",
+      "name": "publish-results-1793466000",
       "phase": "Running",
-      "started": "2026-10-31T16:30:00Z",
+      "started": "2026-10-31T17:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1793464200",
+      "phase": "Succeeded",
+      "started": "2026-10-31T16:30:00Z",
+      "finished": "2026-10-31T16:30:30Z",
+      "durationSeconds": 30,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -362,22 +378,6 @@
       "trigger": "scheduled",
       "result": null,
       "digest": "sha256:6c83198740690f856b3578605e1866a78b18e1ab28b0f7172446e9330c517a04",
-      "checks": []
-    },
-    {
-      "name": "publish-results-1793458800",
-      "phase": "Succeeded",
-      "started": "2026-10-31T15:00:00Z",
-      "finished": "2026-10-31T15:00:35Z",
-      "durationSeconds": 35,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": null,
       "checks": []
     },
     {
@@ -1092,32 +1092,6 @@
       "result": "19 passed, 1 failed",
       "digest": "sha256:8e231f188562c9414b46fbf054908f2cb04a6f90b0bc1e9e3926aa568719b9c2",
       "checks": []
-    },
-    {
-      "name": "bootc-only-iso-install-bnxv8",
-      "phase": "Failed",
-      "started": "2026-10-01T16:30:36Z",
-      "finished": "2026-10-01T16:48:44Z",
-      "durationSeconds": 1088,
-      "template": "run-firn-install-tests",
-      "laneKey": "run-firn-install-tests",
-      "qaOutcome": "unknown",
-      "kind": "install",
-      "label": "firn installer matrix",
-      "trigger": "manual",
-      "result": "FAILED: boot:rootfs_mismatch (bootc/snow/none/sb=true)",
-      "digest": null,
-      "checks": [
-        "bootc=bootc_1.16.8",
-        "bootc_digest=sha256:a8b4a633beb1135b6c16c0c071b567076da65fc722cc3a4e2f7953ec0bad9c6f",
-        "bootc_image=ghcr.io/frostyard/snow:latest",
-        "booted=ok",
-        "login=active",
-        "login_unit=display-manager.service",
-        "luks=absent",
-        "osrelease=snow",
-        "rootfs=overlay"
-      ]
     }
   ]
 }
