@@ -1,5 +1,5 @@
 #!/bin/bash
-# In-container half of the read-only Snow or Floe lifecycle preflight (see run.sh).
+# In-container half of the read-only Snow, Floe or Sundog lifecycle preflight (see run.sh).
 # Prints one line per check: "CHECK <name> <PASS|FAIL|PENDING|INFO> <detail>".
 # /work holds manifest.json and the ConfigMap qa.py; /iso.iso is an optional
 # local ISO copy to hash instead of a download. Nothing here writes to a
@@ -112,7 +112,7 @@ usr/lib/snosi/cosign.pub cosign.pub
 usr/lib/snosi/os-update-pubring.gpg index.gpg
 usr/lib/snosi/mok.crt mok.crt
 EOF
-  # The catalog entry is the one named like the manifest product (snow or floe).
+  # The catalog entry is the one named like the manifest product (snow, floe or sundog).
   entry=$(jq -c --arg p "$(j .product)" '[.[] | select(.family == "bootc" and .name == $p)] | {n: length, ref: .[0].ref, key: .[0].cosign_pub_key}' \
     "$T/x/etc/firn/catalog.json" 2>/dev/null)
   # Same rule as qa.py snow_catalog: one entry, the pinned key, and a ref in the
