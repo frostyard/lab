@@ -931,9 +931,9 @@ data:
     fi
     sysext_failures=""
     # Kernels with the known upstream btrfs fs-verity defect (frostyard/snosi#1130,
-    # kdave/linux dcf8811f63af). Remove an entry when the kernel canary (Firn lane)
+    # kdave/linux 254e15591ee4). Remove an entry when the kernel canary (Firn lane)
     # says `clean` on it or a fixed kernel ships. Keep identical in every lane.
-    known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64"
+    known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64"
     fsverity_bad=0
     fsverity_known=""
     for phase in "${phase_plan[@]}"; do
@@ -1856,9 +1856,9 @@ data:
     def fsverity_error_count(log):
         """Count fs-verity corruption messages in a kernel log; never edits the log.
 
-        Kernels 7.2.11/7.2.12 log "FILE CORRUPTED" when btrfs readahead verifies
+        Kernels 7.2.11 to 7.2.14 log "FILE CORRUPTED" when btrfs readahead verifies
         a large folio of an fs-verity file too early; the re-read succeeds
-        (frostyard/snosi#1130; upstream kdave/linux dcf8811f63af). Compressed
+        (frostyard/snosi#1130; upstream kdave/linux 254e15591ee4). Compressed
         extents hit it almost always; uncompressed files rarely, at extent
         boundaries. The runner judges the count against a known-defect kernel list.
         """

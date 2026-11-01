@@ -451,19 +451,19 @@ spec:
         emit bootc_image "\$(printf '%s\n' "\${BOOTC_FIELDS}" | head -n 1)"
         emit bootc_digest "\$(printf '%s\n' "\${BOOTC_FIELDS}" | tail -n 1)"
         # --- BEGIN fsverity-probe ---
-        # frostyard/snosi#1130: Debian kernels 7.2.11 and 7.2.12 verify a whole
+        # frostyard/snosi#1130: Debian kernels 7.2.11 to 7.2.14 verify a whole
         # large folio of a btrfs fs-verity file before all of it is read and log
         # "fs-verity ... FILE CORRUPTED! ... level=-1". The synchronous re-read
         # succeeds, so no bad bytes reach user space. Upstream fix: kdave/linux
-        # dcf8811f63af ("btrfs: fix the fsverity callback where unexpected range
-        # is verified"). COMPRESSED extents hit it on almost every extent: our
-        # trigger was Firn mounting the install target with compress=zstd:1,
-        # which compressed the install-time composefs objects
-        # (frostyard/firn#119), so cfs_compressed_objects is judged. UNCOMPRESSED
-        # files hit it rarely, when a large folio spans two bios at an extent
-        # boundary, so fsverity_errors is judged against a known-defect kernel
-        # list (see the judge). Kernel logs are only read, never filtered or
-        # cleared.
+        # 254e15591ee4 on next-fixes ("btrfs: fix the fsverity callback where
+        # unexpected range is verified"; not in mainline or a Debian kernel
+        # yet). COMPRESSED extents hit it on almost every extent: our trigger
+        # was Firn mounting the install target with compress=zstd:1, which
+        # compressed the install-time composefs objects (frostyard/firn#119),
+        # so cfs_compressed_objects is judged. UNCOMPRESSED files hit it rarely,
+        # when a large folio spans two bios at an extent boundary, so
+        # fsverity_errors is judged against a known-defect kernel list (see the
+        # judge). Kernel logs are only read, never filtered or cleared.
         fsverity_count() {
           local log trimmed
           # -q: no "-- No entries --" banner. Empty output, or only that banner,
@@ -679,9 +679,9 @@ spec:
         judge() {
           local checks_file="$1" bootc_image bootc_digest cfs_objects fsverity_errors fsverity_kernel fsverity_kernels fsverity_known entry fsverity_note="" serial_tty
           # Kernels with the known upstream btrfs fs-verity defect (frostyard/snosi#1130,
-          # kdave/linux dcf8811f63af). Remove an entry when the kernel canary says
+          # kdave/linux 254e15591ee4). Remove an entry when the kernel canary says
           # `clean` on it or a fixed kernel ships. Keep identical in every lane.
-          local known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64"
+          local known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64"
           if ! grep -qx 'booted=ok' "${checks_file}"; then fail boot no_report; fi
           if ! grep -qx "osrelease=${IMAGE}" "${checks_file}"; then fail boot wrong_image; fi
           if [[ "${ENC}" != none ]]; then

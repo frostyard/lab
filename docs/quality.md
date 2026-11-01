@@ -118,15 +118,22 @@ run or pass is claimed by the submit file alone.
 
 ## fs-verity regression checks (snosi#1130)
 
-Debian kernels 7.2.11 and 7.2.12 have a btrfs defect: on fs-verity files,
+Debian kernels 7.2.11 to 7.2.14 have a btrfs defect: on fs-verity files,
 readahead verifies a whole large folio before all of it is read. The kernel
 logs `fs-verity (...): FILE CORRUPTED! ... level=-1`. A synchronous re-read
 then succeeds, so no bad bytes reach user space; it is log noise with a real
 cause, not data corruption. The upstream fix is
-[kdave/linux `dcf8811f63af`](https://github.com/kdave/linux/commit/dcf8811f63af)
-("btrfs: fix the fsverity callback where unexpected range is verified"); it is
-not yet in a Debian kernel. See
-[snosi#1130](https://github.com/frostyard/snosi/issues/1130).
+[kdave/linux `254e15591ee4`](https://git.kernel.org/pub/scm/linux/kernel/git/kdave/linux.git/commit/?id=254e15591ee4590064e0c55285cdcb4f4519133c)
+("btrfs: fix the fsverity callback where unexpected range is verified") on
+kdave's `next-fixes` branch. Earlier notes cite `dcf8811f63af`: that is the
+same patch before kdave rebased the branch, and it is no longer reachable. The
+fix is not in mainline or in a Debian kernel yet. Debian `7.2.13-1` and
+`7.2.14-1` (sid) have no btrfs entry in their changelogs, and the upstream
+`ChangeLog-7.2.13` to `-7.2.15` do not contain the fix. Both are listed from
+this source evidence, so the lanes do not fail when snosi's
+`linux-image-amd64/forky` moves to them; no lab run has booted them yet. See
+[snosi#1130](https://github.com/frostyard/snosi/issues/1130)
+(investigation update 5).
 
 How often it hits depends on the extents:
 
@@ -145,8 +152,9 @@ How often it hits depends on the extents:
 
 So `fsverity_errors` is judged against a **known-defect kernel list**, the same
 in every template that judges it (`known_defect_kernels` in the Firn judge, the
-bootc install judge and the lifecycle `run.sh`): `7.2.11+deb14-amd64` and
-`7.2.12+deb14-amd64`. A missing or non-numeric count always fails. A count of 0
+bootc install judge and the lifecycle `run.sh`): `7.2.11+deb14-amd64`,
+`7.2.12+deb14-amd64`, `7.2.13+deb14-amd64` and `7.2.14+deb14-amd64`. A
+missing or non-numeric count always fails. A count of 0
 passes. A count above 0 on a listed kernel is recorded with a visible note
 (`fsverity_known_defect=<kernel>` in the checks and in the summary line) and
 does not fail. The exemption needs exactly 1 distinct, well-formed `kernel=`
