@@ -1,5 +1,5 @@
 {
-  "generated": "2026-11-01T01:00:19Z",
+  "generated": "2026-11-01T01:30:19Z",
   "lanes": [
     {
       "laneKey": "run-firn-install-tests",
@@ -38,7 +38,7 @@
           "sysroot=btrfs"
         ]
       },
-      "runs": 9,
+      "runs": 8,
       "everGreen": true,
       "qaRun": null
     },
@@ -73,9 +73,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1793494800",
+        "name": "publish-results-1793496600",
         "phase": "Running",
-        "started": "2026-11-01T01:00:00Z",
+        "started": "2026-11-01T01:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -237,11 +237,27 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1793494800",
+      "name": "publish-results-1793496600",
       "phase": "Running",
-      "started": "2026-11-01T01:00:00Z",
+      "started": "2026-11-01T01:30:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": null,
+      "checks": []
+    },
+    {
+      "name": "publish-results-1793494800",
+      "phase": "Succeeded",
+      "started": "2026-11-01T01:00:00Z",
+      "finished": "2026-11-01T01:00:32Z",
+      "durationSeconds": 32,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -353,22 +369,6 @@
       "phase": "Succeeded",
       "started": "2026-11-01T00:00:00Z",
       "finished": "2026-11-01T00:00:30Z",
-      "durationSeconds": 30,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": null,
-      "checks": []
-    },
-    {
-      "name": "publish-results-1793489400",
-      "phase": "Succeeded",
-      "started": "2026-10-31T23:30:00Z",
-      "finished": "2026-10-31T23:30:30Z",
       "durationSeconds": 30,
       "template": "publish",
       "laneKey": "publish",
@@ -984,33 +984,6 @@
       "checks": [
         "manifest_sha256=43df99b1a080db2d878b3f1fd77c5193b741b724c0ba8deba7e52b64c3a4f335",
         "tag=before-install timestamp=2026-10-26T01:21:18.530511+00:00"
-      ]
-    },
-    {
-      "name": "bootc-only-iso-install-fjrk8",
-      "phase": "Succeeded",
-      "started": "2026-10-25T01:22:34Z",
-      "finished": "2026-10-25T01:29:33Z",
-      "durationSeconds": 419,
-      "template": "run-firn-install-tests",
-      "laneKey": "run-firn-install-tests",
-      "qaOutcome": "unknown",
-      "kind": "install",
-      "label": "firn installer matrix",
-      "trigger": "manual",
-      "result": "PASS: bootc/sundog/none/sb=true image=ghcr.io/frostyard/sundog:latest digest=sha256:f8937384af78aa7ded64528a9993364dbcc1dd86308e96b4bc2cc5f15ba6f7be firn=firn_version_0.8.0_(Commit:_f3c4b5ddf5a9e20040aec571d9c8f7a96a0b03c3)_(Date:_2026-10-07T21:01:27Z)_(Built_by:_goreleaser)",
-      "digest": null,
-      "checks": [
-        "bootc=bootc_1.16.8",
-        "bootc_digest=sha256:f8937384af78aa7ded64528a9993364dbcc1dd86308e96b4bc2cc5f15ba6f7be",
-        "bootc_image=ghcr.io/frostyard/sundog:latest",
-        "booted=ok",
-        "login=active",
-        "login_unit=display-manager.service",
-        "luks=absent",
-        "osrelease=sundog",
-        "rootfs=overlay",
-        "sysroot=btrfs"
       ]
     },
     {
