@@ -88,9 +88,11 @@ AMBIGUOUS = "FAILED: installed system logged 2 fs-verity corruption message(s) a
     # Known upstream defect kernels: recorded with a note, not failed.
     (["booted=ok", "fsverity_errors=2", f"kernel={KNOWN}"], False, None),
     (["booted=ok", "fsverity_errors=1", "kernel=7.2.12+deb14-amd64"], False, None),
+    (["booted=ok", "fsverity_errors=1", "kernel=7.2.13+deb14-amd64"], False, None),
+    (["booted=ok", "fsverity_errors=5", "kernel=7.2.14+deb14-amd64"], False, None),
     (["booted=ok", "fsverity_errors=0", "fsverity_errors=4", f"kernel={KNOWN}"], False, None),
     # Another kernel, a look-alike, an unknown or a missing kernel with errors fails.
-    (["booted=ok", "fsverity_errors=2", "kernel=7.2.13+deb14-amd64"], True, "FAILED: installed system logged 2"),
+    (["booted=ok", "fsverity_errors=2", "kernel=7.2.15+deb14-amd64"], True, "FAILED: installed system logged 2"),
     (["booted=ok", "fsverity_errors=2", f"kernel={KNOWN}-extra"], True, "FAILED: installed system logged 2"),
     (["booted=ok", "fsverity_errors=2", "kernel=unknown"], True, "FAILED: installed system logged 2"),
     (["booted=ok", "fsverity_errors=2"], True, "FAILED: installed system logged 2 fs-verity corruption message(s) and the kernel identity is ambiguous: fsverity_kernel_ambiguous"),
@@ -140,7 +142,8 @@ def test_judge_requires_a_numeric_count_and_judges_it_by_kernel(source, tmp_path
         assert "reached-pass" in result.stdout
         known_errors = any(c.startswith("fsverity_errors=") and c[16:].isdigit() and int(c[16:]) > 0 for c in checks)
         kernel = next((c[7:] for c in checks if c.startswith("kernel=")), None)
-        if known_errors and kernel in ("7.2.11+deb14-amd64", "7.2.12+deb14-amd64"):
+        if known_errors and kernel in ("7.2.11+deb14-amd64", "7.2.12+deb14-amd64",
+                                         "7.2.13+deb14-amd64", "7.2.14+deb14-amd64"):
             assert (tmp_path / "checks.txt").read_text().splitlines().count(f"fsverity_known_defect={kernel}") == 1
             # Visible note in the summary, the checks file and the log.
             assert summary_file.read_text() == f"bootc installed and verified: snow (secureboot=true) fsverity_known_defect={kernel}"
@@ -151,7 +154,23 @@ def test_judge_requires_a_numeric_count_and_judges_it_by_kernel(source, tmp_path
             assert "fsverity_known_defect" not in (tmp_path / "checks.txt").read_text()
 
 
+KNOWN_DEFECT_LIST = 'known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64"'
+UPSTREAM_FIX = "254e15591ee4"   # kdave/linux next-fixes; dcf8811f63af before a rebase
+
+
+def test_known_defect_list_is_identical_in_every_lane():
+    templates = TEMPLATE.parent
+    for name in ("run-firn-install-tests.yaml", "run-incus-bootc-install-tests.yaml",
+                 "snow-bootc-lifecycle-scripts.yaml"):
+        text = (templates / name).read_text(encoding="utf-8")
+        lists = [line.strip().removeprefix("local ") for line in text.splitlines()
+                 if "known_defect_kernels=" in line]
+        assert lists == [KNOWN_DEFECT_LIST], name
+        assert UPSTREAM_FIX in text, name
+        assert "dcf8811f63af" not in text, name   # the unreachable pre-rebase hash
+
+
 def test_known_defect_list_matches_the_other_lanes(source):
-    assert source.count('known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64"') == 1
+    assert source.count(KNOWN_DEFECT_LIST) == 1
     for probe in _probes(source):
         assert 'emit kernel "$(uname -r)"' in probe

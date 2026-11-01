@@ -278,10 +278,14 @@ GOOD_CHECKS = (
          f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST} fsverity_known_defect=7.2.11+deb14-amd64"),
         ({"fsverity_errors": "1", "kernel": "7.2.12+deb14-amd64"},
          f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST} fsverity_known_defect=7.2.12+deb14-amd64"),
+        ({"fsverity_errors": "2", "kernel": "7.2.13+deb14-amd64"},
+         f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST} fsverity_known_defect=7.2.13+deb14-amd64"),
+        ({"fsverity_errors": "3", "kernel": "7.2.14+deb14-amd64"},
+         f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST} fsverity_known_defect=7.2.14+deb14-amd64"),
         ({"fsverity_errors": "0", "kernel": "7.2.11+deb14-amd64"},
          f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST}"),
         # Any other kernel with errors fails, as does an unknown, missing or look-alike kernel.
-        ({"fsverity_errors": "7", "kernel": "7.2.13+deb14-amd64"}, "FAILED: boot:fsverity_errors_7 (bootc/floe/none/sb=false)"),
+        ({"fsverity_errors": "7", "kernel": "7.2.15+deb14-amd64"}, "FAILED: boot:fsverity_errors_7 (bootc/floe/none/sb=false)"),
         ({"fsverity_errors": "7", "kernel": "7.2.11+deb14-amd64-extra"}, "FAILED: boot:fsverity_errors_7 (bootc/floe/none/sb=false)"),
         ({"fsverity_errors": "7", "kernel": "unknown"}, "FAILED: boot:fsverity_errors_7 (bootc/floe/none/sb=false)"),
         ({"fsverity_errors": "7", "kernel": None}, "FAILED: boot:fsverity_kernel_ambiguous (bootc/floe/none/sb=false)"),
@@ -1206,8 +1210,8 @@ def test_judge_records_the_known_defect_note_in_the_checks_file(lane, tmp_path):
     assert result.returncode == 0, result.stderr
     assert "fsverity_known_defect=7.2.12+deb14-amd64" in checks.read_text().splitlines()
     assert "known-defect kernel 7.2.12+deb14-amd64" in result.stderr   # visible note
-    # One list per template, with the two kernels of snosi#1130.
-    assert source.count('known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64"') == 1
+    # One list per template, with the four kernels of snosi#1130.
+    assert source.count('known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64"') == 1
 
 
 def test_probe_emits_the_kernel_before_the_canary_in_every_run(lane):
