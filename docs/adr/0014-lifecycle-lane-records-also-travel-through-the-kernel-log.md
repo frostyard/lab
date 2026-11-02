@@ -50,10 +50,13 @@ second channel and a bounded guest, not a rerun.
   under `timeout -k 2 5`. A target that has to be killed (exit 124 or 137) is
   added to `STALLED_TARGETS` and skipped for the rest of the guest process, so
   one stall costs seconds, not the record.
-- **The whole replay stays inside the margin.** `PUBLISH_WAIT` is 80 s and the
-  wait, the 30 s hold, one bounded write per console and 20 s for the last
-  query and the poweroff request together stay inside `PUBLISH_MARGIN` of
-  150 s.
+- **The whole replay stays inside the margin.** `publish()` runs against 1
+  deadline, `PUBLISH_MARGIN` minus `PUBLISH_RESERVE` (20 s kept for the last
+  getty query and the poweroff request). Every console write is cut short or
+  skipped rather than allowed to cross it, so no write duration can extend the
+  replay. `PUBLISH_WAIT` is 80 s and the hold 30 s, and both end at that same
+  deadline at the latest: `PUBLISH_WAIT + PUBLISH_HOLD + PUBLISH_RESERVE <=
+  PUBLISH_MARGIN`.
 - **The guest powers off on either path.** `ExecStart` runs
   `qa.py … || true; systemctl --no-block poweroff`, so a failed guest run still
   stops the VM and the host ends the phase at once instead of waiting out the

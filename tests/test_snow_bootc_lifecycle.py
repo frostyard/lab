@@ -3380,13 +3380,11 @@ def test_firn_install_has_no_file_size_limit_and_bounded_outputs(tmp_path, firn_
 def test_guest_publish_margin_matches_unit_timeout_and_bounds_the_replay(qa, monkeypatch):
     script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
     assert f"TimeoutStartSec=$((budget + {qa.PUBLISH_MARGIN}))" in script
-    # The replay wait, the hold, one bounded write per console and the poweroff
-    # request all fit inside the margin (lab#177).
-    assert (qa.PUBLISH_WAIT + qa.PUBLISH_HOLD
-            + len(qa.GUEST_CONSOLES) * (qa.TTY_WRITE_TIMEOUT + qa.TTY_KILL_GRACE) + 20
-            <= qa.PUBLISH_MARGIN)
-    # A getty that never comes, with slow queries: the whole wait stays bounded,
-    # and no query may run past the deadline.
+    # 1 deadline covers the wait, the hold and every console write; the reserve
+    # is left for the last getty query and the poweroff request (lab#177).
+    assert qa.PUBLISH_WAIT + qa.PUBLISH_HOLD + qa.PUBLISH_RESERVE <= qa.PUBLISH_MARGIN
+    # A getty that never comes, with slow queries: the whole replay stays
+    # bounded, and no query may run past its own deadline.
     now = [0.0]
     monkeypatch.setattr(qa.time, "monotonic", lambda: now[0])
     monkeypatch.setattr(qa.time, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds))
@@ -3398,20 +3396,18 @@ def test_guest_publish_margin_matches_unit_timeout_and_bounds_the_replay(qa, mon
         return False
 
     monkeypatch.setattr(qa, "serial_getty_ready", slow_query)
-    monkeypatch.setattr(qa, "emit", lambda line: None)
+    monkeypatch.setattr(qa, "emit", lambda line, deadline=None: None)
     qa.publish("SNOW_QA_V1 abc")
-    assert now[0] <= qa.PUBLISH_WAIT + qa.PUBLISH_HOLD + 1
+    assert now[0] <= qa.PUBLISH_MARGIN - qa.PUBLISH_RESERVE
     assert all(1 <= value <= 10 for value in timeouts)
 
 
 def test_host_shutdown_wait_includes_the_guest_publish_margin(qa):
     # The host starts its shutdown deadline at the first record; the guest may
-    # still replay for up to PUBLISH_WAIT before it requests poweroff.
+    # still replay until its own publish deadline, then requests poweroff.
     script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
     assert f"shutdown_end=$((SECONDS + shutdown_budget + {qa.PUBLISH_MARGIN}))" in script
-    assert (qa.PUBLISH_MARGIN
-            >= qa.PUBLISH_WAIT + qa.PUBLISH_HOLD
-            + len(qa.GUEST_CONSOLES) * (qa.TTY_WRITE_TIMEOUT + qa.TTY_KILL_GRACE) + 20)
+    assert qa.PUBLISH_MARGIN >= qa.PUBLISH_WAIT + qa.PUBLISH_HOLD + qa.PUBLISH_RESERVE
 
 
 @pytest.mark.parametrize("change", [
@@ -3617,7 +3613,7 @@ def test_guest_holds_its_record_for_several_host_polls(qa, monkeypatch):
     monkeypatch.setattr(qa.time, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds))
     monkeypatch.setattr(qa, "serial_getty_ready", lambda **_: True)
     emitted = []
-    monkeypatch.setattr(qa, "emit", lambda line: emitted.append((now[0], line)))
+    monkeypatch.setattr(qa, "emit", lambda line, deadline=None: emitted.append((now[0], line)))
     qa.publish("SNOW_QA_V1 abc")
     assert qa.PUBLISH_HOLD >= 15
     assert emitted[-1][0] >= qa.PUBLISH_HOLD and len(emitted) >= 4
@@ -4909,3 +4905,83 @@ def test_error_parsers_ignore_a_cut_fragment(tmp_path, name, code, index):
         serial.write_bytes(text)
         result = subprocess.run(["python3", str(path), str(serial)], capture_output=True, text=True)
         assert (result.stdout.strip() if result.returncode == 0 else None) == expected
+
+
+def fake_publish_clock(qa, monkeypatch, *, stall_after=None, queries_slow=False):
+    """A fake clock, a slow console write, and a getty that never comes."""
+    now = [0.0]
+    monkeypatch.setattr(qa.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(qa.time, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds))
+    monkeypatch.setattr(qa, "emit_kmsg", lambda line: None)   # the kmsg writes are not timed
+    monkeypatch.setattr(qa, "STALLED_TARGETS", set())
+    calls, queries = [], []
+
+    def query(timeout=10):
+        queries.append(timeout)
+        if queries_slow:
+            now[0] += timeout
+        return False
+
+    monkeypatch.setattr(qa, "serial_getty_ready", query)
+
+    def run(argv, **kwargs):
+        limit = int(argv[3])
+        assert argv[0] == "timeout" and argv[1] == "-k" and argv[2] == str(qa.TTY_KILL_GRACE)
+        assert 1 <= limit <= qa.TTY_WRITE_TIMEOUT
+        calls.append((limit, argv[-1]))
+        if stall_after is not None and len(calls) >= stall_after and argv[-1] == qa.GUEST_CONSOLES[0]:
+            now[0] += limit                      # killed at its own limit
+            return subprocess.CompletedProcess(argv, 124, b"", b"")
+        now[0] += limit - 0.1                    # a slow write that still succeeds
+        return subprocess.CompletedProcess(argv, 0, b"", b"")
+
+    monkeypatch.setattr(qa.subprocess, "run", run)
+    return now, calls, queries
+
+
+def test_publish_ends_at_its_deadline_whatever_the_write_takes(qa, monkeypatch):
+    now, calls, _ = fake_publish_clock(qa, monkeypatch)
+    real_emit = qa.emit
+    emits = []
+
+    def counting_emit(line, deadline=None):
+        emits.append(deadline)
+        real_emit(line, deadline=deadline)
+
+    monkeypatch.setattr(qa, "emit", counting_emit)
+    qa.publish("SNOW_QA_V1 abc")
+    # 1 deadline covers the wait, the hold and every write (lab#177 review).
+    assert now[0] <= qa.PUBLISH_MARGIN - qa.PUBLISH_RESERVE
+    assert all(deadline == qa.PUBLISH_MARGIN - qa.PUBLISH_RESERVE for deadline in emits)
+    assert {target for _, target in calls} == {str(path) for path in qa.GUEST_CONSOLES}
+    assert all(1 <= limit <= qa.TTY_WRITE_TIMEOUT for limit, _ in calls)
+
+
+def test_publish_skips_a_write_that_would_cross_its_deadline(qa, monkeypatch):
+    monkeypatch.setattr(qa, "PUBLISH_MARGIN", 25)
+    now, calls, _ = fake_publish_clock(qa, monkeypatch)
+    qa.publish("SNOW_QA_V1 abc")
+    limit = qa.PUBLISH_MARGIN - qa.PUBLISH_RESERVE
+    assert now[0] <= limit + 0.5
+    # Only the first write fitted before the deadline; the next were skipped,
+    # not run, and not counted as stalls.
+    assert len(calls) == 1 and calls[0][1] == str(qa.GUEST_CONSOLES[0])
+    assert not qa.STALLED_TARGETS
+
+
+def test_publish_skips_a_target_that_stalls_and_stays_in_its_deadline(qa, monkeypatch):
+    now, calls, _ = fake_publish_clock(qa, monkeypatch, stall_after=3)
+    qa.publish("SNOW_QA_V1 abc")
+    stalled = str(qa.GUEST_CONSOLES[0])
+    assert qa.STALLED_TARGETS == {stalled}
+    # 1 successful write, then the stall; never again after that.
+    assert [target for _, target in calls].count(stalled) == 2
+    assert now[0] <= qa.PUBLISH_MARGIN - qa.PUBLISH_RESERVE
+
+
+def test_publish_with_no_getty_and_slow_queries_stays_in_its_deadline(qa, monkeypatch):
+    now, calls, queries = fake_publish_clock(qa, monkeypatch, queries_slow=True)
+    qa.publish("SNOW_QA_V1 abc")
+    assert queries and all(1 <= value <= 10 for value in queries)
+    assert now[0] <= qa.PUBLISH_MARGIN - qa.PUBLISH_RESERVE + 0.5
+    assert all(1 <= limit <= qa.TTY_WRITE_TIMEOUT for limit, _ in calls)

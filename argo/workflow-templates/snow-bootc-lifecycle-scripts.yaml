@@ -2788,16 +2788,23 @@ data:
                     pass
 
 
-    def emit(line):
+    def emit(line, deadline=None):
         # The kernel-log copy comes first: it survives a stalled ttyS0.
         emit_kmsg(line)
         for target in GUEST_CONSOLES:
             if target in STALLED_TARGETS:
                 continue
+            limit = TTY_WRITE_TIMEOUT
+            if deadline is not None:
+                # Keep the whole child, write and kill grace, inside the
+                # deadline: a slow write may not push the replay past it.
+                limit = min(TTY_WRITE_TIMEOUT, int(deadline - time.monotonic()) - TTY_KILL_GRACE)
+                if limit < 1:
+                    continue   # out of time: skip, but do not condemn the target
             try:
                 # Start on a new line: the getty prompt has no trailing newline.
                 result = subprocess.run(
-                    ["timeout", "-k", str(TTY_KILL_GRACE), str(TTY_WRITE_TIMEOUT), "/bin/sh", "-c",
+                    ["timeout", "-k", str(TTY_KILL_GRACE), str(limit), "/bin/sh", "-c",
                      'printf "\\n%s\\n" "$1" >> "$2"', "sh", line, target],
                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                     check=False)
@@ -2816,13 +2823,13 @@ data:
             return False
 
 
-    # The replay is bounded as a whole: the getty wait, the hold, one bounded
-    # write per console, and 20 s for the last query and the poweroff request
-    # must stay inside PUBLISH_MARGIN. The guest unit's TimeoutStartSec adds
+    # The whole replay runs against 1 deadline inside PUBLISH_MARGIN: the wait,
+    # the hold, and every console write, which is cut short or skipped rather
+    # than allowed to cross it. PUBLISH_RESERVE is left for the last getty
+    # query and the poweroff request. The guest unit's TimeoutStartSec adds
     # PUBLISH_MARGIN seconds beyond the phase budget, so the replay never eats
-    # the probes' own margin:
-    # PUBLISH_WAIT + PUBLISH_HOLD + len(GUEST_CONSOLES) * (TTY_WRITE_TIMEOUT +
-    # TTY_KILL_GRACE) + 20 <= PUBLISH_MARGIN.
+    # the probes' own margin: PUBLISH_WAIT + PUBLISH_HOLD + PUBLISH_RESERVE <=
+    # PUBLISH_MARGIN.
     PUBLISH_WAIT = 80
     # Incus keeps console output only when the host reads it (every 5 s); a
     # VM that powers off right after its record loses it
@@ -2830,23 +2837,26 @@ data:
     # Hold the line, repeated, for several host polls before returning.
     PUBLISH_HOLD = 30
     PUBLISH_MARGIN = 150
+    PUBLISH_RESERVE = 20
 
 
     def publish(line, wait=None, hold=None):
+        start = time.monotonic()
+        final = start + PUBLISH_MARGIN - PUBLISH_RESERVE
         wait = PUBLISH_WAIT if wait is None else wait
         hold = PUBLISH_HOLD if hold is None else hold
-        emit(line)
-        deadline = time.monotonic() + wait
+        emit(line, deadline=final)
+        deadline = min(start + wait, final)
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0 or serial_getty_ready(timeout=max(1, min(10, remaining))):
                 break
             time.sleep(max(0, min(2, deadline - time.monotonic())))
-        emit(line)
-        held = time.monotonic() + hold
+        emit(line, deadline=final)
+        held = min(time.monotonic() + hold, final)
         while time.monotonic() < held:
             time.sleep(max(0, min(10, held - time.monotonic())))
-            emit(line)
+            emit(line, deadline=final)
 
 
     def main(argv):
