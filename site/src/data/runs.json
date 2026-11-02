@@ -1,5 +1,5 @@
 {
-  "generated": "2026-11-02T08:00:17Z",
+  "generated": "2026-11-02T08:30:17Z",
   "lanes": [
     {
       "laneKey": "run-firn-install-tests",
@@ -36,7 +36,8 @@
           "rootfs=overlay",
           "serial_tty=ok",
           "sysroot=btrfs"
-        ]
+        ],
+        "fsverity": []
       },
       "runs": 8,
       "everGreen": true,
@@ -61,7 +62,8 @@
         "trigger": "scheduled",
         "result": null,
         "digest": null,
-        "checks": []
+        "checks": [],
+        "fsverity": []
       },
       "runs": 3,
       "everGreen": true,
@@ -73,9 +75,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1793606400",
+        "name": "publish-results-1793608200",
         "phase": "Running",
-        "started": "2026-11-02T08:00:00Z",
+        "started": "2026-11-02T08:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -86,7 +88,8 @@
         "trigger": "scheduled",
         "result": null,
         "digest": null,
-        "checks": []
+        "checks": [],
+        "fsverity": []
       },
       "runs": 4,
       "everGreen": true,
@@ -128,7 +131,8 @@
           "tag=before-boot-n timestamp=2026-10-29T14:49:43.513678+00:00",
           "phase=boot-n boot_id=e1eef7db-821e-4421-a882-6aac9ddd5518 kernel=7.2.12+deb14-amd64 fsverity_errors=0",
           "fsverity_known_defect=7.2.12+deb14-amd64"
-        ]
+        ],
+        "fsverity": []
       },
       "runs": 12,
       "everGreen": true,
@@ -153,7 +157,8 @@
         "trigger": "scheduled",
         "result": null,
         "digest": "sha256:91920f2e70435e1ee06e45f4e330d7c17bd02711ecd0a1cee3331f755ec5145d",
-        "checks": []
+        "checks": [],
+        "fsverity": []
       },
       "runs": 3,
       "everGreen": true,
@@ -182,7 +187,8 @@
         "trigger": "scheduled",
         "result": null,
         "digest": "sha256:78db96f8b89cd3baf50e235edc8aad316848b26140a91ebc1ce3199e10f16118",
-        "checks": []
+        "checks": [],
+        "fsverity": []
       },
       "runs": 4,
       "everGreen": true,
@@ -211,7 +217,8 @@
         "trigger": "scheduled",
         "result": null,
         "digest": "sha256:eda0712655b19f3422079b066052f5e3cccba5d2670c4f47654ab14f57e34bd2",
-        "checks": []
+        "checks": [],
+        "fsverity": []
       },
       "runs": 3,
       "everGreen": true,
@@ -240,7 +247,8 @@
         "trigger": "scheduled",
         "result": null,
         "digest": "sha256:38a3f48a4e8042a5f2fcc633026c4abaacfc831f1f431d4577463aa8621e4291",
-        "checks": []
+        "checks": [],
+        "fsverity": []
       },
       "runs": 4,
       "everGreen": true,
@@ -253,9 +261,9 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1793606400",
+      "name": "publish-results-1793608200",
       "phase": "Running",
-      "started": "2026-11-02T08:00:00Z",
+      "started": "2026-11-02T08:30:00Z",
       "finished": null,
       "durationSeconds": null,
       "template": "publish",
@@ -266,7 +274,25 @@
       "trigger": "scheduled",
       "result": null,
       "digest": null,
-      "checks": []
+      "checks": [],
+      "fsverity": []
+    },
+    {
+      "name": "publish-results-1793606400",
+      "phase": "Succeeded",
+      "started": "2026-11-02T08:00:00Z",
+      "finished": "2026-11-02T08:00:30Z",
+      "durationSeconds": 30,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": null,
+      "checks": [],
+      "fsverity": []
     },
     {
       "name": "publish-results-1793604600",
@@ -282,7 +308,8 @@
       "trigger": "scheduled",
       "result": null,
       "digest": null,
-      "checks": []
+      "checks": [],
+      "fsverity": []
     },
     {
       "name": "publish-results-1793602800",
@@ -298,7 +325,8 @@
       "trigger": "scheduled",
       "result": null,
       "digest": null,
-      "checks": []
+      "checks": [],
+      "fsverity": []
     },
     {
       "name": "image-poll-sundog-latest-1793602200",
@@ -314,7 +342,8 @@
       "trigger": "scheduled",
       "result": null,
       "digest": "sha256:91920f2e70435e1ee06e45f4e330d7c17bd02711ecd0a1cee3331f755ec5145d",
-      "checks": []
+      "checks": [],
+      "fsverity": []
     },
     {
       "name": "image-poll-snowfield-latest-1793601600",
@@ -330,23 +359,8 @@
       "trigger": "scheduled",
       "result": null,
       "digest": "sha256:78db96f8b89cd3baf50e235edc8aad316848b26140a91ebc1ce3199e10f16118",
-      "checks": []
-    },
-    {
-      "name": "publish-results-1793601000",
-      "phase": "Succeeded",
-      "started": "2026-11-02T06:30:00Z",
-      "finished": "2026-11-02T06:30:30Z",
-      "durationSeconds": 30,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": null,
-      "checks": []
+      "checks": [],
+      "fsverity": []
     },
     {
       "name": "image-poll-floe-latest-1793600400",
@@ -362,7 +376,8 @@
       "trigger": "scheduled",
       "result": null,
       "digest": "sha256:eda0712655b19f3422079b066052f5e3cccba5d2670c4f47654ab14f57e34bd2",
-      "checks": []
+      "checks": [],
+      "fsverity": []
     },
     {
       "name": "orphan-pod-gc-1793600220",
@@ -378,7 +393,8 @@
       "trigger": "scheduled",
       "result": null,
       "digest": null,
-      "checks": []
+      "checks": [],
+      "fsverity": []
     },
     {
       "name": "image-poll-snow-latest-1793599200",
@@ -394,7 +410,8 @@
       "trigger": "scheduled",
       "result": null,
       "digest": "sha256:38a3f48a4e8042a5f2fcc633026c4abaacfc831f1f431d4577463aa8621e4291",
-      "checks": []
+      "checks": [],
+      "fsverity": []
     },
     {
       "name": "image-poll-sundog-latest-1793591400",
@@ -410,7 +427,8 @@
       "trigger": "scheduled",
       "result": "20 passed, 3 skipped",
       "digest": "sha256:91920f2e70435e1ee06e45f4e330d7c17bd02711ecd0a1cee3331f755ec5145d",
-      "checks": []
+      "checks": [],
+      "fsverity": []
     },
     {
       "name": "image-poll-snowfield-latest-1793590800",
@@ -426,7 +444,8 @@
       "trigger": "scheduled",
       "result": "20 passed, 3 skipped",
       "digest": "sha256:78db96f8b89cd3baf50e235edc8aad316848b26140a91ebc1ce3199e10f16118",
-      "checks": []
+      "checks": [],
+      "fsverity": []
     },
     {
       "name": "image-poll-floe-latest-1793589600",
@@ -442,7 +461,8 @@
       "trigger": "scheduled",
       "result": "14 passed, 9 skipped",
       "digest": "sha256:eda0712655b19f3422079b066052f5e3cccba5d2670c4f47654ab14f57e34bd2",
-      "checks": []
+      "checks": [],
+      "fsverity": []
     },
     {
       "name": "image-poll-snow-latest-1793588400",
@@ -458,7 +478,8 @@
       "trigger": "scheduled",
       "result": "20 passed, 3 skipped",
       "digest": "sha256:38a3f48a4e8042a5f2fcc633026c4abaacfc831f1f431d4577463aa8621e4291",
-      "checks": []
+      "checks": [],
+      "fsverity": []
     },
     {
       "name": "image-poll-sundog-latest-1793580600",
@@ -474,7 +495,8 @@
       "trigger": "scheduled",
       "result": null,
       "digest": "sha256:ffaf4a16a3ccae1f36c92b6891a5b36b8289cf188c222859d9d0e0c63c00e8d8",
-      "checks": []
+      "checks": [],
+      "fsverity": []
     },
     {
       "name": "image-poll-snowfield-latest-1793580000",
@@ -490,7 +512,8 @@
       "trigger": "scheduled",
       "result": null,
       "digest": "sha256:ac13ee5f61e4f6602ed5a488c0870013843bcc1d9576432c850bb82143e11cf0",
-      "checks": []
+      "checks": [],
+      "fsverity": []
     },
     {
       "name": "image-poll-floe-latest-1793578800",
@@ -506,7 +529,8 @@
       "trigger": "scheduled",
       "result": null,
       "digest": "sha256:b878e447ce62a0b4dc5df2e3edc0657b05ca5e5284ea658156b00e01ce72d5fe",
-      "checks": []
+      "checks": [],
+      "fsverity": []
     },
     {
       "name": "orphan-pod-gc-1793578620",
@@ -522,7 +546,8 @@
       "trigger": "scheduled",
       "result": null,
       "digest": null,
-      "checks": []
+      "checks": [],
+      "fsverity": []
     },
     {
       "name": "image-poll-snow-latest-1793577600",
@@ -538,7 +563,8 @@
       "trigger": "scheduled",
       "result": null,
       "digest": "sha256:6c83198740690f856b3578605e1866a78b18e1ab28b0f7172446e9330c517a04",
-      "checks": []
+      "checks": [],
+      "fsverity": []
     },
     {
       "name": "orphan-pod-gc-1793557020",
@@ -554,7 +580,8 @@
       "trigger": "scheduled",
       "result": null,
       "digest": null,
-      "checks": []
+      "checks": [],
+      "fsverity": []
     },
     {
       "name": "run-snow-bootc-lifecycle-v9bkv",
@@ -587,7 +614,8 @@
         "tag=before-boot-n timestamp=2026-10-29T14:49:43.513678+00:00",
         "phase=boot-n boot_id=e1eef7db-821e-4421-a882-6aac9ddd5518 kernel=7.2.12+deb14-amd64 fsverity_errors=0",
         "fsverity_known_defect=7.2.12+deb14-amd64"
-      ]
+      ],
+      "fsverity": []
     },
     {
       "name": "bootc-only-iso-install-dmlsz",
@@ -619,7 +647,8 @@
         "rootfs=overlay",
         "serial_tty=ok",
         "sysroot=btrfs"
-      ]
+      ],
+      "fsverity": []
     },
     {
       "name": "bootc-only-iso-install-j27nv",
@@ -650,7 +679,8 @@
         "osrelease=sundog",
         "rootfs=overlay",
         "sysroot=btrfs"
-      ]
+      ],
+      "fsverity": []
     },
     {
       "name": "bootc-only-iso-install-xj6kk",
@@ -681,7 +711,8 @@
         "osrelease=sundog",
         "rootfs=overlay",
         "sysroot=btrfs"
-      ]
+      ],
+      "fsverity": []
     },
     {
       "name": "bootc-only-iso-install-gvdvr",
@@ -712,7 +743,8 @@
         "osrelease=sundog",
         "rootfs=overlay",
         "sysroot=btrfs"
-      ]
+      ],
+      "fsverity": []
     },
     {
       "name": "bootc-only-iso-install-mpt2v",
@@ -743,7 +775,8 @@
         "osrelease=snow",
         "rootfs=overlay",
         "sysroot=btrfs"
-      ]
+      ],
+      "fsverity": []
     },
     {
       "name": "bootc-only-iso-install-ffbw7",
@@ -759,7 +792,8 @@
       "trigger": "manual",
       "result": "FAILED: boot:no_report (bootc/sundog/none/sb=true) firn=firn_version_0.10.0_(Commit:_11133e6b801fc68a7490742244aa87e0313a8acd)_(Date:_2026-10-26T15:15:31Z)_(Built_by:_goreleaser)",
       "digest": null,
-      "checks": []
+      "checks": [],
+      "fsverity": []
     },
     {
       "name": "run-snow-bootc-lifecycle-l6596",
@@ -792,7 +826,8 @@
         "tag=before-boot-n timestamp=2026-10-26T18:31:33.223102+00:00",
         "phase=boot-n boot_id=d58061ef-638c-4b14-bb99-5cc377758feb kernel=7.2.11+deb14-amd64 fsverity_errors=0",
         "fsverity_known_defect=7.2.11+deb14-amd64"
-      ]
+      ],
+      "fsverity": []
     },
     {
       "name": "run-snow-bootc-lifecycle-tbjnp",
@@ -825,7 +860,8 @@
         "tag=before-boot-n timestamp=2026-10-26T17:23:07.002358+00:00",
         "phase=boot-n boot_id=5c0b35a0-972b-493f-a3c4-c404d2a0f7e9 kernel=7.2.11+deb14-amd64 fsverity_errors=0",
         "fsverity_known_defect=7.2.11+deb14-amd64"
-      ]
+      ],
+      "fsverity": []
     },
     {
       "name": "run-snow-bootc-lifecycle-fhhk4",
@@ -845,7 +881,8 @@
         "manifest_sha256=c4dda437a61de448666606e8740c4c3864aaebc60617f172ec4694c6e66d63e8",
         "tag=before-install timestamp=2026-10-26T15:25:42.845561+00:00",
         "tag=before-installed-n timestamp=2026-10-26T15:30:35.689862+00:00"
-      ]
+      ],
+      "fsverity": []
     },
     {
       "name": "run-snow-bootc-lifecycle-5g2w5",
@@ -865,7 +902,8 @@
         "manifest_sha256=c4dda437a61de448666606e8740c4c3864aaebc60617f172ec4694c6e66d63e8",
         "tag=before-install timestamp=2026-10-26T14:15:35.656637+00:00",
         "tag=before-installed-n timestamp=2026-10-26T14:20:23.706177+00:00"
-      ]
+      ],
+      "fsverity": []
     },
     {
       "name": "run-snow-bootc-lifecycle-2tnjh",
@@ -885,7 +923,8 @@
         "manifest_sha256=c4dda437a61de448666606e8740c4c3864aaebc60617f172ec4694c6e66d63e8",
         "tag=before-install timestamp=2026-10-26T12:16:35.035637+00:00",
         "tag=before-installed-n timestamp=2026-10-26T12:21:33.508216+00:00"
-      ]
+      ],
+      "fsverity": []
     },
     {
       "name": "run-snow-bootc-lifecycle-clvpb",
@@ -904,7 +943,8 @@
       "checks": [
         "manifest_sha256=43df99b1a080db2d878b3f1fd77c5193b741b724c0ba8deba7e52b64c3a4f335",
         "tag=before-install timestamp=2026-10-26T10:52:57.380895+00:00"
-      ]
+      ],
+      "fsverity": []
     },
     {
       "name": "run-snow-bootc-lifecycle-g7kvk",
@@ -924,7 +964,8 @@
         "manifest_sha256=43df99b1a080db2d878b3f1fd77c5193b741b724c0ba8deba7e52b64c3a4f335",
         "tag=before-install timestamp=2026-10-26T09:41:08.417883+00:00",
         "tag=before-installed-n timestamp=2026-10-26T09:45:51.223550+00:00"
-      ]
+      ],
+      "fsverity": []
     },
     {
       "name": "run-snow-bootc-lifecycle-xf2bt",
@@ -943,7 +984,8 @@
       "checks": [
         "manifest_sha256=43df99b1a080db2d878b3f1fd77c5193b741b724c0ba8deba7e52b64c3a4f335",
         "tag=before-install timestamp=2026-10-26T09:13:28.632316+00:00"
-      ]
+      ],
+      "fsverity": []
     },
     {
       "name": "run-snow-bootc-lifecycle-6prlx",
@@ -962,7 +1004,8 @@
       "checks": [
         "manifest_sha256=43df99b1a080db2d878b3f1fd77c5193b741b724c0ba8deba7e52b64c3a4f335",
         "tag=before-install timestamp=2026-10-26T03:08:58.146754+00:00"
-      ]
+      ],
+      "fsverity": []
     },
     {
       "name": "run-snow-bootc-lifecycle-lnzgv",
@@ -981,7 +1024,8 @@
       "checks": [
         "manifest_sha256=43df99b1a080db2d878b3f1fd77c5193b741b724c0ba8deba7e52b64c3a4f335",
         "tag=before-install timestamp=2026-10-26T02:47:46.009173+00:00"
-      ]
+      ],
+      "fsverity": []
     },
     {
       "name": "run-snow-bootc-lifecycle-46lqr",
@@ -1000,7 +1044,8 @@
       "checks": [
         "manifest_sha256=43df99b1a080db2d878b3f1fd77c5193b741b724c0ba8deba7e52b64c3a4f335",
         "tag=before-install timestamp=2026-10-26T01:21:18.530511+00:00"
-      ]
+      ],
+      "fsverity": []
     },
     {
       "name": "bootc-only-iso-install-xh2jv",
@@ -1016,7 +1061,8 @@
       "trigger": "manual",
       "result": "FAILED: boot:no_report (bootc/sundog/none/sb=true) firn=firn_version_0.8.0_(Commit:_f3c4b5ddf5a9e20040aec571d9c8f7a96a0b03c3)_(Date:_2026-10-07T21:01:27Z)_(Built_by:_goreleaser)",
       "digest": null,
-      "checks": []
+      "checks": [],
+      "fsverity": []
     },
     {
       "name": "bootc-only-iso-install-54wr4",
@@ -1032,7 +1078,8 @@
       "trigger": "manual",
       "result": "FAILED: boot:no_report (bootc/sundog/none/sb=true) firn=firn_version_0.8.0_(Commit:_f3c4b5ddf5a9e20040aec571d9c8f7a96a0b03c3)_(Date:_2026-10-07T21:01:27Z)_(Built_by:_goreleaser)",
       "digest": null,
-      "checks": []
+      "checks": [],
+      "fsverity": []
     },
     {
       "name": "image-poll-snowfield-latest-1791895200",
@@ -1048,7 +1095,8 @@
       "trigger": "scheduled",
       "result": "19 passed, 1 failed",
       "digest": "sha256:2f542144df6253c75685911bc8897ca0af429eeb58f9a70affa5e7f0149e0e25",
-      "checks": []
+      "checks": [],
+      "fsverity": []
     },
     {
       "name": "image-poll-snow-latest-1791892800",
@@ -1064,7 +1112,8 @@
       "trigger": "scheduled",
       "result": "19 passed, 1 failed",
       "digest": "sha256:8e231f188562c9414b46fbf054908f2cb04a6f90b0bc1e9e3926aa568719b9c2",
-      "checks": []
+      "checks": [],
+      "fsverity": []
     }
   ]
 }
