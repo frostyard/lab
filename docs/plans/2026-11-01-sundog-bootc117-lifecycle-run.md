@@ -132,7 +132,7 @@ PASS: verified_five_fresh_boots
 - **Boot noise is per file.** The only lines of the 3 runs come from one file
   in one N boot (`52r5s`). A later run with lines in `stage` can now be matched
   by inode to the boot lines of the same install.
-- **Lane, not image: a Sundog boot can stop at about 9 s and never report.**
+- **A Sundog boot can stop at about 9 s and never report.**
   2 of 11 started boots (in `pcl2l` and `52r5s`). The lifecycle lane has no
   kmsg path and a blocked `ttyS0` write can hold the guest unit, so each hit
   costs the full phase window. Follow-up: [lab#177](https://github.com/frostyard/lab/issues/177).
