@@ -27,6 +27,7 @@ Docs are split by the question they answer
 - [0011 — Roster product polls and qualify their QA evidence by digest and freshness](adr/0011-product-poll-qa-evidence-is-rostered-and-fresh.md) (product-only refinement to 0003/0004)
 - [0012 — The lifecycle lane takes its product from the hashed manifest](adr/0012-lifecycle-lane-product-comes-from-the-hashed-manifest.md)
 - [0013 — Firn lane markers also travel through the kernel log](adr/0013-firn-lane-markers-also-travel-through-the-kernel-log.md) (amends 0005)
+- [0014 — Lifecycle lane records also travel through the kernel log](adr/0014-lifecycle-lane-records-also-travel-through-the-kernel-log.md) (amends 0005)
 
 Org-wide decisions binding this repo: [org-adrs.md](org-adrs.md).
 

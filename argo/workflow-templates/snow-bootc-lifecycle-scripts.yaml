@@ -328,6 +328,13 @@ data:
     Path(sys.argv[5]).write_bytes(new)
     last_path.write_bytes(snapshot)
     PY
+      # lab#177 (ADR-0014): the guest also sends its record to /dev/kmsg as
+      # numbered chunks of its base64url text. Join them into this slice, and
+      # keep complete lines only (a slice can end inside a line), so every
+      # parser below (the await greps, the error parsers, qa.py phase and
+      # sysext-phase) sees the joined lines unchanged. A failure here is a
+      # broken channel, never a phase verdict.
+      python3 /opt/snow-qa/qa.py kmsg-join "$WORK/serial" > "$WORK/serial-channel" 2>/dev/null || blocked channel_lineage
     }
     vm_stopped() {
       # Capture first: grep -q closing the pipe early must not make incus fail under pipefail.
@@ -354,13 +361,15 @@ data:
         line = line.rstrip(b'\r')
         index = line.find(b'SNOW_QA_ERR')
         return line if index > 0 and not line[index - 1:index].isspace() else line[index:]
-    errors = sorted({token(line) for line in lines if b'SNOW_QA_ERR' in line})
-    if len(errors) != 1 or any(b'SNOW_QA_V1' in line for line in lines):
+    # lab#177 (ADR-0014): a chunk carrier line holds a fragment of a record, and
+    # a stalled ttyS0 can cut the record line and kernel text follows on it.
+    # Only a complete code line counts, never a fragment.
+    tokens = [token(line) for line in lines if b'SNOW_QA_ERR' in line and b'SNOW_QA_KMSG1' not in line]
+    codes = {match[1] for match in (re.fullmatch(rb'SNOW_QA_ERR ([a-z_]{1,40})\r?', item)
+                                    for item in tokens) if match}
+    if len(codes) != 1 or any(b'SNOW_QA_V1' in line for line in lines):
         sys.exit(1)
-    match = re.fullmatch(rb'SNOW_QA_ERR ([a-z_]{1,40})\r?', errors[0])
-    if match is None:
-        sys.exit(1)
-    print(match[1].decode('ascii'))
+    print(codes.pop().decode('ascii'))
     PY
           ) || fail phase_mismatch
           case "$code" in
@@ -380,13 +389,14 @@ data:
         line = line.rstrip(b'\r')
         index = line.find(b'SNOW_SYSEXT_ERR')
         return line if index > 0 and not line[index - 1:index].isspace() else line[index:]
-    errors = sorted({token(line) for line in lines if b'SNOW_SYSEXT_ERR' in line})
-    if len(errors) != 1 or any(b'SNOW_SYSEXT_V1' in line for line in lines):
+    # A chunk carrier line is not a code line, and a cut fragment is not a code
+    # (lab#177, ADR-0014).
+    tokens = [token(line) for line in lines if b'SNOW_SYSEXT_ERR' in line and b'SNOW_QA_KMSG1' not in line]
+    codes = {match[1] for match in (re.fullmatch(rb'SNOW_SYSEXT_ERR ([a-z_]{1,40})\r?', item)
+                                    for item in tokens) if match}
+    if len(codes) != 1 or any(b'SNOW_SYSEXT_V1' in line for line in lines):
         sys.exit(1)
-    match = re.fullmatch(rb'SNOW_SYSEXT_ERR ([a-z_]{1,40})\r?', errors[0])
-    if match is None:
-        sys.exit(1)
-    print(match[1].decode('ascii'))
+    print(codes.pop().decode('ascii'))
     PY
             ) || fail sysext_guest_error
             fail "sysext_guest_error:$code"
@@ -973,7 +983,7 @@ data:
     TimeoutStartSec=$((budget + 150))
     StandardOutput=null
     StandardError=null
-    ExecStart=/bin/bash -ec 'install -d -m 0700 /run/snow-credentials; cut -d\" \" -f1 /proc/uptime > /run/snow-credentials/unit_started; install -d -m 0700 /opt/snow-qa; echo $qa_b64 | base64 -d > /run/snow-qa.z; python3 -c \"import zlib,sys;sys.stdout.buffer.write(zlib.decompress(sys.stdin.buffer.read()))\" < /run/snow-qa.z > /opt/snow-qa/qa.py; echo $manifest_b64 | base64 -d > /opt/snow-qa/normalized.json; printf %%s $phase > /run/snow-credentials/phase; printf %%s $nonce > /run/snow-credentials/nonce; printf %%s $n > /run/snow-credentials/image_n; printf %%s $next > /run/snow-credentials/image_n_plus_1; printf %%s $target > /run/snow-credentials/target_ref; python3 /opt/snow-qa/qa.py ${guest_mode:-guest} /run/snow-credentials; systemctl --no-block poweroff'"
+    ExecStart=/bin/bash -ec 'install -d -m 0700 /run/snow-credentials; cut -d\" \" -f1 /proc/uptime > /run/snow-credentials/unit_started; install -d -m 0700 /opt/snow-qa; echo $qa_b64 | base64 -d > /run/snow-qa.z; python3 -c \"import zlib,sys;sys.stdout.buffer.write(zlib.decompress(sys.stdin.buffer.read()))\" < /run/snow-qa.z > /opt/snow-qa/qa.py; echo $manifest_b64 | base64 -d > /opt/snow-qa/normalized.json; printf %%s $phase > /run/snow-credentials/phase; printf %%s $nonce > /run/snow-credentials/nonce; printf %%s $n > /run/snow-credentials/image_n; printf %%s $next > /run/snow-credentials/image_n_plus_1; printf %%s $target > /run/snow-credentials/target_ref; python3 /opt/snow-qa/qa.py ${guest_mode:-guest} /run/snow-credentials || true; systemctl --no-block poweroff'"
       gb=$(printf '%s' "$guestunit" | base64 -w0) || fail unit_encoding
       [[ ${#gb} -lt 60000 ]] || fail unit_size
       gd=$(printf '[Unit]\nWants=snow-guest.service' | base64 -w0) || fail unit_encoding
@@ -1002,6 +1012,10 @@ data:
           persist "$WORK/$phase.json" "$EVIDENCE/$phase.json" || fail evidence_write
           printf 'phase=%s boot_id=%s sysext_failures=%s\n' "$phase" "$prior" "$sysext_state" >> "$OUT/checks.txt"
           persist "$OUT/checks.txt" "$EVIDENCE/checks.txt" || fail evidence_write
+          # lab#177: which channel carried the record. Best effort: this file
+          # never shapes checks.txt, the judge or the reason.
+          printf 'phase=%s %s\n' "$phase" "$(cat "$WORK/serial-channel" 2>/dev/null)" >> "$OUT/serial-channel.txt" || true
+          persist "$OUT/serial-channel.txt" "$EVIDENCE/serial-channel.txt" || true
           # Both sysext boots always run, so one record never hides the other.
           if [[ "$sysext_state" != none ]]; then
             sysext_failures+="${sysext_failures:+,}$sysext_state"
@@ -1035,6 +1049,10 @@ data:
             fi
           fi
           persist "$OUT/checks.txt" "$EVIDENCE/checks.txt" || fail evidence_write
+          # lab#177: which channel carried the record. Best effort: this file
+          # never shapes checks.txt, the judge or the reason.
+          printf 'phase=%s %s\n' "$phase" "$(cat "$WORK/serial-channel" 2>/dev/null)" >> "$OUT/serial-channel.txt" || true
+          persist "$OUT/serial-channel.txt" "$EVIDENCE/serial-channel.txt" || true
           ;;
       esac
       case "$phase" in stage|boot-n-plus-1|rollback) tag after-"$phase";; esac
@@ -1712,12 +1730,20 @@ data:
         require(len(raw) <= 1024 * 1024, "serial_size")
         # Lines end at LF only, as in the runner's error parser: a CR inside a
         # line never ends a marker (trailing CRs from ONLCR are stripped).
-        lines = raw.split(b"\n")
+        # A chunk carrier line holds a fragment of a record line in its own
+        # data, so it is never a record line itself (lab#177, ADR-0014).
+        lines = [line for line in raw.split(b"\n") if b"SNOW_QA_KMSG1" not in line]
         # The guest writes its one record more than once (to ttyS0 and again
         # after serial-getty's TTY setup); identical copies are one record.
         # A copy can follow the getty prompt on its line ("snow-qa login: "
         # has no newline; run-snow-bootc-lifecycle-fhhk4).
-        markers = {marker_token(line, b"SNOW_QA_V1") for line in lines if b"SNOW_QA_V1" in line}
+        tokens = {marker_token(line, b"SNOW_QA_V1") for line in lines if b"SNOW_QA_V1" in line}
+        # A stalled ttyS0 can cut the line and the kernel then appends its own
+        # text to it (lab#177); only a complete token is a record (ADR-0013).
+        markers = {token for token in tokens
+                   if re.fullmatch(rb"SNOW_QA_V1 ([A-Za-z0-9_-]{1,8192})", token) is not None}
+        # An incomplete marker is a cut record; no marker at all is no record.
+        require(markers or not tokens, "record_encoding")
         require(len(markers) == 1, "record_count")
         markers = sorted(markers)
         match = re.fullmatch(rb"SNOW_QA_V1 ([A-Za-z0-9_-]{1,8192})", markers[0])
@@ -1742,6 +1768,94 @@ data:
         if index > 0 and not line[index - 1:index].isspace():
             return line
         return line[index:]
+
+
+    # lab#177 (ADR-0014): the guest also sends every record line to /dev/kmsg,
+    # as numbered bounded chunks of its base64url text (1 kmsg record holds
+    # about 1 KiB; a record can reach 8 KiB, 12 KiB for sysext). The host joins
+    # them back into the serial slice before any parser reads it, so no parser
+    # changes.
+    KMSG_TOKEN = rb"SNOW_QA_KMSG1 ([0-9a-f]{16}) ([0-9]{1,2})/([0-9]{1,2}) ([0-9a-f]{8}) ([A-Za-z0-9_-]{1,384})"
+    # A joined line is one of the 4 marker lines. A slice line counts as a
+    # complete record only when it also matches the bound its own parser uses,
+    # so a copy the kernel cut into is never reported as a record.
+    MARKER_LINE = rb"(?:SNOW_QA_V1|SNOW_QA_ERR|SNOW_SYSEXT_V1|SNOW_SYSEXT_ERR) [ -~]+"
+    COMPLETE_LINES = ((b"SNOW_QA_V1", rb"[A-Za-z0-9_-]{1,8192}"),
+                      (b"SNOW_QA_ERR", rb"[a-z_]{1,40}"),
+                      (b"SNOW_SYSEXT_V1", rb"[A-Za-z0-9_-]{1,%d}" % (SYSEXT_TOKEN_MAX + 64)),
+                      (b"SNOW_SYSEXT_ERR", rb"[a-z_]{1,40}"))
+    SERIAL_MAX = 1024 * 1024
+
+
+    def complete_marker(lines):
+        """Each marker name whose line in the slice is complete, never cut."""
+        found = set()
+        for line in lines:
+            if b"SNOW_QA_KMSG1" in line:
+                continue   # a chunk carrier line is not a record line
+            for name, tail in COMPLETE_LINES:
+                if name in line and re.fullmatch(name + b" " + tail, marker_token(line, name)) is not None:
+                    found.add(name)
+        return found
+
+
+    def kmsg_join(serial):
+        """Join the kernel-log chunks into record lines and rewrite the slice."""
+        path = Path(serial)
+        raw = path.read_bytes()
+        require(len(raw) <= SERIAL_MAX, "serial_size")
+        # The guest always ends a record line with a newline, so a slice that
+        # ends inside a line holds a copy still in transfer, never a record:
+        # keep complete lines only (lab#177). The next call makes the slice
+        # again from the console snapshot.
+        kept = raw[:raw.rfind(b"\n") + 1]
+        lines = kept.split(b"\n")
+        groups = {}
+        for line in lines:
+            if b"SNOW_QA_KMSG1" not in line:
+                continue
+            match = re.fullmatch(KMSG_TOKEN, marker_token(line, b"SNOW_QA_KMSG1"))
+            if match is None:
+                continue
+            ident, index, total, crc, data = match[1], int(match[2]), int(match[3]), match[4], match[5]
+            # A cut fragment or a corrupted chunk is dropped, never repaired.
+            if not 1 <= index <= total <= KMSG_MAX_CHUNKS:
+                continue
+            if hashlib.sha256(data).hexdigest()[:8].encode() != crc:
+                continue
+            groups.setdefault((ident, total), {}).setdefault(index, set()).add(data)
+        joined = set()
+        for (ident, total), parts in groups.items():
+            # 2 different valid chunks for 1 index mean a corrupted record.
+            if any(len(chunks) != 1 for chunks in parts.values()):
+                continue
+            if sorted(parts) != list(range(1, total + 1)):
+                continue
+            encoded = b"".join(next(iter(parts[index])) for index in range(1, total + 1))
+            # Canonical base64url only: the guest never pads, so a token that
+            # does not re-encode to the same text is not its chunk text.
+            try:
+                decoded = base64.b64decode(encoded + b"=" * (-len(encoded) % 4),
+                                           altchars=b"-_", validate=True)
+            except ValueError:
+                continue
+            if base64.urlsafe_b64encode(decoded).rstrip(b"=") != encoded:
+                continue
+            # The id binds the whole line; a joined line is a record line only.
+            if hashlib.sha256(decoded).hexdigest()[:16].encode() != ident:
+                continue
+            if re.fullmatch(MARKER_LINE, decoded) is None:
+                continue
+            joined.add(decoded)
+        # Idempotent: a line the slice already holds is never appended again.
+        have = set(lines)
+        added = [line for line in sorted(joined) if line not in have]
+        payload = kept + b"".join(line + b"\n" for line in added)
+        require(len(payload) <= SERIAL_MAX, "serial_size")
+        with open(path, "wb", opener=lambda name, flags: os.open(name, flags, 0o600)) as stream:
+            stream.write(payload)
+        print("serial_record=%d kmsg_record=%d" %
+              (1 if complete_marker(lines) else 0, 1 if joined else 0))
 
 
     def phase_verdict(m, phase, nonce, prior, serial, checks):
@@ -2624,16 +2738,73 @@ data:
     # ttyS0 handle now and again once agetty runs (as the Firn lane does,
     # frostyard/snosi#1123). The host treats identical copies as one line.
     GUEST_CONSOLES = ("/dev/ttyS0", "/dev/console")
+    # lab#177: a stalled ttyS0 blocked the unbounded write, so the unit never
+    # reached its poweroff and the host waited out the whole phase window. Now
+    # every target write is a bounded child, and a target that had to be killed
+    # is skipped for the rest of this process (ADR-0014).
+    TTY_WRITE_TIMEOUT = 5
+    TTY_KILL_GRACE = 2
+    STALLED_TARGETS = set()
+    # A kernel-log copy of the record (ADR-0013) needs bounded chunk lines: one
+    # kmsg record holds about 1 KiB and a record can reach 8 KiB (12 KiB for
+    # sysext), so the line travels as numbered chunks that the host joins.
+    GUEST_KMSG = "/dev/kmsg"
+    KMSG_CHUNK = 384
+    KMSG_MAX_CHUNKS = 64
+
+
+    def kmsg_lines(line):
+        """The kernel-log chunk lines of one marker line."""
+        # The id binds the whole line, so chunks of 2 different lines never join.
+        raw = line.encode()
+        ident = hashlib.sha256(raw).hexdigest()[:16]
+        # base64url, no padding: no chunk line may contain a marker name, or the
+        # runner's "$needle" greps would match a half-received record before the
+        # host can join it (lab#177).
+        encoded = base64.urlsafe_b64encode(raw).decode().rstrip("=")
+        chunks = [encoded[index:index + KMSG_CHUNK] for index in range(0, len(encoded), KMSG_CHUNK)]
+        # A line over the bound keeps its id but cannot join: fail closed.
+        chunks = chunks[:KMSG_MAX_CHUNKS] or [""]
+        return ["SNOW_QA_KMSG1 %s %d/%d %s %s" %
+                (ident, index, len(chunks), hashlib.sha256(chunk.encode()).hexdigest()[:8], chunk)
+                for index, chunk in enumerate(chunks, 1)]
+
+
+    def emit_kmsg(line):
+        # A fresh open per line: devkmsg rate-limits per open (ADR-0013).
+        for chunk in kmsg_lines(line):
+            try:
+                handle = os.open(GUEST_KMSG, os.O_WRONLY | os.O_APPEND)
+            except OSError:
+                continue
+            try:
+                os.write(handle, b"<4>" + chunk.encode() + b"\n")
+            except OSError:
+                pass
+            finally:
+                try:
+                    os.close(handle)
+                except OSError:
+                    pass
 
 
     def emit(line):
+        # The kernel-log copy comes first: it survives a stalled ttyS0.
+        emit_kmsg(line)
         for target in GUEST_CONSOLES:
+            if target in STALLED_TARGETS:
+                continue
             try:
-                with open(target, "a") as stream:
-                    # Start on a new line: the getty prompt has no trailing newline.
-                    print("\n" + line, file=stream, flush=True)
+                # Start on a new line: the getty prompt has no trailing newline.
+                result = subprocess.run(
+                    ["timeout", "-k", str(TTY_KILL_GRACE), str(TTY_WRITE_TIMEOUT), "/bin/sh", "-c",
+                     'printf "\\n%s\\n" "$1" >> "$2"', "sh", line, target],
+                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    check=False)
             except OSError:
-                pass
+                continue
+            if result.returncode in (124, 137):
+                STALLED_TARGETS.add(target)
 
 
     def serial_getty_ready(timeout=10):
@@ -2645,10 +2816,14 @@ data:
             return False
 
 
-    # The replay wait is bounded as a whole; the guest unit's TimeoutStartSec
-    # adds PUBLISH_MARGIN seconds beyond the phase budget for it and the
-    # poweroff request, so it never eats the probes' own margin.
-    PUBLISH_WAIT = 90
+    # The replay is bounded as a whole: the getty wait, the hold, one bounded
+    # write per console, and 20 s for the last query and the poweroff request
+    # must stay inside PUBLISH_MARGIN. The guest unit's TimeoutStartSec adds
+    # PUBLISH_MARGIN seconds beyond the phase budget, so the replay never eats
+    # the probes' own margin:
+    # PUBLISH_WAIT + PUBLISH_HOLD + len(GUEST_CONSOLES) * (TTY_WRITE_TIMEOUT +
+    # TTY_KILL_GRACE) + 20 <= PUBLISH_MARGIN.
+    PUBLISH_WAIT = 80
     # Incus keeps console output only when the host reads it (every 5 s); a
     # VM that powers off right after its record loses it
     # (run-snow-bootc-lifecycle-5g2w5: guest-shutdown 1 s after the record).
@@ -2704,6 +2879,9 @@ data:
             elif argv[0] == "sysext-phase" and len(argv) in (7, 8):
                 sysext_phase_attest(load(argv[1], frozen=True), argv[2], argv[3], argv[4],
                                     argv[5], argv[6], argv[7] if len(argv) == 8 else None)
+            elif argv[0] == "kmsg-join" and len(argv) == 2:
+                # lab#177: after the serial slice is written, before any parser.
+                kmsg_join(argv[1])
             else:
                 raise GateError("usage")
             return 0
