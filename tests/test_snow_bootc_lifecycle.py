@@ -8,6 +8,7 @@ import subprocess
 import struct
 import sys
 import textwrap
+import time
 import os
 import shlex
 import io
@@ -792,6 +793,8 @@ def test_guest_publishes_to_serial_and_replays_after_getty(qa, tmp_path, monkeyp
     # serial-getty's TTY setup (run-snow-bootc-lifecycle-2tnjh).
     ttys0, console = tmp_path / "ttyS0", tmp_path / "console"
     monkeypatch.setattr(qa, "GUEST_CONSOLES", (str(ttys0), str(console)))
+    monkeypatch.setattr(qa, "GUEST_KMSG", str(tmp_path / "kmsg"))
+    monkeypatch.setattr(qa, "STALLED_TARGETS", set())
     monkeypatch.setattr(qa, "PUBLISH_HOLD", 0)  # the hold has its own test
     states = iter([False, False, True])
     monkeypatch.setattr(qa, "serial_getty_ready", lambda **_: next(states))
@@ -1157,9 +1160,11 @@ def guest_payload(tmp_path):
 
 
 @pytest.mark.parametrize("guest_rc", [0, 1])
-def test_guest_unit_powers_off_only_after_a_successful_guest_run(tmp_path, guest_rc):
+def test_guest_unit_powers_off_after_the_guest_run_succeeds_or_fails(tmp_path, guest_rc):
+    # lab#177: a non-zero qa.py exit must not skip the poweroff, or the host
+    # waits out the whole phase window for a VM that never stops.
     payload = guest_payload(tmp_path)
-    assert payload.rstrip().endswith("systemctl --no-block poweroff")
+    assert payload.rstrip().endswith("|| true; systemctl --no-block poweroff")
     assert payload.count("systemctl") == 1
     tools = tmp_path / "tools"
     tools.mkdir()
@@ -1170,8 +1175,8 @@ def test_guest_unit_powers_off_only_after_a_successful_guest_run(tmp_path, guest
     calls = tmp_path / "calls"
     result = subprocess.run(["bash", "-e", "-c", payload], capture_output=True,
                             env={**os.environ, "PATH": f"{tools}:{os.environ['PATH']}", "GUEST_RC": str(guest_rc), "CALLS": str(calls)})
-    assert (result.returncode == 0) is (guest_rc == 0)
-    assert (calls.read_text() if calls.exists() else "") == ("--no-block poweroff\n" if guest_rc == 0 else "")
+    assert result.returncode == 0
+    assert calls.read_text() == "--no-block poweroff\n"
 
 
 def test_host_waits_bounded_for_guest_shutdown_and_never_force_stops_between_phases():
@@ -1218,7 +1223,7 @@ def test_run_unit_survives_systemd_specifiers_and_delivers_guest_credentials(tmp
     for path in ("/opt/snow-qa", "/run/snow-credentials", "/run/snow-qa.z"):
         payload = payload.replace(path, str(tmp_path / path.lstrip("/")))
     payload = payload.replace("python3 " + str(tmp_path / "opt/snow-qa/qa.py") + " guest " +
-                              str(tmp_path / "run/snow-credentials") + "; systemctl --no-block poweroff", ":")
+                              str(tmp_path / "run/snow-credentials") + " || true; systemctl --no-block poweroff", ":")
     assert "systemctl" not in payload   # never power off the test host
     assert subprocess.run(["bash", "-e", "-c", payload], capture_output=True, check=True).returncode == 0
     assert (tmp_path / "opt/snow-qa/qa.py").read_bytes() == b"test payload"
@@ -2324,26 +2329,20 @@ def test_host_install_wait_outlives_install_unit_budget():
     ("bootc_status", "SNOW_QA_ERR bootc_status\n"),
     ("secret\nSNOW_QA_V1 fake", ""),
 ])
-def test_guest_failure_console_reports_only_safe_gate_code(qa, monkeypatch, capsys, reason, marker):
-    class Console(io.StringIO):
-        def close(self):
-            pass
-
-    console = Console()
-    original_open = open
-
-    def safe_open(path, *args, **kwargs):
-        return console if path == "/dev/console" else original_open(path, *args, **kwargs)
-
-    monkeypatch.setattr("builtins.open", safe_open)
-    monkeypatch.setattr(qa, "GUEST_CONSOLES", ("/dev/console",))
+def test_guest_failure_console_reports_only_safe_gate_code(qa, tmp_path, monkeypatch, capsys, reason, marker):
+    console = tmp_path / "console"
+    monkeypatch.setattr(qa, "GUEST_CONSOLES", (str(console),))
+    # No kmsg node in the test: the kernel copy is best effort (ADR-0014).
+    monkeypatch.setattr(qa, "GUEST_KMSG", str(tmp_path / "missing-kmsg"))
+    monkeypatch.setattr(qa, "STALLED_TARGETS", set())
     monkeypatch.setattr(qa, "PUBLISH_HOLD", 0)
     monkeypatch.setattr(qa, "serial_getty_ready", lambda **_: True)
     monkeypatch.setattr(qa, "guest", lambda _: (_ for _ in ()).throw(qa.GateError(reason)))
     assert qa.main(["guest", "/irrelevant"]) == 1
     # Written once at once, and once more after serial-getty's TTY setup.
-    assert console.getvalue() == ("\n" + marker if marker else "") * 2
-    assert "SNOW_QA_V1" not in console.getvalue()
+    written = console.read_text() if console.exists() else ""
+    assert written == ("\n" + marker if marker else "") * 2
+    assert "SNOW_QA_V1" not in written
 
 
 @pytest.mark.parametrize("damage", ["policy", "pull_failure", "pull_timeout", "pull_mismatch", "secure_boot", "tpm_unsigned", "tpm_pcrlock", "tpm_wrong_pcrs",
@@ -3005,6 +3004,10 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
                 # lab#174: the kept lines follow the 3 fixed lines, one per line.
                 print('seq=1 device=dm-0 inode=174546 pos=25952256 level=-1')
                 print('seq=2 device=dm-0 inode=174546 pos=4128768 level=-1')
+        elif cmd == 'kmsg-join':
+            # lab#177: the serial slice is already written; the join is a no-op here.
+            log('kmsg-join ' + Path(sys.argv[2]).name)
+            print('serial_record=1 kmsg_record=0')
         else: sys.exit(1)
     '''))
     tools = tmp_path / "tools"
@@ -3377,9 +3380,11 @@ def test_firn_install_has_no_file_size_limit_and_bounded_outputs(tmp_path, firn_
 def test_guest_publish_margin_matches_unit_timeout_and_bounds_the_replay(qa, monkeypatch):
     script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
     assert f"TimeoutStartSec=$((budget + {qa.PUBLISH_MARGIN}))" in script
-    assert qa.PUBLISH_WAIT + qa.PUBLISH_HOLD + 20 <= qa.PUBLISH_MARGIN  # last query, the hold, poweroff
-    # A getty that never comes, with slow queries: the whole wait stays bounded,
-    # and no query may run past the deadline.
+    # 1 deadline covers the wait, the hold and every console write; the reserve
+    # is left for the last getty query and the poweroff request (lab#177).
+    assert qa.PUBLISH_WAIT + qa.PUBLISH_HOLD + qa.PUBLISH_RESERVE <= qa.PUBLISH_MARGIN
+    # A getty that never comes, with slow queries: the whole replay stays
+    # bounded, and no query may run past its own deadline.
     now = [0.0]
     monkeypatch.setattr(qa.time, "monotonic", lambda: now[0])
     monkeypatch.setattr(qa.time, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds))
@@ -3391,18 +3396,18 @@ def test_guest_publish_margin_matches_unit_timeout_and_bounds_the_replay(qa, mon
         return False
 
     monkeypatch.setattr(qa, "serial_getty_ready", slow_query)
-    monkeypatch.setattr(qa, "emit", lambda line: None)
+    monkeypatch.setattr(qa, "emit", lambda line, deadline=None: None)
     qa.publish("SNOW_QA_V1 abc")
-    assert now[0] <= qa.PUBLISH_WAIT + qa.PUBLISH_HOLD + 1
+    assert now[0] <= qa.PUBLISH_MARGIN - qa.PUBLISH_RESERVE
     assert all(1 <= value <= 10 for value in timeouts)
 
 
 def test_host_shutdown_wait_includes_the_guest_publish_margin(qa):
     # The host starts its shutdown deadline at the first record; the guest may
-    # still replay for up to PUBLISH_WAIT before it requests poweroff.
+    # still replay until its own publish deadline, then requests poweroff.
     script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
     assert f"shutdown_end=$((SECONDS + shutdown_budget + {qa.PUBLISH_MARGIN}))" in script
-    assert qa.PUBLISH_MARGIN >= qa.PUBLISH_WAIT + qa.PUBLISH_HOLD + 20
+    assert qa.PUBLISH_MARGIN >= qa.PUBLISH_WAIT + qa.PUBLISH_HOLD + qa.PUBLISH_RESERVE
 
 
 @pytest.mark.parametrize("change", [
@@ -3608,7 +3613,7 @@ def test_guest_holds_its_record_for_several_host_polls(qa, monkeypatch):
     monkeypatch.setattr(qa.time, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds))
     monkeypatch.setattr(qa, "serial_getty_ready", lambda **_: True)
     emitted = []
-    monkeypatch.setattr(qa, "emit", lambda line: emitted.append((now[0], line)))
+    monkeypatch.setattr(qa, "emit", lambda line, deadline=None: emitted.append((now[0], line)))
     qa.publish("SNOW_QA_V1 abc")
     assert qa.PUBLISH_HOLD >= 15
     assert emitted[-1][0] >= qa.PUBLISH_HOLD and len(emitted) >= 4
@@ -3627,11 +3632,16 @@ def test_phase_reads_a_record_after_the_getty_prompt(qa, tmp_path, capsys, prefi
     record = serial_record(phase_record("installed-n"))
     copy = record.split("\n")[1]
     serial = tmp_path / "serial"
-    serial.write_text("Debian GNU/Linux 13 snow-qa ttyS0\n\n" + prefix + copy + "\r\n" + copy + "\r\n")
+    # A mid-word marker is no record at all, so the only copy is that one.
+    copies = prefix + copy + "\r\n"
+    if not prefix:
+        copies += copy + "\r\n"      # identical copies are one record
+    serial.write_text("Debian GNU/Linux 13 snow-qa ttyS0\n\n" + copies)
     result = qa.main(["phase", str(normalized), "installed-n", NONCE, "none", str(serial), str(checks)])
     assert result == (0 if ok else 1)
     if not ok:
-        assert capsys.readouterr().err.strip() == "qa_failed:record_count"
+        # An incomplete token is a cut record, never a chosen value (lab#177).
+        assert capsys.readouterr().err.strip() == "qa_failed:record_encoding"
 
 
 def test_runner_reads_a_guest_error_after_the_getty_prompt(tmp_path):
@@ -3641,7 +3651,10 @@ def test_runner_reads_a_guest_error_after_the_getty_prompt(tmp_path):
     path = tmp_path / "parse.py"
     path.write_text(parser.group(1))
     for text, expected in ((b"snow-qa login: SNOW_QA_ERR updater\r\nSNOW_QA_ERR updater\r\n", "updater"),
-                           (b"xSNOW_QA_ERR updater\r\nSNOW_QA_ERR updater\r\n", None)):
+                           # A mid-word token is not a complete code line, so the
+                           # complete copy is the code (lab#177).
+                           (b"xSNOW_QA_ERR updater\r\nSNOW_QA_ERR updater\r\n", "updater"),
+                           (b"xSNOW_QA_ERR updater\r\n", None)):
         serial = tmp_path / "serial"
         serial.write_bytes(text)
         result = subprocess.run(["python3", str(path), str(serial)], capture_output=True, text=True)
@@ -4398,6 +4411,8 @@ def test_guest_sysext_fatal_error_publishes_the_error_marker(qa, tmp_path, monke
     (credentials / "nonce").write_text(NONCE + "\n")
     ttys0 = tmp_path / "ttyS0"
     monkeypatch.setattr(qa, "GUEST_CONSOLES", (str(ttys0),))
+    monkeypatch.setattr(qa, "GUEST_KMSG", str(tmp_path / "kmsg"))
+    monkeypatch.setattr(qa, "STALLED_TARGETS", set())
     monkeypatch.setattr(qa, "PUBLISH_WAIT", 0)
     monkeypatch.setattr(qa, "PUBLISH_HOLD", 0)
     monkeypatch.setattr(qa, "serial_getty_ready", lambda **_: True)
@@ -4560,3 +4575,413 @@ def test_sysext_state_printer_lists_every_unit_with_the_load_state(qa, tmp_path)
 def test_run_script_prints_the_load_state_whenever_the_probe_ran():
     run = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
     assert 'if [[ "$sysext_mode" == 1 ]]; then\n  python3 - "$WORK/normalized.json"' in run
+
+# ---------------------------------------------------------------------------
+# lab#177 (ADR-0014): the record also travels through the kernel log, and no
+# serial write may hold the guest unit until the host times the phase out.
+# ---------------------------------------------------------------------------
+
+def kmsg_copy(qa, line, prefix=b"[   12.345678] ", end=b"\r\n"):
+    """The chunk lines as the kernel prints them on the console."""
+    return b"".join(prefix + chunk.encode() + end for chunk in qa.kmsg_lines(line))
+
+
+def kmsg_bytes(qa, line):
+    """What the guest writes to /dev/kmsg for one record line."""
+    return b"".join(b"<4>" + chunk.encode() + b"\n" for chunk in qa.kmsg_lines(line))
+
+
+def split_chunk(chunk):
+    name, ident, order, crc, data = chunk.split(" ", 4)
+    return name, ident, order, crc, data
+
+
+def decode_chunks(chunks):
+    """The line the chunk data encodes, with the host's canonical check."""
+    encoded = "".join(split_chunk(chunk)[4] for chunk in chunks)
+    decoded = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
+    assert base64.urlsafe_b64encode(decoded).decode().rstrip("=") == encoded
+    return decoded
+
+
+def test_kmsg_lines_chunk_the_record_with_id_index_and_crc(qa):
+    short = "SNOW_QA_ERR bootc_status"
+    chunks = qa.kmsg_lines(short)
+    # A short error line fits in one chunk, so it joins without a fragment.
+    assert len(chunks) == 1
+    name, ident, order, crc, data = split_chunk(chunks[0])
+    assert (name, order) == ("SNOW_QA_KMSG1", "1/1")
+    assert ident == hashlib.sha256(short.encode()).hexdigest()[:16]
+    assert crc == hashlib.sha256(data.encode()).hexdigest()[:8]
+    # The chunk text is the base64url line, without padding.
+    assert data == base64.urlsafe_b64encode(short.encode()).decode().rstrip("=")
+    assert decode_chunks(chunks) == short.encode()
+    record = "SNOW_QA_V1 " + "A" * 800
+    chunks = qa.kmsg_lines(record)
+    assert [split_chunk(chunk)[2] for chunk in chunks] == ["1/3", "2/3", "3/3"]
+    ident = hashlib.sha256(record.encode()).hexdigest()[:16]
+    for chunk in chunks:
+        name, chunk_id, _, crc, data = split_chunk(chunk)
+        assert chunk_id == ident and 0 < len(data) <= qa.KMSG_CHUNK
+        assert crc == hashlib.sha256(data.encode()).hexdigest()[:8]
+    assert decode_chunks(chunks) == record.encode()
+    # The chunk count is bounded; an over-long line keeps its id and cannot join.
+    long = "SNOW_QA_V1 " + "A" * (qa.KMSG_CHUNK * qa.KMSG_MAX_CHUNKS)
+    chunks = qa.kmsg_lines(long)
+    assert len(chunks) == qa.KMSG_MAX_CHUNKS
+    assert split_chunk(chunks[-1])[2] == f"{qa.KMSG_MAX_CHUNKS}/{qa.KMSG_MAX_CHUNKS}"
+    assert decode_chunks(chunks) != long.encode()
+
+
+@pytest.mark.parametrize("line", [
+    # The longest line each parser accepts, and the longest sysext token.
+    "SNOW_QA_V1 " + "A" * 8192,
+    "SNOW_SYSEXT_V1 " + "A" * (12000 + 64),
+    "SNOW_QA_ERR bootc_status",
+    "SNOW_SYSEXT_ERR credential",
+])
+def test_kmsg_chunk_count_of_a_maximum_line_fits_the_bound(qa, line):
+    chunks = qa.kmsg_lines(line)
+    encoded = base64.urlsafe_b64encode(line.encode()).decode().rstrip("=")
+    # lab#177: the encoded text is about 4/3 of the line (29 and 42 chunks).
+    assert len(chunks) == -(-len(encoded) // qa.KMSG_CHUNK)
+    assert len(chunks) <= qa.KMSG_MAX_CHUNKS
+    assert decode_chunks(chunks) == line.encode()
+
+
+@pytest.mark.parametrize("line", [
+    "SNOW_QA_V1 " + "A" * 800,
+    "SNOW_QA_ERR bootc_status",
+    "SNOW_SYSEXT_V1 " + "A" * 800,
+    "SNOW_SYSEXT_ERR credential",
+])
+def test_no_kernel_chunk_line_carries_a_marker_name(qa, line):
+    # The runner greps "$needle" and SNOW_QA_ERR on the slice: a chunk line that
+    # held a marker name would match a half-received record before the join.
+    for chunk in qa.kmsg_lines(line):
+        for name in ("SNOW_QA_V1", "SNOW_QA_ERR", "SNOW_SYSEXT_V1", "SNOW_SYSEXT_ERR"):
+            assert name not in chunk
+
+
+def test_emit_writes_the_kernel_copy_before_each_serial_target(qa, tmp_path, monkeypatch):
+    kmsg = tmp_path / "kmsg"
+    kmsg.write_bytes(b"")
+    targets = (tmp_path / "ttyS0", tmp_path / "console")
+    monkeypatch.setattr(qa, "GUEST_KMSG", str(kmsg))
+    monkeypatch.setattr(qa, "GUEST_CONSOLES", tuple(str(path) for path in targets))
+    monkeypatch.setattr(qa, "STALLED_TARGETS", set())
+    seen, calls = [], []
+
+    def fake_run(argv, **kwargs):
+        seen.append(kmsg.read_bytes())
+        calls.append(list(argv))
+        return subprocess.CompletedProcess(argv, 0, b"", b"")
+
+    monkeypatch.setattr(qa.subprocess, "run", fake_run)
+    qa.emit("SNOW_QA_V1 abc")
+    # The kernel copy is complete before the first serial write starts.
+    assert seen == [kmsg_bytes(qa, "SNOW_QA_V1 abc")] * 2
+    assert [call[-2:] for call in calls] == [["SNOW_QA_V1 abc", str(path)] for path in targets]
+    assert calls[0][:7] == ["timeout", "-k", str(qa.TTY_KILL_GRACE), str(qa.TTY_WRITE_TIMEOUT),
+                            "/bin/sh", "-c", 'printf "\\n%s\\n" "$1" >> "$2"']
+    assert not qa.STALLED_TARGETS
+
+
+def test_emit_keeps_the_serial_bytes_and_skips_a_stalled_target(qa, tmp_path, monkeypatch):
+    kmsg = tmp_path / "kmsg"
+    kmsg.write_bytes(b"")
+    fifo = tmp_path / "stalled"
+    os.mkfifo(fifo)   # no reader: a write to it never completes
+    console = tmp_path / "console"
+    monkeypatch.setattr(qa, "GUEST_KMSG", str(kmsg))
+    monkeypatch.setattr(qa, "GUEST_CONSOLES", (str(fifo), str(console)))
+    monkeypatch.setattr(qa, "STALLED_TARGETS", set())
+    monkeypatch.setattr(qa, "TTY_WRITE_TIMEOUT", 1)
+    monkeypatch.setattr(qa, "TTY_KILL_GRACE", 1)
+    started = time.monotonic()
+    qa.emit("SNOW_QA_V1 abc")
+    assert time.monotonic() - started < 10
+    assert kmsg.read_bytes() == kmsg_bytes(qa, "SNOW_QA_V1 abc")
+    # The live target keeps the exact bytes the lane has always written.
+    assert console.read_text() == "\nSNOW_QA_V1 abc\n"
+    assert qa.STALLED_TARGETS == {str(fifo)}
+    started = time.monotonic()
+    qa.emit("SNOW_QA_V1 abc")
+    assert time.monotonic() - started < 0.5   # the stalled target is skipped at once
+    assert console.read_text() == "\nSNOW_QA_V1 abc\n" * 2
+    assert kmsg.read_bytes() == kmsg_bytes(qa, "SNOW_QA_V1 abc") * 2
+
+
+@pytest.mark.parametrize("phase", PHASES)
+def test_kmsg_join_recovers_a_record_only_the_kernel_carried(qa, tmp_path, capsys, phase):
+    normalized, checks = phase_files(tmp_path, qa)
+    line = serial_record(phase_record(phase)).split("\n")[1]
+    serial = tmp_path / "serial"
+    # The serial log of a stalled boot: kernel lines only, no ttyS0 copy.
+    serial.write_bytes(b"[    0.000000] Linux version " + KERNEL.encode() + b"\n" + kmsg_copy(qa, line))
+    assert qa.main(["kmsg-join", str(serial)]) == 0
+    assert capsys.readouterr().out.strip() == "serial_record=0 kmsg_record=1"
+    assert qa.main(["phase", str(normalized), phase, NONCE, "none", str(serial), str(checks)]) == 0
+    assert capsys.readouterr().out.splitlines()[0] == "12345678-1234-4234-8234-123456789abc"
+
+
+def test_kmsg_join_keeps_the_kernel_record_next_to_a_cut_serial_copy(qa, tmp_path, capsys):
+    normalized, checks = phase_files(tmp_path, qa)
+    line = serial_record(phase_record("stage")).split("\n")[1]
+    serial = tmp_path / "serial"
+    # A stalled ttyS0 cut the copy and kernel text followed on the same line.
+    serial.write_bytes(b"snow-qa login: " + line[:200].encode() + b"[   12.345678] kernel text\n"
+                       + kmsg_copy(qa, line))
+    assert qa.main(["kmsg-join", str(serial)]) == 0
+    assert capsys.readouterr().out.strip() == "serial_record=0 kmsg_record=1"
+    assert qa.main(["phase", str(normalized), "stage", NONCE, "none", str(serial), str(checks)]) == 0
+    capsys.readouterr()
+
+
+def test_kmsg_join_reports_a_complete_serial_copy_with_nothing_to_join(qa, tmp_path, capsys):
+    serial = tmp_path / "serial"
+    serial.write_text(serial_record(phase_record("stage")))
+    before = serial.read_bytes()
+    assert qa.main(["kmsg-join", str(serial)]) == 0
+    assert capsys.readouterr().out.strip() == "serial_record=1 kmsg_record=0"
+    assert serial.read_bytes() == before
+
+
+def test_kmsg_join_is_idempotent(qa, tmp_path, capsys):
+    line = serial_record(phase_record("stage")).split("\n")[1]
+    serial = tmp_path / "serial"
+    serial.write_bytes(b"[    1.000000] boot\n" + kmsg_copy(qa, line))
+    assert qa.main(["kmsg-join", str(serial)]) == 0
+    assert capsys.readouterr().out.strip() == "serial_record=0 kmsg_record=1"
+    once = serial.read_bytes()
+    assert once.count(line.encode() + b"\n") == 1
+    assert qa.main(["kmsg-join", str(serial)]) == 0
+    assert capsys.readouterr().out.strip() == "serial_record=1 kmsg_record=1"
+    assert serial.read_bytes() == once
+
+
+def test_kmsg_join_turns_a_cut_tail_into_one_complete_record(qa, tmp_path, capsys):
+    normalized, checks = phase_files(tmp_path, qa)
+    line = serial_record(phase_record("stage")).split("\n")[1]
+    serial = tmp_path / "serial"
+    # The snapshot ended inside the ttyS0 line: the guest always ends one with
+    # a newline, so the cut tail is a copy still in transfer (lab#177).
+    serial.write_bytes(kmsg_copy(qa, line) + b"snow-qa login: " + line[:120].encode())
+    assert qa.main(["kmsg-join", str(serial)]) == 0
+    assert capsys.readouterr().out.strip() == "serial_record=0 kmsg_record=1"
+    rewritten = serial.read_bytes().split(b"\n")
+    assert rewritten[-2] == line.encode() and rewritten.count(line.encode()) == 1
+    # Before the fix the cut copy stayed and was a second, distinct marker.
+    assert qa.main(["phase", str(normalized), "stage", NONCE, "none", str(serial), str(checks)]) == 0
+    capsys.readouterr()
+
+
+def test_kmsg_join_leaves_no_marker_of_a_cut_serial_copy(qa, tmp_path, capsys):
+    line = serial_record(phase_record("stage")).split("\n")[1]
+    serial = tmp_path / "serial"
+    serial.write_bytes(b"[    1.000000] boot\n" + line[:300].encode())   # no newline, no join
+    assert qa.main(["kmsg-join", str(serial)]) == 0
+    assert capsys.readouterr().out.strip() == "serial_record=0 kmsg_record=0"
+    assert b"SNOW_QA_V1" not in serial.read_bytes()
+    assert serial.read_bytes() == b"[    1.000000] boot\n"
+
+
+def damaged_chunks(qa, damage):
+    line = "SNOW_QA_V1 " + "A" * 900
+    chunks = qa.kmsg_lines(line)
+    assert len(chunks) > 1
+    if damage == "bad_crc":
+        name, ident, order, _, data = split_chunk(chunks[1])
+        chunks[1] = " ".join(("SNOW_QA_KMSG1", ident, order, "0" * 8, data))
+    elif damage == "missing_chunk":
+        chunks = chunks[:1] + chunks[2:]
+    elif damage == "two_chunks":
+        # 2 different valid chunks for 1 index: the group is corrupt.
+        ident = split_chunk(chunks[0])[1]
+        other = "B" * 100
+        chunks = chunks + [" ".join(("SNOW_QA_KMSG1", ident, "1/%d" % len(chunks),
+                                     hashlib.sha256(other.encode()).hexdigest()[:8], other))]
+    elif damage == "wrong_id":
+        chunks = [" ".join(("SNOW_QA_KMSG1", "0" * 16) + split_chunk(chunk)[2:])
+                  for chunk in chunks]
+    elif damage == "foreign_name":
+        chunks = qa.kmsg_lines("SNOW_UNLISTED_V1 " + "A" * 900)
+    elif damage == "over_bound":
+        chunks = qa.kmsg_lines("SNOW_QA_V1 " + "A" * (qa.KMSG_CHUNK * qa.KMSG_MAX_CHUNKS))
+    return chunks
+
+
+@pytest.mark.parametrize("damage", [
+    "bad_crc", "missing_chunk", "two_chunks", "wrong_id", "foreign_name", "over_bound",
+])
+def test_kmsg_join_drops_an_incomplete_or_corrupt_group(qa, tmp_path, capsys, damage):
+    serial = tmp_path / "serial"
+    serial.write_bytes(b"".join(b"[    1.000000] " + chunk.encode() + b"\n"
+                                for chunk in damaged_chunks(qa, damage)))
+    before = serial.read_bytes()
+    assert qa.main(["kmsg-join", str(serial)]) == 0
+    assert capsys.readouterr().out.strip() == "serial_record=0 kmsg_record=0"
+    assert serial.read_bytes() == before
+
+
+def test_kmsg_join_bounds_the_slice_size(qa, tmp_path, capsys):
+    serial = tmp_path / "serial"
+    serial.write_bytes(b"x" * (1024 * 1024 + 1))
+    assert qa.main(["kmsg-join", str(serial)]) == 1
+    assert capsys.readouterr().err.strip() == "qa_failed:serial_size"
+
+
+def test_kmsg_join_keeps_the_sysext_record_a_long_boot_carries(qa, tmp_path, capsys):
+    # A sysext record can reach 12 KiB, so it always travels as chunks.
+    journal = [hashlib.sha256(str(index).encode()).hexdigest() for index in range(100)]
+    record = sysext_record(units={"frostnotes.service": sysext_unit_entry(journal=journal),
+                                  "frostmail.service": sysext_unit_entry()})
+    line = "SNOW_SYSEXT_V1 " + qa.sysext_token(record)
+    assert len(qa.kmsg_lines(line)) > 4
+    normalized = sysext_normalized(tmp_path, qa)
+    serial = tmp_path / "serial"
+    serial.write_bytes(kmsg_copy(qa, line))
+    assert qa.main(["kmsg-join", str(serial)]) == 0
+    assert capsys.readouterr().out.strip() == "serial_record=0 kmsg_record=1"
+    out = tmp_path / "sysext-enable.json"
+    assert qa.main(["sysext-phase", str(normalized), "sysext-enable", NONCE, "none",
+                    str(serial), str(out)]) == 0
+    capsys.readouterr()
+
+
+def test_run_serial_joins_the_kernel_chunks_before_any_parser():
+    script = run_script()
+    body = re.search(r"(?ms)^serial\(\) \{\n.*?^\}\n", script).group()
+    join = ('python3 /opt/snow-qa/qa.py kmsg-join "$WORK/serial" > "$WORK/serial-channel"'
+            ' 2>/dev/null || blocked channel_lineage')
+    assert join in body
+    # After the slice is written, and before the phase parsers read it.
+    assert body.index('Path(sys.argv[5]).write_bytes(new)') < body.index(join)
+    loop = phase_loop(script)
+    for parser in ("await SNOW_QA_V1", "await SNOW_SYSEXT_V1", "qa.py phase", "qa.py sysext-phase"):
+        assert loop.index(parser) > loop.index("serial")
+
+
+def test_run_records_the_channel_of_every_accepted_phase_record():
+    loop = phase_loop(run_script())
+    write = ('printf \'phase=%s %s\\n\' "$phase" "$(cat "$WORK/serial-channel" 2>/dev/null)"'
+             ' >> "$OUT/serial-channel.txt" || true')
+    persist = 'persist "$OUT/serial-channel.txt" "$EVIDENCE/serial-channel.txt" || true'
+    # Both branches of the phase case: the attestation boot and the sysext boot.
+    assert loop.count(write) == 2 and loop.count(persist) == 2
+    for marker in ("printf 'phase=%s boot_id=%s kernel=", "printf 'phase=%s boot_id=%s sysext_failures="):
+        start = loop.index(marker)
+        assert loop.index('persist "$OUT/checks.txt"', start) < loop.index(write, start)
+        assert loop.index(write, start) < loop.index(persist, start) < loop.index(";;", start)
+    # Best effort only: the file never shapes checks.txt, the verdict or the reason.
+    assert 'persist "$OUT/serial-channel.txt" "$EVIDENCE/serial-channel.txt" || true' in loop
+
+
+def sysext_error_parser(script):
+    block = re.search(r"observed_failure\" == SNOW_SYSEXT_ERR \]\]; then\n.*?"
+                      r"code=\$\(python3 - \"\$WORK/serial\" <<'PY'\n(.*?)\nPY\n", script, re.S)
+    assert block
+    return block.group(1)
+
+
+@pytest.mark.parametrize("name,code,index", [
+    ("SNOW_QA_ERR", "updater", 0), ("SNOW_SYSEXT_ERR", "credential", 1),
+])
+def test_error_parsers_ignore_a_cut_fragment(tmp_path, name, code, index):
+    script = run_script()
+    parser = re.search(r"code=\$\(python3 - \"\$WORK/serial\" <<'PY'\n(.*?)\nPY\n", script, re.S).group(1)
+    if index:
+        parser = sysext_error_parser(script)
+    path = tmp_path / f"parse{index}.py"
+    path.write_text(parser)
+    cases = [
+        # A stalled ttyS0 cut the line and kernel text followed on it.
+        (f"{name} {code}[   12.345678] kernel text\n".encode(), None),
+        (f"{name} {code}[   12.345678] kernel text\n{name} {code}\n".encode(), code),
+        (f"[    1.0] {name} {code}\r\n{name} {code}\n".encode(), code),
+    ]
+    for text, expected in cases:
+        serial = tmp_path / "serial"
+        serial.write_bytes(text)
+        result = subprocess.run(["python3", str(path), str(serial)], capture_output=True, text=True)
+        assert (result.stdout.strip() if result.returncode == 0 else None) == expected
+
+
+def fake_publish_clock(qa, monkeypatch, *, stall_after=None, queries_slow=False):
+    """A fake clock, a slow console write, and a getty that never comes."""
+    now = [0.0]
+    monkeypatch.setattr(qa.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(qa.time, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds))
+    monkeypatch.setattr(qa, "emit_kmsg", lambda line: None)   # the kmsg writes are not timed
+    monkeypatch.setattr(qa, "STALLED_TARGETS", set())
+    calls, queries = [], []
+
+    def query(timeout=10):
+        queries.append(timeout)
+        if queries_slow:
+            now[0] += timeout
+        return False
+
+    monkeypatch.setattr(qa, "serial_getty_ready", query)
+
+    def run(argv, **kwargs):
+        limit = int(argv[3])
+        assert argv[0] == "timeout" and argv[1] == "-k" and argv[2] == str(qa.TTY_KILL_GRACE)
+        assert 1 <= limit <= qa.TTY_WRITE_TIMEOUT
+        calls.append((limit, argv[-1]))
+        if stall_after is not None and len(calls) >= stall_after and argv[-1] == qa.GUEST_CONSOLES[0]:
+            now[0] += limit                      # killed at its own limit
+            return subprocess.CompletedProcess(argv, 124, b"", b"")
+        now[0] += limit - 0.1                    # a slow write that still succeeds
+        return subprocess.CompletedProcess(argv, 0, b"", b"")
+
+    monkeypatch.setattr(qa.subprocess, "run", run)
+    return now, calls, queries
+
+
+def test_publish_ends_at_its_deadline_whatever_the_write_takes(qa, monkeypatch):
+    now, calls, _ = fake_publish_clock(qa, monkeypatch)
+    real_emit = qa.emit
+    emits = []
+
+    def counting_emit(line, deadline=None):
+        emits.append(deadline)
+        real_emit(line, deadline=deadline)
+
+    monkeypatch.setattr(qa, "emit", counting_emit)
+    qa.publish("SNOW_QA_V1 abc")
+    # 1 deadline covers the wait, the hold and every write (lab#177 review).
+    assert now[0] <= qa.PUBLISH_MARGIN - qa.PUBLISH_RESERVE
+    assert all(deadline == qa.PUBLISH_MARGIN - qa.PUBLISH_RESERVE for deadline in emits)
+    assert {target for _, target in calls} == {str(path) for path in qa.GUEST_CONSOLES}
+    assert all(1 <= limit <= qa.TTY_WRITE_TIMEOUT for limit, _ in calls)
+
+
+def test_publish_skips_a_write_that_would_cross_its_deadline(qa, monkeypatch):
+    monkeypatch.setattr(qa, "PUBLISH_MARGIN", 25)
+    now, calls, _ = fake_publish_clock(qa, monkeypatch)
+    qa.publish("SNOW_QA_V1 abc")
+    limit = qa.PUBLISH_MARGIN - qa.PUBLISH_RESERVE
+    assert now[0] <= limit + 0.5
+    # Only the first write fitted before the deadline; the next were skipped,
+    # not run, and not counted as stalls.
+    assert len(calls) == 1 and calls[0][1] == str(qa.GUEST_CONSOLES[0])
+    assert not qa.STALLED_TARGETS
+
+
+def test_publish_skips_a_target_that_stalls_and_stays_in_its_deadline(qa, monkeypatch):
+    now, calls, _ = fake_publish_clock(qa, monkeypatch, stall_after=3)
+    qa.publish("SNOW_QA_V1 abc")
+    stalled = str(qa.GUEST_CONSOLES[0])
+    assert qa.STALLED_TARGETS == {stalled}
+    # 1 successful write, then the stall; never again after that.
+    assert [target for _, target in calls].count(stalled) == 2
+    assert now[0] <= qa.PUBLISH_MARGIN - qa.PUBLISH_RESERVE
+
+
+def test_publish_with_no_getty_and_slow_queries_stays_in_its_deadline(qa, monkeypatch):
+    now, calls, queries = fake_publish_clock(qa, monkeypatch, queries_slow=True)
+    qa.publish("SNOW_QA_V1 abc")
+    assert queries and all(1 <= value <= 10 for value in queries)
+    assert now[0] <= qa.PUBLISH_MARGIN - qa.PUBLISH_RESERVE + 0.5
+    assert all(1 <= limit <= qa.TTY_WRITE_TIMEOUT for limit, _ in calls)

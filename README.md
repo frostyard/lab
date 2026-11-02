@@ -455,11 +455,14 @@ fails. The `stage` phase runs `/usr/libexec/bootc-update-stage` and parses
 no duplicate keys) requiring `digest=sha256:<N+1 digest>` and `image=target_ref`.
 Every phase boot also injects a drop-in that skips `bootc-update-stage.service`
 (`ConditionPathExists=/run/snow-qa-timer-disabled`), so the image's hourly
-timer cannot stage N+1 early. After a phase record, the guest unit runs
-`systemctl --no-block poweroff` and the runner waits (bounded by the
-`reboot` timeout) for the VM to stop, never `--force`, so bootc finalizes the
-staged deployment at shutdown; a VM that does not stop fails with
-`guest_shutdown`. See
+timer cannot stage N+1 early. After a phase record, and also when `qa.py`
+fails, the guest unit runs `systemctl --no-block poweroff` and the runner waits
+(bounded by the `reboot` timeout) for the VM to stop, never `--force`, so bootc
+finalizes the staged deployment at shutdown; a VM that does not stop fails with
+`guest_shutdown`. Each serial write is bounded, and the record also travels
+through `/dev/kmsg` as `SNOW_QA_KMSG1` chunks that the runner joins back
+([ADR-0014](docs/adr/0014-lifecycle-lane-records-also-travel-through-the-kernel-log.md)),
+so a stalled ttyS0 costs one boot rather than the phase window. See
 [private evidence and verdict limits](docs/quality.md#manual-snow-bootc-lifecycle-evidence)
 before treating any result as evidence.
 
