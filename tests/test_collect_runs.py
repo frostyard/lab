@@ -300,6 +300,45 @@ def test_summarize_inline_template_matches_by_name_prefix():
     assert summary["kind"] == "maintenance"
 
 
+FSVERITY_LINE = ("phase=boot-n-plus-1 seq=1 device=dm-0 inode=174546 pos=25952256 level=-1")
+
+
+def test_fsverity_lines_are_kept_only_when_they_match_the_grammar():
+    # lab#174: the kept fs-verity lines are evidence for a human, so only a line
+    # that fully matches the lane grammar survives; a partial one is dropped.
+    params = {"fsverity": "\n".join([
+        FSVERITY_LINE,
+        "phase=installed-boot seq=2 device=dm-0 inode=7 pos=0 level=3",
+        "phase=installed-boot seq=33 device=dm-0 inode=7 pos=0 level=-1",   # above the build bound
+        "phase=installed-boot seq=3 device=dm-0 inode=7 pos=0",             # no level
+        "phase=Installed seq=4 device=dm-0 inode=7 pos=0 level=-1",         # bad phase
+        "phase=installed-boot seq=5 device=dm_0/x inode=7 pos=0 level=-1",  # bad device
+        "phase=installed-boot seq=6 device=dm-0 inode=7 pos=0 level=-1 [ 2.0] kernel text",
+        "not collected",
+        "",
+    ])}
+    summary = collect_runs.summarize(
+        make_workflow(template_ref="run-firn-install-tests", params=params))
+    assert summary["fsverity"] == [
+        FSVERITY_LINE,
+        "phase=installed-boot seq=2 device=dm-0 inode=7 pos=0 level=3",
+    ]
+
+
+def test_fsverity_lines_are_absent_without_the_output_parameter():
+    summary = collect_runs.summarize(make_workflow())
+    assert summary["fsverity"] == []
+
+
+def test_fsverity_lines_are_capped():
+    params = {"fsverity": "\n".join(
+        f"phase=installed-boot seq={n} device=dm-0 inode={n} pos={n} level=-1" for n in range(1, 33)
+    ) * 6}
+    summary = collect_runs.summarize(
+        make_workflow(template_ref="run-firn-install-tests", params=params))
+    assert len(summary["fsverity"]) == collect_runs.FSVERITY_LINES_MAX == 160
+
+
 def test_output_param_finds_named_parameter():
     node = {
         "outputs": {

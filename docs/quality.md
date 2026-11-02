@@ -205,6 +205,52 @@ The installed system comes from the pinned Firn ISO: an ISO that still has the
 `compress=zstd:1` mount (before firn#119) makes errors near certain on an
 affected kernel. The lane is advisory and never a release gate.
 
+### Kept kernel lines (`fsverity.txt`, lab#174)
+
+The count says how often the defect hit; the lines say which files it hit. Each
+lane keeps the matching kernel lines in `fsverity.txt`, next to `checks.txt`, one
+line per kernel line and **never the hashes**: a `FILE CORRUPTED` message also
+carries a wanted and a real `sha512`, and those identify content, not a file.
+The format is the same in all three lanes:
+
+```
+phase=<phase> seq=<n> device=<dev> inode=<ino> pos=<pos> level=<lvl>
+```
+
+The full line must match
+`^phase=[a-z][a-z0-9-]{0,39} seq=([1-9]|[12][0-9]|3[0-2]) device=[A-Za-z0-9._-]{1,32} inode=[0-9]{1,20} pos=[0-9]{1,20} level=-?[0-9]{1,2}$`.
+`seq` is the position in kernel-log order, so at most **32 lines per phase**
+are kept (the first 32 matches; the rest are dropped, never rotated or
+sampled). The guest extracts one line per matching kernel line with
+`fs-verity \(([A-Za-z0-9._-]{1,32}), inode ([0-9]{1,20})\): FILE CORRUPTED! pos=([0-9]{1,20}), level=(-?[0-9]{1,2})(,|$)`
+(a line that does not match is ignored, and it still counts in
+`fsverity_errors`). The phase is `installed-boot` in the Firn and bootc install
+lanes and the lifecycle phase (`installed-n`, `stage`, `boot-n-plus-1`,
+`rollback`, `boot-n`) in the lifecycle lane; the sysext-probe boots keep nothing.
+In the Firn and bootc install lanes the lines travel as their own console
+markers (`FIRN_QA__FSVERITY`, `SNOSI_QA__FSVERITY`), never as CHECK lines: the
+host drops a record that kernel printk cut into, merges identical copies, drops
+both copies of a `seq` that arrived with 2 different contents (it never
+guesses), sorts by `seq` and bounds at 32. In the lifecycle lane they travel
+inside the attested `SNOW_QA_V1` record as the field `fsverity_lines` (a list
+of `[device, inode, pos, level]`, at most 32 entries and never more than
+`fsverity_errors`), from the same kernel-log read as the count; the record
+bound grew from 4096 to 8192 encoded characters for it. The file always exists
+after collection and is empty when no line matched.
+
+Where it lives: the Firn, bootc install and lifecycle WorkflowTemplates expose
+it as the output parameter `fsverity` (from `/tmp/results/fsverity.txt`; the
+lifecycle lane also persists it as
+`/var/lib/snosi-lab/snow-bootc-evidence/<run>/fsverity.txt`), and
+`scripts/collect_runs.py` keeps the lines that fully match the grammar, at most
+160 per run, in the `fsverity` key of `runs.json`.
+
+`fsverity.txt` is evidence only: it never shapes `checks.txt`, the judge, the
+result summary or the run reason. Every step that writes the file is best
+effort. The one check is the lifecycle record shape: a malformed
+`fsverity_lines` field fails the record like any other malformed field
+(`phase_mismatch`), because then the guest probe itself is not trustworthy. Kernel logs are only read, as above.
+
 ## Manual Snow bootc lifecycle evidence
 
 The [manual Snow bootc WorkflowTemplate](../argo/workflow-templates/run-snow-bootc-lifecycle.yaml)

@@ -69,6 +69,11 @@ data:
       fi
       if [[ -n "${EVIDENCE:-}" ]]; then
         persist "$OUT/checks.txt" "$EVIDENCE/checks.txt" || { rc=1; STATE=FAILED; REASON=evidence_write; }
+        # lab#174: best effort only, so a missing or unreadable fsverity.txt can
+        # never change STATE, REASON or rc.
+        if [[ -f "$OUT/fsverity.txt" ]]; then
+          persist "$OUT/fsverity.txt" "$EVIDENCE/fsverity.txt" || true
+        fi
         if [[ -n "$summary_source" ]]; then
           printf '%s: %s\n' "$STATE" "$REASON" > "$summary_source" || true
           persist "$summary_source" "$EVIDENCE/result-summary.txt" || { rc=1; STATE=FAILED; REASON=evidence_write; }
@@ -169,6 +174,9 @@ data:
     [[ "${WORKFLOW_NAME:-}" =~ ^[a-z0-9][a-z0-9-]{0,50}$ ]] || fail workflow_name
     WORK=$(mktemp -d /tmp/snow-lifecycle.XXXXXXXX) || fail work_directory
     printf '%s\n' 'status=not-verified' > "$OUT/checks.txt"
+    # lab#174: the kept fs-verity kernel lines. It always exists after collection,
+    # empty when no line was kept, and it never shapes checks.txt or the reason.
+    : > "$OUT/fsverity.txt" || true
     install -d -m 0700 "$ROOT" || fail evidence_directory
     [[ ! -L "$ROOT" && -d "$ROOT" ]] || fail evidence_directory
     chmod 0700 "$ROOT" || fail evidence_directory
@@ -1013,6 +1021,12 @@ data:
           [[ "$seen_boot_ids" != *":$prior:"* ]] || fail reused_boot_id
           seen_boot_ids+="$prior:"
           printf 'phase=%s boot_id=%s kernel=%s fsverity_errors=%s\n' "$phase" "$prior" "$kernel" "$fsverity" >> "$OUT/checks.txt"
+          # lab#174: the kept lines of this phase, one per line, bounded at 32.
+          # Best effort: this file never shapes checks.txt, the judge or the reason.
+          sed -n '4,$p' "$WORK/boot-id" \
+            | grep -E '^seq=([1-9]|[12][0-9]|3[0-2]) device=[A-Za-z0-9._-]{1,32} inode=[0-9]{1,20} pos=[0-9]{1,20} level=-?[0-9]{1,2}$' \
+            | head -n 32 | sed "s/^/phase=$phase /" >> "$OUT/fsverity.txt" || true
+          persist "$OUT/fsverity.txt" "$EVIDENCE/fsverity.txt" || true
           if (( 10#$fsverity > 0 )); then
             if [[ " $known_defect_kernels " == *" $kernel "* ]]; then
               [[ " $fsverity_known " == *" $kernel "* ]] || fsverity_known+="${fsverity_known:+ }$kernel"
@@ -1214,7 +1228,7 @@ data:
     # The guest reads absolute manifest paths from its own root; tests point this
     # at a temporary tree instead.
     SYSEXT_ROOT = Path("/")
-    RECORD_FIELDS = set("phase nonce boot_id spec_image spec_transport booted_digest booted_version staged_digest rollback_digest policy_sha256 policy_ok pull_ok pull_digest secure_boot uki_type2 lockdown root_luks root_btrfs tpm_pcr11_tokens kernel fsverity_errors action marker_digest".split())
+    RECORD_FIELDS = set("phase nonce boot_id spec_image spec_transport booted_digest booted_version staged_digest rollback_digest policy_sha256 policy_ok pull_ok pull_digest secure_boot uki_type2 lockdown root_luks root_btrfs tpm_pcr11_tokens kernel fsverity_errors fsverity_lines action marker_digest".split())
     GUEST_MANIFEST = Path("/opt/snow-qa/normalized.json")
     GUEST_PATHS = {"boot_id": Path("/proc/sys/kernel/random/boot_id"),
                    "uptime": Path("/proc/uptime"),
@@ -1671,6 +1685,17 @@ data:
         # Recorded here, judged by the runner after the evidence is written:
         # a non-zero count must not discard the attested boot (frostyard/snosi#1130).
         require(type(record["fsverity_errors"]) is int and 0 <= record["fsverity_errors"] <= 10**9, "fsverity_field")
+        # lab#174: the kept lines are bounded evidence for a human; they are never
+        # judged on their content, only on a shape a reader can trust.
+        kept = record["fsverity_lines"]
+        require(type(kept) is list and len(kept) <= FSVERITY_LINES_MAX
+                and len(kept) <= record["fsverity_errors"], "fsverity_lines")
+        require(all(type(entry) is list and len(entry) == 4
+                    and full(r"[A-Za-z0-9._-]{1,32}", entry[0])
+                    and type(entry[1]) is int and 0 <= entry[1] < 2**64
+                    and type(entry[2]) is int and 0 <= entry[2] < 2**64
+                    and type(entry[3]) is int and -99 <= entry[3] <= 99
+                    for entry in kept), "fsverity_lines")
         require(full(r"[0-9A-Za-z._+~-]{1,64}", record["kernel"]), "kernel_field")
         require(record["action"] == ("staged" if phase == "stage" else "rolled-back" if phase == "rollback" else None), "action")
         require(record["marker_digest"] == (m["image_n_plus_1"].rsplit(":", 1)[-1] if phase == "stage" else None), "stage_marker")
@@ -1695,7 +1720,7 @@ data:
         markers = {marker_token(line, b"SNOW_QA_V1") for line in lines if b"SNOW_QA_V1" in line}
         require(len(markers) == 1, "record_count")
         markers = sorted(markers)
-        match = re.fullmatch(rb"SNOW_QA_V1 ([A-Za-z0-9_-]{1,4096})", markers[0])
+        match = re.fullmatch(rb"SNOW_QA_V1 ([A-Za-z0-9_-]{1,8192})", markers[0])
         require(match is not None, "record_encoding")
         encoded = match[1]
         try:
@@ -1870,6 +1895,40 @@ data:
             if suppressed:
                 total += int(suppressed[1])
         return total
+
+
+    # lab#174: the kept fs-verity lines are evidence, never a judge input; 32 is
+    # the same bound every lane uses for one phase.
+    FSVERITY_LINES_MAX = 32
+    # One message of the kernel log: the file identity only. The line also
+    # carries a wanted and a real sha512, and those never leave the guest.
+    FSVERITY_MESSAGE = re.compile(
+        rb"fs-verity \(([A-Za-z0-9._-]{1,32}), inode ([0-9]{1,20})\): "
+        rb"FILE CORRUPTED! pos=([0-9]{1,20}), level=(-?[0-9]{1,2})(,|$)")
+
+
+    def fsverity_lines(log):
+        """[device, inode, pos, level] for each fs-verity corruption line, in log order.
+
+        Read-only, like fsverity_error_count: the log is never edited. A line that
+        does not match the message shape is ignored (its count still reaches
+        fsverity_errors), an entry whose inode or pos does not fit 64 bits is
+        skipped, and only the first FSVERITY_LINES_MAX entries are kept.
+        """
+        found = []
+        for line in log.splitlines():
+            match = FSVERITY_MESSAGE.search(line)
+            if match is None:
+                continue
+            # group 5 is the comma-or-end that closes the message.
+            device, inode, pos, level = match.group(1, 2, 3, 4)
+            inode, pos = int(inode), int(pos)
+            if inode >= 2**64 or pos >= 2**64:
+                continue
+            found.append([device.decode("ascii"), inode, pos, int(level)])
+            if len(found) == FSVERITY_LINES_MAX:
+                break
+        return found
 
 
     def guest_command(args, code, timeout=120):
@@ -2171,6 +2230,7 @@ data:
                       pull_ok=True, pull_digest=pulled.removeprefix("sha256:"), secure_boot=True,
                       uki_type2=True, lockdown=True, root_luks=True, root_btrfs=True,
                       tpm_pcr11_tokens=1, kernel=kernel, fsverity_errors=fsverity_error_count(kernel_log),
+                      fsverity_lines=fsverity_lines(kernel_log),
                       action=action, marker_digest=marker)
         verdict(m, phase, nonce, "none", record)
         return "SNOW_QA_V1 " + base64.urlsafe_b64encode(canonical(record).strip()).decode().rstrip("=")
@@ -2630,6 +2690,10 @@ data:
                 print(attested["boot_id"])
                 print("fsverity_errors=" + str(attested["fsverity_errors"]))
                 print("kernel=" + attested["kernel"])
+                # lab#174: the kept lines follow as plain text, for the runner's
+                # fsverity.txt. They are not part of the record's verdict.
+                for index, entry in enumerate(attested["fsverity_lines"], 1):
+                    print("seq=%d device=%s inode=%d pos=%d level=%d" % (index, *entry))
             elif argv[0] == "guest" and len(argv) == 2:
                 # The one-line record is emitted only after all probes and actions succeed.
                 publish(guest(argv[1]))

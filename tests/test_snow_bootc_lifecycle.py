@@ -734,7 +734,7 @@ def phase_record(phase):
                   policy_sha256="2" * 64, policy_ok=True, pull_ok=True,
                   pull_digest=NEXT, secure_boot=True, uki_type2=True, lockdown=True,
                    root_luks=True, root_btrfs=True, tpm_pcr11_tokens=1,
-                   kernel=KERNEL, fsverity_errors=0, action=None, marker_digest=None)
+                   kernel=KERNEL, fsverity_errors=0, fsverity_lines=[], action=None, marker_digest=None)
     if phase == "stage":
         record.update(action="staged", marker_digest=NEXT)
     if phase == "rollback":
@@ -1002,6 +1002,9 @@ def test_guest_stage_probes_and_emits_allowlisted_single_record(qa, tmp_path, mo
     assert payload["spec_transport"] == "containers-storage"   # observed, not normalized
     # snosi#1130: FILE CORRUPTED lines plus suppressed-callback counts, read after the action.
     assert payload["fsverity_errors"] == expected
+    # lab#174: the kept lines come from the same kernel log as the count.
+    assert payload["fsverity_lines"] == (
+        [["dm-0", 5, 0, -1], ["dm-0", 6, 4096, -1]] if journal is DEFECT_JOURNAL else [])
     assert payload["kernel"] == KERNEL   # attested from /proc/sys/kernel/osrelease
     assert calls.index(["journalctl", "-q", "-k", "-b", "--no-pager"]) > calls.index(
         ["/usr/libexec/bootc-update-stage"] if phase == "stage" else ["bootc", "rollback"])
@@ -2557,6 +2560,107 @@ def test_phase_rejects_malformed_fsverity_count(qa, tmp_path, capsys, value):
     assert capsys.readouterr().err.strip() == "qa_failed:fsverity_field"
 
 
+# lab#174: the kept lines are evidence for a human; a malformed list is a gate
+# error, never a silently truncated or guessed record.
+def _worst_case_fsverity_record(qa, phase="boot-n-plus-1"):
+    """32 entries at the grammar's widest: 32-char device, 20-digit inode and pos."""
+    record = phase_record(phase)
+    record["fsverity_errors"] = qa.FSVERITY_LINES_MAX
+    record["fsverity_lines"] = [["d" * 32, 2**64 - 1, 2**64 - 1, -1]
+                                for _ in range(qa.FSVERITY_LINES_MAX)]
+    return record
+
+
+def test_fsverity_lines_parses_the_message_in_log_order(qa):
+    log = (b"kernel: Linux version 7.2.12\n"
+           b"kernel: fs-verity (dm-0, inode 174546): FILE CORRUPTED! pos=25952256, level=-1, "
+           b"want_hash=sha512:7519ab, real_hash=sha512:2d23cd\n"
+           b"kernel: fsverity_msg: 2 callbacks suppressed\n"
+           b"kernel: fs-verity (dm-1, inode 7): FILE CORRUPTED! pos=0, level=3\n")
+    assert qa.fsverity_lines(log) == [["dm-0", 174546, 25952256, -1], ["dm-1", 7, 0, 3]]
+    # The count is unchanged by this reader: same log, same total.
+    assert qa.fsverity_error_count(log) == 4
+
+
+def test_fsverity_lines_ignores_other_lines_and_keeps_the_first_32(qa):
+    log = b"".join(b"kernel: fs-verity (dm-0, inode %d): FILE CORRUPTED! pos=%d, level=-1\n" % (n, n)
+                   for n in range(1, 41))
+    parsed = qa.fsverity_lines(log)
+    assert qa.FSVERITY_LINES_MAX == 32 and len(parsed) == 32
+    assert parsed[0] == ["dm-0", 1, 1, -1] and parsed[-1] == ["dm-0", 32, 32, -1]
+    for ignored in (b"", b"kernel: boot\n",
+                    b"kernel: fs-verity (dm-0, inode 1): FILE CORRUPTED!\n",     # no pos
+                    b"kernel: fs-verity (dm-0, inode 1): FILE CRUMPLED! pos=0, level=-1\n"):
+        assert qa.fsverity_lines(ignored) == [], ignored
+    # An inode or pos that does not fit 64 bits is skipped, never clamped.
+    assert qa.fsverity_lines(
+        b"kernel: fs-verity (dm-0, inode 18446744073709551616): FILE CORRUPTED! pos=0, level=-1\n") == []
+    assert qa.fsverity_lines(
+        b"kernel: fs-verity (dm-0, inode 1): FILE CORRUPTED! pos=18446744073709551616, level=-1\n") == []
+
+
+@pytest.mark.parametrize("change", [
+    lambda r: r.update(fsverity_lines=None),
+    lambda r: r.update(fsverity_lines="dm-0"),
+    lambda r: r.update(fsverity_lines={"dm-0": 1}),
+    # Never more lines than the count found, and never more than the bound.
+    lambda r: r.update(fsverity_lines=[["dm-0", 1, 0, -1]] * 2, fsverity_errors=1),
+    lambda r: r.update(fsverity_lines=[["dm-0", 1, 0, -1]] * 33, fsverity_errors=33),
+    # One entry is exactly 4 fields: [device, inode, pos, level].
+    lambda r: r.update(fsverity_lines=[["dm-0", 1, 0]]),
+    lambda r: r.update(fsverity_lines=[["dm-0", 1, 0, -1, 2]]),
+    lambda r: r.update(fsverity_lines=[{"device": "dm-0", "inode": 1}]),
+    lambda r: r.update(fsverity_lines=[["dm/0", 1, 0, -1]]),
+    lambda r: r.update(fsverity_lines=[["", 1, 0, -1]]),
+    lambda r: r.update(fsverity_lines=[["d" * 33, 1, 0, -1]]),
+    lambda r: r.update(fsverity_lines=[[7, 1, 0, -1]]),
+    lambda r: r.update(fsverity_lines=[["dm-0", "1", 0, -1]]),
+    lambda r: r.update(fsverity_lines=[["dm-0", True, 0, -1]]),
+    lambda r: r.update(fsverity_lines=[["dm-0", -1, 0, -1]]),
+    lambda r: r.update(fsverity_lines=[["dm-0", 2**64, 0, -1]]),
+    lambda r: r.update(fsverity_lines=[["dm-0", 1, -1, -1]]),
+    lambda r: r.update(fsverity_lines=[["dm-0", 1, 2**64, -1]]),
+    lambda r: r.update(fsverity_lines=[["dm-0", 1, 0, True]]),
+    lambda r: r.update(fsverity_lines=[["dm-0", 1, 0, -100]]),
+    lambda r: r.update(fsverity_lines=[["dm-0", 1, 0, 100]]),
+    lambda r: r.update(fsverity_lines=[["dm-0", 1, 0, -1.0]]),
+])
+def test_phase_rejects_a_malformed_kept_line_list(qa, tmp_path, capsys, change):
+    normalized, checks = phase_files(tmp_path, qa)
+    record = _worst_case_fsverity_record(qa)
+    change(record)
+    serial = tmp_path / "serial"
+    serial.write_text(serial_record(record))
+    assert qa.main(["phase", str(normalized), "boot-n-plus-1", NONCE, "none", str(serial), str(checks)]) == 1
+    assert capsys.readouterr().err.strip() == "qa_failed:fsverity_lines"
+
+
+def test_phase_prints_each_kept_line_after_the_kernel(qa, tmp_path, capsys):
+    normalized, checks = phase_files(tmp_path, qa)
+    record = phase_record("boot-n-plus-1")
+    record["fsverity_errors"] = 3
+    record["fsverity_lines"] = [["dm-0", 174546, 25952256, -1], ["dm-0", 174547, 4128768, 2]]
+    serial = tmp_path / "serial"
+    serial.write_text(serial_record(record))
+    assert qa.main(["phase", str(normalized), "boot-n-plus-1", NONCE, "none", str(serial), str(checks)]) == 0
+    # The first 3 lines are unchanged; the kept lines follow, numbered from 1, and
+    # a record with no kept line prints none of them.
+    assert capsys.readouterr().out.splitlines() == [
+        record["boot_id"], "fsverity_errors=3", "kernel=" + KERNEL,
+        "seq=1 device=dm-0 inode=174546 pos=25952256 level=-1",
+        "seq=2 device=dm-0 inode=174547 pos=4128768 level=2"]
+
+
+def test_worst_case_kept_lines_still_fit_the_record_bound(qa):
+    # The marker bound in phase_attest grew from 4096 to 8192 bytes for this:
+    # 32 entries at the widest the grammar allows must still be one record.
+    record = _worst_case_fsverity_record(qa)
+    encoded = base64.urlsafe_b64encode(qa.canonical(record)).decode()
+    assert 4096 < len(encoded) <= 8192
+    # Same record through the real decoder: the shape gate accepts every entry.
+    assert qa.verdict(manifest(), record["phase"], NONCE, "none", record) == record["boot_id"]
+
+
 @pytest.mark.parametrize("value", [None, "", "7.2 11", "a" * 65, 7, "7.2.11\n+x"])
 def test_phase_rejects_malformed_kernel(qa, tmp_path, capsys, value):
     normalized, checks = phase_files(tmp_path, qa)
@@ -2617,7 +2721,7 @@ def test_manual_template_contract():
     assert entry["synchronization"]["semaphores"][0]["configMapKeyRef"]["key"] == "snosi-vm-qa"
     outputs = entry["outputs"]["parameters"]
     assert {o["valueFrom"]["path"] for o in outputs} == {
-        "/tmp/results/result-summary.txt", "/tmp/results/checks.txt"}
+        "/tmp/results/result-summary.txt", "/tmp/results/checks.txt", "/tmp/results/fsverity.txt"}
     container = entry["container"]
     assert container["command"] == ["/bin/bash", "/opt/snow-qa/run.sh"]
     assert {v["name"] for v in container["volumeMounts"]} == {"scripts", "incus-bin", "incus-sock", "incus-pools", "iso-cache", "evidence", "results"}
@@ -2897,6 +3001,10 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
             errors = os.environ['SCENARIO'] in ('fsverity', 'fsverity_known') and phase == 'boot-n-plus-1'
             print('fsverity_errors=' + ('2' if errors else '0'))
             print('kernel=' + ('7.2.11+deb14-amd64' if os.environ['SCENARIO'] == 'fsverity_known' and phase == 'boot-n-plus-1' else '7.3.1+deb14-amd64'))
+            if os.environ['SCENARIO'] == 'fsverity_known' and phase == 'boot-n-plus-1':
+                # lab#174: the kept lines follow the 3 fixed lines, one per line.
+                print('seq=1 device=dm-0 inode=174546 pos=25952256 level=-1')
+                print('seq=2 device=dm-0 inode=174546 pos=4128768 level=-1')
         else: sys.exit(1)
     '''))
     tools = tmp_path / "tools"
@@ -3127,6 +3235,14 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
         assert len(checks) == 1 + 9 + 5 + (scenario == 'fsverity_known')  # manifest, tags, attested boots, note
         assert all(re.fullmatch(r'(?:manifest_sha256=[0-9a-f]{64}|tag=[a-z0-9-]+ timestamp=[0-9T:+.\-]+|phase=[a-z0-9-]+ boot_id=[0-9a-f-]+ kernel=[0-9A-Za-z._+~-]+ fsverity_errors=[0-9]+|fsverity_known_defect=7\.2\.11\+deb14-amd64)', line) for line in checks)
         assert ('fsverity_known_defect=7.2.11+deb14-amd64' in checks) is (scenario == 'fsverity_known')
+        # lab#174: the kept lines live in their own file, next to checks.txt in
+        # the results and in the evidence, and never in checks.txt.
+        kept = ['phase=boot-n-plus-1 seq=1 device=dm-0 inode=174546 pos=25952256 level=-1',
+                'phase=boot-n-plus-1 seq=2 device=dm-0 inode=174546 pos=4128768 level=-1']
+        for name in ('results', 'evidence/mock-run'):
+            assert (tmp_path / name / 'fsverity.txt').read_text().splitlines() == (
+                kept if scenario == 'fsverity_known' else []), name
+        assert not any('seq=' in line for line in checks)
     else:
         if scenario not in ('evidence_write',):
             serial_evidence = tmp_path / 'evidence/mock-run/serial-redacted.log'

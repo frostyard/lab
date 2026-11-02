@@ -189,7 +189,10 @@ On a listed kernel a positive count is recorded with
 `fsverity_known_defect=<kernel>` and does not fail the cell. The informational
 `kernel_btrfs_verity_canary=defect|clean|skipped` never fails a cell. The bootc
 install lane and the Snow lifecycle lane judge `fsverity_errors` and `kernel`
-the same way. Details:
+the same way, and keep the matching kernel lines (never the hashes) in
+`fsverity.txt` next to `checks.txt` (see
+[kept kernel lines](docs/quality.md#kept-kernel-lines-fsveritytxt-lab174)).
+Details:
 [quality evidence](docs/quality.md#fs-verity-regression-checks-snosi1130).
 
 The firn ISO is published by snosi's `build-native-images.yml` (build-iso →
