@@ -26,9 +26,9 @@ The manifest is [`manifest.json`](sundog-bootc117-lifecycle-run-2026-11-01/manif
 
 | Input | Value | Why |
 | --- | --- | --- |
-| ISO | `snosi-installer_20261102034308_x86-64.iso`, SHA-256 `e38361f9…1725bb` | The single entry in the signed `SHA256SUMS` index at selection and at both submits. Firn 0.10.0 (`2a965b92…497af`), so no `compress=zstd:1` install (firn#119). |
+| ISO | `snosi-installer_20261102034308_x86-64.iso`, SHA-256 `e38361f9…1725bb` | The single entry in the signed `SHA256SUMS` index at selection and before each of the 3 submits (checked each time). Firn 0.10.0 (`2a965b92…497af`), so no `compress=zstd:1` install (firn#119). |
 | N | `20261026201734`, `sha256:b326e4f1…7896d0` | `bootc-1.17.1-storage-digest-v1`: the first Sundog build after snosi#1157, one build after the N of [`rs6sh`](2026-10-30-sundog-bootc-lifecycle-run.md) (`20261026191618`, bootc 1.16.8). |
-| N+1 | `20261030194311`, `sha256:199ca989…65da4` | The same N+1 as `rs6sh`, so N's bootc is the one variable between the two runs. |
+| N+1 | `20261030194311`, `sha256:199ca989…65da4` | The same N+1 as `rs6sh`. N moves one build later and now has bootc 1.17.1; the ISO and the rest of N also differ, so the comparison with `rs6sh` is observational, not a single-variable experiment. |
 | Target | `ghcr.io/frostyard/sundog:qa-controlled` | Already at N+1 since the `rs6sh` run (T589a). No tag was created or moved. |
 | Trust pins | snosi `39cf1988`, index key `977fe2de…0fc97`, cosign key `3e797504…14fc5`, MOK cert `0446e478…545b4`, fingerprint `F37282A3…8216FD68` | The lane's pinned values, unchanged. |
 
@@ -38,7 +38,7 @@ preflight` and `failures=0` (2026-11-02T04:10:25Z).
 
 ## Runs
 
-Both runs are dev runs from the lab#174 branch (`murbella/lab174-fsverity-lines`
+All 3 runs are dev runs from the lab#174 branch (`murbella/lab174-fsverity-lines`
 at `462597f3`), submitted with
 [`scripts/snow-lifecycle-dev-submit.sh`](../../scripts/snow-lifecycle-dev-submit.sh)
 (`SUBMIT` through `ssh minideb sudo -n k3s kubectl create`) under the `lab-dev`
@@ -60,13 +60,13 @@ BLOCKED: phase_timeout
 | `boot-n-plus-1` | `0c4571e7-43d1-4a1c-a688-c1bcf28eca19` | `7.2.12+deb14-amd64` | 0 | 0 |
 | `rollback` | no record | | | |
 
-- The `rollback` boot's serial log stops about 9 s after switch-root (last
+- The `rollback` boot's serial log stops at about 9 s of kernel time (last
   line `[ 9.276587] Loaded X.509 cert 'wens: …'`), kernel lines included, and
-  no record arrived in the 2100 s window. This is the intermittent Sundog
-  `ttyS0` stall at switch-root (lab#168,
-  [ADR-0013](../adr/0013-firn-lane-markers-also-travel-through-the-kernel-log.md));
-  the lifecycle lane has no kmsg path. The lane reports it as BLOCKED, not as
-  a product failure.
+  no record arrived in the 2100 s window. This is consistent with the
+  intermittent Sundog `ttyS0` stall at switch-root (lab#168,
+  [ADR-0013](../adr/0013-firn-lane-markers-also-travel-through-the-kernel-log.md)),
+  but the cause was not confirmed before the VM was deleted; the lifecycle lane
+  has no kmsg path. The lane reports it as BLOCKED, not as a product failure.
 - The evidence directory has `fsverity.txt` (empty: no phase kept a line) and
   the redacted serial log.
 
