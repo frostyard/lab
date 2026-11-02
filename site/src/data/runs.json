@@ -1,5 +1,5 @@
 {
-  "generated": "2026-11-02T17:00:17Z",
+  "generated": "2026-11-02T17:30:21Z",
   "lanes": [
     {
       "laneKey": "run-firn-install-tests",
@@ -75,9 +75,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1793638800",
+        "name": "publish-results-1793640600",
         "phase": "Running",
-        "started": "2026-11-02T17:00:00Z",
+        "started": "2026-11-02T17:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -134,7 +134,7 @@
         ],
         "fsverity": []
       },
-      "runs": 12,
+      "runs": 11,
       "everGreen": true,
       "qaRun": null
     },
@@ -257,11 +257,28 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1793638800",
+      "name": "publish-results-1793640600",
       "phase": "Running",
-      "started": "2026-11-02T17:00:00Z",
+      "started": "2026-11-02T17:30:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": null,
+      "checks": [],
+      "fsverity": []
+    },
+    {
+      "name": "publish-results-1793638800",
+      "phase": "Succeeded",
+      "started": "2026-11-02T17:00:00Z",
+      "finished": "2026-11-02T17:00:32Z",
+      "durationSeconds": 32,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -338,23 +355,6 @@
       "trigger": "scheduled",
       "result": "20 passed, 3 skipped",
       "digest": "sha256:adb46c7798935a81a64cb8d080538814d6e8fc31c53c8beef8f780b9b06fbf4c",
-      "checks": [],
-      "fsverity": []
-    },
-    {
-      "name": "publish-results-1793633400",
-      "phase": "Succeeded",
-      "started": "2026-11-02T15:30:00Z",
-      "finished": "2026-11-02T15:30:30Z",
-      "durationSeconds": 30,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": null,
       "checks": [],
       "fsverity": []
     },
@@ -821,40 +821,6 @@
         "tag=after-rollback timestamp=2026-10-26T18:30:52.255008+00:00",
         "tag=before-boot-n timestamp=2026-10-26T18:31:33.223102+00:00",
         "phase=boot-n boot_id=d58061ef-638c-4b14-bb99-5cc377758feb kernel=7.2.11+deb14-amd64 fsverity_errors=0",
-        "fsverity_known_defect=7.2.11+deb14-amd64"
-      ],
-      "fsverity": []
-    },
-    {
-      "name": "run-snow-bootc-lifecycle-tbjnp",
-      "phase": "Succeeded",
-      "started": "2026-10-26T17:10:49Z",
-      "finished": "2026-10-26T17:24:34Z",
-      "durationSeconds": 825,
-      "template": "run-snow-bootc-lifecycle",
-      "laneKey": "run-snow-bootc-lifecycle",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "run-snow-bootc-lifecycle",
-      "trigger": "manual",
-      "result": "PASS: verified_five_fresh_boots;fsverity_known_defect=7.2.11+deb14-amd64",
-      "digest": null,
-      "checks": [
-        "manifest_sha256=fb8f065f8cea0fd5a444a9b6dc8c55cc5d5eb5557d1e36a172fc8fb8832b91da",
-        "tag=before-install timestamp=2026-10-26T17:11:50.738848+00:00",
-        "tag=before-installed-n timestamp=2026-10-26T17:16:43.832787+00:00",
-        "phase=installed-n boot_id=e852717e-2ac2-43de-a64f-fbe4702f602c kernel=7.2.11+deb14-amd64 fsverity_errors=4",
-        "tag=before-stage timestamp=2026-10-26T17:18:36.836769+00:00",
-        "phase=stage boot_id=2cbf2dde-a846-4487-9f17-9ed84335857c kernel=7.2.11+deb14-amd64 fsverity_errors=6",
-        "tag=after-stage timestamp=2026-10-26T17:19:59.835478+00:00",
-        "tag=before-boot-n-plus-1 timestamp=2026-10-26T17:20:30.846313+00:00",
-        "phase=boot-n-plus-1 boot_id=d1723327-e13b-4dbf-81d1-a982a23e20a2 kernel=7.2.11+deb14-amd64 fsverity_errors=1",
-        "tag=after-boot-n-plus-1 timestamp=2026-10-26T17:21:07.960894+00:00",
-        "tag=before-rollback timestamp=2026-10-26T17:21:48.962930+00:00",
-        "phase=rollback boot_id=cbd6e82c-8f1f-475f-94a8-8a717d31f329 kernel=7.2.11+deb14-amd64 fsverity_errors=0",
-        "tag=after-rollback timestamp=2026-10-26T17:22:26.034942+00:00",
-        "tag=before-boot-n timestamp=2026-10-26T17:23:07.002358+00:00",
-        "phase=boot-n boot_id=5c0b35a0-972b-493f-a3c4-c404d2a0f7e9 kernel=7.2.11+deb14-amd64 fsverity_errors=0",
         "fsverity_known_defect=7.2.11+deb14-amd64"
       ],
       "fsverity": []
