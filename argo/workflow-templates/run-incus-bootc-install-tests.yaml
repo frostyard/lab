@@ -96,6 +96,11 @@ spec:
         valueFrom:
           path: /tmp/results/checks.txt
           default: "no checks recorded"
+      # lab#174: the kept fs-verity kernel lines, 1 bounded line each, no hashes.
+      - name: fsverity
+        valueFrom:
+          path: /tmp/results/fsverity.txt
+          default: "not collected"
     script:
       image: docker.io/library/debian:trixie-slim
       securityContext:
@@ -497,6 +502,23 @@ spec:
         }
         emit kernel "$(uname -r)"
         emit fsverity_errors "$(fsverity_errors || echo unknown)"
+        # lab#174: the fs-verity lines themselves, as far as they identify the
+        # file: never the two sha512 hashes. Read-only, bounded at 32, and best
+        # effort: a failed journal read gives no line and never fails the lane.
+        fsverity_lines() {
+          local log
+          log="$(timeout 20 journalctl -q -k -b --no-pager 2>/dev/null)" || return 0
+          printf '%s\n' "$log" \
+            | grep -aoE 'fs-verity \([A-Za-z0-9._-]{1,32}, inode [0-9]{1,20}\): FILE CORRUPTED! pos=[0-9]{1,20}, level=-?[0-9]{1,2}(,|$)' \
+            | head -n 32 \
+            | sed -E 's/^fs-verity \(([A-Za-z0-9._-]{1,32}), inode ([0-9]{1,20})\): FILE CORRUPTED! pos=([0-9]{1,20}), level=(-?[0-9]{1,2})(,|$)/device=\1 inode=\2 pos=\3 level=\4/' \
+            | awk '{ print "seq=" NR " " $0 }'
+        }
+        # Its own marker, not a CHECK line: the checks union below drops it and
+        # the host keeps it in fsverity.txt instead.
+        while IFS= read -r fsv_line; do
+          [ -n "$fsv_line" ] && echo "SNOSI_QA__FSVERITY $fsv_line"
+        done < <(fsverity_lines)
         echo "SNOSI_QA__CHECKS_DONE"
         SCRIPT
         )
@@ -585,6 +607,22 @@ spec:
         }
         emit kernel "$(uname -r)"
         emit fsverity_errors "$(fsverity_errors || echo unknown)"
+        # lab#174: the fs-verity lines themselves, as far as they identify the
+        # file: never the two sha512 hashes. Read-only, bounded at 32, and best
+        # effort: a failed journal read gives no line and never fails the lane.
+        fsverity_lines() {
+          local log
+          log="$(timeout 20 journalctl -q -k -b --no-pager 2>/dev/null)" || return 0
+          printf '%s\n' "$log" \
+            | grep -aoE 'fs-verity \([A-Za-z0-9._-]{1,32}, inode [0-9]{1,20}\): FILE CORRUPTED! pos=[0-9]{1,20}, level=-?[0-9]{1,2}(,|$)' \
+            | head -n 32 \
+            | sed -E 's/^fs-verity \(([A-Za-z0-9._-]{1,32}), inode ([0-9]{1,20})\): FILE CORRUPTED! pos=([0-9]{1,20}), level=(-?[0-9]{1,2})(,|$)/device=\1 inode=\2 pos=\3 level=\4/' \
+            | awk '{ print "seq=" NR " " $0 }'
+        }
+        # Its own marker: plain stdout here, so it reaches agent-checks.txt.
+        while IFS= read -r fsv_line; do
+          [ -n "$fsv_line" ] && echo "SNOSI_QA__FSVERITY $fsv_line"
+        done < <(fsverity_lines)
         PROBE
         fi
 
@@ -599,6 +637,32 @@ spec:
         { cat /tmp/results/agent-checks.txt 2>/dev/null || true
           console_log | grep -aoE "${M_CHECK} [a-z_]+=[^[:space:]]+" | sed "s/${M_CHECK} //" || true
         } | grep -E '^[a-z_]+=' | sort -u > /tmp/results/checks.txt || true
+
+        # --- BEGIN fsverity-lines ---
+        # lab#174: the fs-verity kernel lines themselves, as bounded evidence
+        # (never the two sha512 hashes), from whichever channel answered. Best
+        # effort only: this file shapes neither checks.txt nor the result line,
+        # and a silent channel gives an empty file, not a failed lane. A record
+        # cut by kernel printk is dropped (the value must end the line),
+        # identical copies merge, and one seq with 2 different contents is
+        # ambiguous, so both copies are dropped, never guessed.
+        {
+          { cat /tmp/results/agent-checks.txt 2>/dev/null || true
+            console_log || true
+          } | tr -d '\r' \
+            | grep -aoE "SNOSI_QA__FSVERITY seq=([1-9]|[12][0-9]|3[0-2]) device=[A-Za-z0-9._-]{1,32} inode=[0-9]{1,20} pos=[0-9]{1,20} level=-?[0-9]{1,2}$" \
+            | sed 's/^SNOSI_QA__FSVERITY /phase=installed-boot /' \
+            | awk '
+                { if ($0 in seen) next
+                  seen[$0] = 1
+                  if ($2 in content) { conflict[$2] = 1 } else { content[$2] = $0 } }
+                END { for (key in content) if (!(key in conflict)) print content[key] }' \
+            | sort -t' ' -k2.5n \
+            | head -n 32 \
+            | grep -E "^phase=[a-z][a-z0-9-]{0,39} seq=([1-9]|[12][0-9]|3[0-2]) device=[A-Za-z0-9._-]{1,32} inode=[0-9]{1,20} pos=[0-9]{1,20} level=-?[0-9]{1,2}$" \
+            > /tmp/results/fsverity.txt
+        } || true
+        # --- END fsverity-lines ---
 
         if [[ ! -s /tmp/results/checks.txt ]]; then
           echo "--- neither the agent nor the console reported; console tail ---" >&2

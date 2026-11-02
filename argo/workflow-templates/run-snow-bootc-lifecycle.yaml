@@ -36,6 +36,11 @@ spec:
         valueFrom:
           path: /tmp/results/checks.txt
           default: "evidence unavailable"
+      # lab#174: the kept fs-verity kernel lines, 1 bounded line each, no hashes.
+      - name: fsverity
+        valueFrom:
+          path: /tmp/results/fsverity.txt
+          default: "evidence unavailable"
     container:
       image: docker.io/library/debian:trixie-slim
       command: [/bin/bash, /opt/snow-qa/run.sh]

@@ -46,6 +46,17 @@ PRODUCT_POLLS = tuple(
 SCENARIO_COUNTS = re.compile(r"\d+ (?:passed|failed|skipped|undefined)(?:, \d+ (?:passed|failed|skipped|undefined))*")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 
+# Kept fs-verity kernel lines (lab#174): one bounded line per kept kernel line,
+# no hashes. runs.json keeps them as evidence only; a line that does not fully
+# match the lane grammar is dropped rather than partly kept. 5 phases of 32
+# lines is the most any lane can produce; the cap keeps runs.json small.
+FSVERITY_LINES_MAX = 160
+FSVERITY_LINE = re.compile(
+    r"phase=[a-z][a-z0-9-]{0,39} seq=([1-9]|[12][0-9]|3[0-2]) "
+    r"device=[A-Za-z0-9._-]{1,32} inode=[0-9]{1,20} pos=[0-9]{1,20} "
+    r"level=-?[0-9]{1,2}"
+)
+
 
 def kubectl(*args: str) -> str:
     result = subprocess.run(
@@ -85,7 +96,7 @@ def summarize(workflow: dict) -> dict:
     # node carries templateRef. Reading only templateName labels every VM lane
     # "main" — the DAG's entrypoint — which is useless.
     template = (spec.get("workflowTemplateRef") or {}).get("name") or ""
-    result = checks = None
+    result = checks = fsverity = None
     remote_digest = stored_digest = changed = None
     fallback = ""
 
@@ -97,6 +108,7 @@ def summarize(workflow: dict) -> dict:
             fallback = fallback or node.get("templateName") or ""
         result = result or output_param(node, "result")
         checks = checks or output_param(node, "checks")
+        fsverity = fsverity or output_param(node, "fsverity")
         # check-digest carries these; compare carries changed and stored-digest.
         remote_digest = remote_digest or output_param(node, "remote-digest")
         stored_digest = stored_digest or output_param(node, "stored-digest")
@@ -182,6 +194,13 @@ def summarize(workflow: dict) -> dict:
         "digest": digest,
         # checks arrive as newline-separated key=value pairs from the VM lanes
         "checks": [c for c in (checks or "").splitlines() if "=" in c],
+        # fs-verity lines are bounded evidence for a human, never a verdict
+        # (lab#174). Only a line that fully matches the lane grammar is kept.
+        "fsverity": [
+            line
+            for line in (fsverity or "").splitlines()
+            if FSVERITY_LINE.fullmatch(line)
+        ][:FSVERITY_LINES_MAX],
     }
 
 

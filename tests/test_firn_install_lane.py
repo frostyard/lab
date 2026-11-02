@@ -523,7 +523,7 @@ def test_guest_emit_writes_the_kernel_log_before_ttyS0(lane):
 def test_guest_every_ttyS0_write_is_under_timeout(lane):
     generated = _render_check(lane)
     writes = [line for line in generated.splitlines() if "> /dev/ttyS0" in line]
-    assert len(writes) == 2  # emit and the replay function
+    assert len(writes) == 3  # emit, emit_fsverity (lab#174) and the replay function
     for line in writes:
         assert re.search(r"\btimeout -k 2 5 bash -c '[^']*> /dev/ttyS0", line), line
     # The probe and the diagnostics open ttyS0 with O_NONBLOCK, under a timeout.
@@ -532,7 +532,8 @@ def test_guest_every_ttyS0_write_is_under_timeout(lane):
     assert "timeout -k 2 5 stty -a -F /dev/ttyS0" in generated
     # Every bounded kmsg, ttyS0, probe and diagnostic command also has a KILL after TERM.
     assert not re.search(r"\btimeout (5|10) (bash|python3|stty)\b", generated)
-    assert len(re.findall(r"\btimeout -k 2 (5|10) (bash|python3|stty)\b", generated)) == 6
+    # emit, emit_fsverity, the 2 replays, the 2 ttyS0 openers, stty and 1 replay kmsg.
+    assert len(re.findall(r"\btimeout -k 2 (5|10) (bash|python3|stty)\b", generated)) == 7
     assert not re.search(r"^\s*(cat|printf|echo)\b[^\n]*> /dev/ttyS0", generated, re.MULTILINE)
 
 
@@ -974,6 +975,54 @@ def test_truncated_copy_next_to_a_complete_copy_loses(lane, tmp_path, cut):
         assert sum(line.startswith("serial_tty=") for line in checks) == 1
 
 
+def test_kept_fsverity_lines_are_written_beside_checks_without_changing_them(lane, tmp_path):
+    console = _good_console() + [
+        "FIRN_QA__FSVERITY seq=1 device=dm-0 inode=174546 pos=25952256 level=-1",
+        # The same record again from the ttyS0 path, and once behind a kernel
+        # prefix: identical copies merge and the prefix is ignored.
+        "FIRN_QA__FSVERITY seq=1 device=dm-0 inode=174546 pos=25952256 level=-1\r",
+        "[   40.0] FIRN_QA__FSVERITY seq=2 device=dm-0 inode=174546 pos=4128768 level=-1",
+        # One seq with 2 different contents is ambiguous: neither copy is kept.
+        "FIRN_QA__FSVERITY seq=3 device=dm-0 inode=1 pos=0 level=-1",
+        "FIRN_QA__FSVERITY seq=3 device=dm-0 inode=2 pos=0 level=-1",
+        # Cut by kernel printk, or with text after the value: not a complete record.
+        "FIRN_QA__FSVERITY seq=4 device=dm-0 inode=1 pos=0 level=-[   41.2] kernel text",
+        "FIRN_QA__FSVERITY seq=5 device=dm-0 inode=1 pos=0 level=-1 extra",
+        "FIRN_QA__FSVERITY seq=0 device=dm-0 inode=1 pos=0 level=-1",
+        # seq is sorted as a number, so 10 follows 9.
+        "FIRN_QA__FSVERITY seq=10 device=dm-0 inode=10 pos=0 level=-1",
+        "FIRN_QA__FSVERITY seq=9 device=dm-0 inode=9 pos=0 level=-1",
+    ]
+    result, summary = _collect_and_judge(lane, tmp_path, console)
+    assert result.returncode == 0, result.stderr
+    assert summary.startswith("PASS: c ")
+    # checks.txt is exactly what it was before lab#174: the new marker is not a check.
+    assert sorted((tmp_path / "checks.txt").read_text().splitlines()) == sorted(GOOD_CHECKS.splitlines())
+    assert (tmp_path / "fsverity.txt").read_text().splitlines() == [
+        "phase=installed-boot seq=1 device=dm-0 inode=174546 pos=25952256 level=-1",
+        "phase=installed-boot seq=2 device=dm-0 inode=174546 pos=4128768 level=-1",
+        "phase=installed-boot seq=9 device=dm-0 inode=9 pos=0 level=-1",
+        "phase=installed-boot seq=10 device=dm-0 inode=10 pos=0 level=-1",
+    ]
+
+
+def test_kept_fsverity_lines_file_exists_and_is_empty_without_lines(lane, tmp_path):
+    result, summary = _collect_and_judge(lane, tmp_path, _good_console())
+    assert result.returncode == 0, result.stderr
+    assert summary.startswith("PASS: c ")
+    assert (tmp_path / "fsverity.txt").exists()
+    assert (tmp_path / "fsverity.txt").read_text() == ""
+
+
+def test_kept_fsverity_lines_never_fail_the_cell_when_the_console_is_empty(lane, tmp_path):
+    # A console with no CHECK record fails the cell for its own reason, and the
+    # fsverity block still runs under `|| true` without changing that reason.
+    result, summary = _collect_and_judge(lane, tmp_path, [])
+    assert result.returncode == 1
+    assert summary.startswith("FAILED: boot:")
+    assert (tmp_path / "fsverity.txt").exists()
+
+
 def test_a_record_cut_by_kernel_text_alone_is_not_a_value(lane, tmp_path):
     good = [line for line in _good_console() if "serial_tty" not in line]
     result, summary = _collect_and_judge(lane, tmp_path, ["FIRN_QA__CHECK serial_tty=o[   12.3] kernel text"] + good)
@@ -1086,6 +1135,80 @@ def test_fsverity_count_is_unknown_when_the_kernel_log_is_unreadable_or_empty(la
               + '\necho "$(fsverity_count || echo unknown)"')
     result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
     assert result.stdout.strip() == "unknown"
+
+
+def _fsverity_lines_function(lane):
+    """Only the guest fsverity_lines function, without the loop that emits it."""
+    generated = _render_check(lane)
+    body = generated.split("fsverity_lines() {", 1)[1].split("\n}\n", 1)[0]
+    return "fsverity_lines() {" + body + "\n}\n"
+
+
+# One kept line as the guest writes it: journalctl's own prefix, then the message
+# with both sha512 hashes, which must never be kept (lab#174).
+FSCORRUPT = ("[   39.1] fs-verity (dm-0, inode 174546): FILE CORRUPTED! pos=25952256, "
+             "level=-1, want_hash=sha512:7519ab, real_hash=sha512:2d23cd")
+
+
+@pytest.mark.parametrize("journal,expected", [
+    (FSCORRUPT + "\n", ["seq=1 device=dm-0 inode=174546 pos=25952256 level=-1"]),
+    # Not a corruption message at all: nothing is kept.
+    ("kernel: boot\n[    1.0] systemd[1]: Started something.\n", []),
+    # The message must carry the whole shape: no pos, or a level out of the grammar, is no line.
+    ("[    1.0] fs-verity (dm-0, inode 1): FILE CORRUPTED!\n", []),
+    ("[    1.0] fs-verity (dm-0, inode 1): FILE CORRUPTED! pos=0, level=-123\n", []),
+    ("[    1.0] fs-verity (dm-0, inode 1): FILE CORRUPTED! pos=none, level=-1\n", []),
+    # Kernel-log order, and every line of the log is offered.
+    ("[    1.0] fs-verity (dm-0, inode 1): FILE CORRUPTED! pos=0, level=-1\n"
+     "[    2.0] fs-verity (dm-1, inode 2): FILE CORRUPTED! pos=4096, level=2\n",
+     ["seq=1 device=dm-0 inode=1 pos=0 level=-1", "seq=2 device=dm-1 inode=2 pos=4096 level=2"]),
+])
+def test_guest_fsverity_lines_keeps_the_file_identity_and_drops_the_hashes(lane, journal, expected):
+    script = ('timeout() { shift; "$@"; }\njournalctl() { printf "%s" "$JOURNAL"; }\n'
+              + _fsverity_lines_function(lane) + "\nfsverity_lines")
+    result = subprocess.run(["bash", "-c", script], env={**os.environ, "JOURNAL": journal},
+                            capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == expected
+    assert "sha512" not in result.stdout and "hash" not in result.stdout
+
+
+def test_guest_fsverity_lines_keeps_the_first_32_in_kernel_log_order(lane):
+    journal = "".join("[%5d.0] fs-verity (dm-0, inode %d): FILE CORRUPTED! pos=%d, level=-1\n" % (n, n, n)
+                      for n in range(1, 41))
+    script = ('timeout() { shift; "$@"; }\njournalctl() { printf "%s" "$JOURNAL"; }\n'
+              + _fsverity_lines_function(lane) + "\nfsverity_lines")
+    result = subprocess.run(["bash", "-c", script], env={**os.environ, "JOURNAL": journal},
+                            capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == [f"seq={n} device=dm-0 inode={n} pos={n} level=-1" for n in range(1, 33)]
+
+
+@pytest.mark.parametrize("journal_script", [
+    "return 1", "true", "echo '-- No entries --'", "printf '\n  -- No entries --  \n\n'",
+])
+def test_guest_fsverity_lines_is_quiet_when_the_kernel_log_cannot_be_read(lane, journal_script):
+    # Best effort: no line, no error, and the cell never fails on this read.
+    assert "journalctl -q -k -b --no-pager" in _render_check(lane)
+    script = ('timeout() { shift; "$@"; }\njournalctl() { ' + journal_script + '; }\n'
+              + _fsverity_lines_function(lane) + '\nfsverity_lines; echo "rc=$?"')
+    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "rc=0"
+    assert result.stderr == ""
+
+
+def test_guest_emits_each_kept_line_through_all_four_sinks(lane):
+    guest = _render_check(lane)
+    emit_fsverity = guest.split("emit_fsverity() {", 1)[1].split("\n}\n", 1)[0]
+    # Its own marker, never a CHECK key: `emit <key> <value>` stays the only check shape.
+    assert 'local line="FIRN_QA__FSVERITY $1"' in emit_fsverity
+    assert "FIRN_QA__CHECK" not in emit_fsverity
+    assert ">> /run/firn-qa-checks.txt" in emit_fsverity
+    assert (emit_fsverity.index("/run/firn-qa-checks.txt") < emit_fsverity.index('printf \'%s\\n\' "$line"\n')
+            < emit_fsverity.index('kmsg "$line"') < emit_fsverity.index("/dev/ttyS0"))
+    # Emitted after the count and before the canary, so the canary's own log lines are never kept.
+    assert guest.index("emit fsverity_errors") < guest.index("done < <(fsverity_lines)") < guest.index("CANARY_BEFORE=")
 
 
 FILEFRAG = r"""#!/bin/bash

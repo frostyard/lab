@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+import re
 import subprocess
 
 import pytest
@@ -67,6 +68,111 @@ def test_underscore_check_keys_survive_both_channels(source, tmp_path):
                             capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines() == ["booted=ok", "fsverity_errors=0", "fsverity_errors=2", "rootfs=btrfs"]
+
+
+# Both guest channels are quoted heredocs, so their text is literal.
+def _channel(source, which):
+    if which == 0:
+        return source.split("CHECK_SH=$(cat <<'SCRIPT'\n", 1)[1].split("\nSCRIPT", 1)[0]
+    return source.split("bash -s <<'PROBE'", 1)[1].split("\nPROBE\n", 1)[0]
+
+
+# One corruption message as the guest writes it: journalctl's own prefix, then
+# the message with both sha512 hashes, which must never be kept (lab#174).
+FSCORRUPT = ("[   39.1] fs-verity (dm-0, inode 174546): FILE CORRUPTED! pos=25952256, "
+             "level=-1, want_hash=sha512:7519ab, real_hash=sha512:2d23cd")
+KEPT = "SNOSI_QA__FSVERITY seq=1 device=dm-0 inode=174546 pos=25952256 level=-1"
+
+
+def _kept_lines(script):
+    """The guest fsverity_lines function and the loop that prints each line."""
+    start = script.index("fsverity_lines() {")
+    return script[start:script.index("done < <(fsverity_lines)") + len("done < <(fsverity_lines)")]
+
+
+@pytest.mark.parametrize("which", [0, 1])
+@pytest.mark.parametrize("journal,expected", [
+    (FSCORRUPT + "\n", [KEPT]),
+    ("kernel: boot\n", []),                                        # no corruption message
+    ("[ 1.0] fs-verity (dm-0, inode 1): FILE CORRUPTED!\n", []),   # no pos: not a kept line
+])
+def test_both_channels_emit_the_kept_lines_under_their_own_marker(source, which, journal, expected):
+    assert "journalctl -q -k -b --no-pager" in _channel(source, which)
+    script = ('timeout() { shift; "$@"; }\njournalctl() { printf "%s" "$JOURNAL"; }\n'
+              + _kept_lines(_channel(source, which)))
+    result = subprocess.run(["bash", "-c", script], env={**os.environ, "JOURNAL": journal},
+                            capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == expected
+    assert "sha512" not in result.stdout
+
+
+@pytest.mark.parametrize("which", [0, 1])
+def test_both_channels_are_quiet_when_the_kernel_log_cannot_be_read(source, which):
+    script = ('timeout() { shift; "$@"; }\njournalctl() { return 1; }\n'
+              + _kept_lines(_channel(source, which)))
+    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "" and result.stderr == ""
+
+
+def test_the_kept_marker_is_never_a_check_key(source):
+    # The marker carries no `key=value`, so both the `[a-z_]+=` channel filters
+    # and the `^[a-z_]+=` union drop it: checks.txt cannot change.
+    for which in (0, 1):
+        script = _channel(source, which)
+        emitted = [line for line in script.splitlines() if "SNOSI_QA__FSVERITY $fsv_line" in line]
+        assert emitted, which
+        assert not re.match(r"SNOSI_QA__CHECK [a-z_]+=", emitted[0].split('"SNOSI_QA__FSVERITY')[0])
+    assert "[a-z]+=" not in source
+
+
+def test_host_writes_fsverity_txt_from_both_channels(source, tmp_path):
+    collect = source[source.index("{ cat /tmp/results/agent-checks.txt"):
+                     source.index("if [[ ! -s /tmp/results/checks.txt ]]")]
+    console = "\n".join([
+        "SNOSI_QA__CHECK booted=ok",
+        # A kernel prefix is fine; a CR from the ttyS0 path is stripped.
+        "[    1.0] SNOSI_QA__FSVERITY seq=1 device=dm-0 inode=9 pos=4096 level=-1\r",
+        "SNOSI_QA__FSVERITY seq=3 device=dm-0 inode=9 pos=0 level=-1",
+        # One seq with 2 different contents is ambiguous: neither copy is kept.
+        "SNOSI_QA__FSVERITY seq=3 device=dm-0 inode=8 pos=0 level=-1",
+        # Cut by kernel printk: not a complete record.
+        "SNOSI_QA__FSVERITY seq=4 device=dm-0 inode=1 pos=0 level=-[ 2.0] kernel text",
+        # seq is sorted as a number, so 10 follows 9.
+        "SNOSI_QA__FSVERITY seq=10 device=dm-0 inode=10 pos=0 level=-1",
+        "SNOSI_QA__FSVERITY seq=9 device=dm-0 inode=9 pos=0 level=-1",
+    ])
+    script = ('set -euo pipefail\nM_CHECK=SNOSI_QA__CHECK\nmkdir -p "$R"\n'
+              'printf "booted=ok\n' + KEPT.replace("seq=1", "seq=2") + '\n" > "$R/agent-checks.txt"\n'
+              'console_log() { printf "%b\\n" "$CONSOLE"; }\n'
+              + collect.replace("/tmp/results", "$R")
+              + '\ncat "$R/checks.txt"; echo ---; cat "$R/fsverity.txt"')
+    result = subprocess.run(["bash", "-c", script],
+                            env={**os.environ, "R": str(tmp_path / "results"), "CONSOLE": console},
+                            capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    # checks.txt is unchanged: the key filter drops the marker, and the kept
+    # lines go to their own file.
+    assert result.stdout == (
+        "booted=ok\n---\n"
+        "phase=installed-boot seq=1 device=dm-0 inode=9 pos=4096 level=-1\n"
+        "phase=installed-boot seq=2 device=dm-0 inode=174546 pos=25952256 level=-1\n"
+        "phase=installed-boot seq=9 device=dm-0 inode=9 pos=0 level=-1\n"
+        "phase=installed-boot seq=10 device=dm-0 inode=10 pos=0 level=-1\n")
+
+
+def test_host_fsverity_txt_exists_and_is_empty_without_lines(source, tmp_path):
+    collect = source[source.index("{ cat /tmp/results/agent-checks.txt"):
+                     source.index("if [[ ! -s /tmp/results/checks.txt ]]")]
+    script = ('set -euo pipefail\nM_CHECK=SNOSI_QA__CHECK\nmkdir -p "$R"\n'
+              'printf "booted=ok\n" > "$R/agent-checks.txt"\n'
+              'console_log() { printf "%s\\n" "SNOSI_QA__CHECK booted=ok"; }\n'
+              + collect.replace("/tmp/results", "$R") + '\nwc -c < "$R/fsverity.txt"')
+    result = subprocess.run(["bash", "-c", script], env={**os.environ, "R": str(tmp_path / "results")},
+                            capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "0"
 
 
 GUARD_MISSING = "FAILED: fs-verity guard did not report (snosi#1130)"
