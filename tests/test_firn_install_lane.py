@@ -945,14 +945,17 @@ def test_count_prompts_is_zero_without_a_prompt_under_errexit(lane, console, wan
     assert result.stdout.strip() == want
 
 
-def _run_unlock(lane, tmp_path, enc, pages, prompt_timeout=10, boot_timeout=60, attach_rc=0):
+def _run_unlock(lane, tmp_path, enc, pages, prompt_timeout=10, boot_timeout=60, attach_rc=0,
+                delay_page=0, delay_seconds=0):
     """Run only the passphrase-unlock block, with a fake console, incus and clock.
 
     `pages` is what each console read returns, in order: a fake that returns
     different text on each call. A read past the end is empty. Each fake
     `incus console <vm>` without `--show-log` records its stdin and returns
     `attach_rc`, `script(1)` runs the command it is given (the pod's pty), and
-    `sleep` moves the clock so the loop always ends.
+    `sleep` moves the clock so the loop always ends. Read `delay_page` also
+    spends `delay_seconds` of REAL time, so the parent clock (SECONDS) moves
+    while that read is in flight.
     """
     source = lane["script"]["source"]
     fail = source[source.index("fail() {"):source.index("\n}", source.index("fail() {")) + 2]
@@ -974,6 +977,7 @@ def _run_unlock(lane, tmp_path, enc, pages, prompt_timeout=10, boot_timeout=60, 
         '  printf "%s\\n" "$*" >> "$INCUS_LOG"\n'
         '  if [[ "${*: -1}" == --show-log ]]; then\n'
         '    n=$(<"$COUNTER"); n=$((n + 1)); printf "%s\\n" "$n" > "$COUNTER"\n'
+        '    if [[ "${n}" == "${DELAY_PAGE}" ]]; then command sleep "${DELAY_SECONDS}"; fi\n'
         '    printf "%b\\n" "$(sed -n "${n}p" "$PAGES")"\n'
         '    return 0\n'
         '  fi\n'
@@ -989,7 +993,8 @@ def _run_unlock(lane, tmp_path, enc, pages, prompt_timeout=10, boot_timeout=60, 
         env={**os.environ, "ENC_REQUEST": enc, "PROMPT_TIMEOUT": str(prompt_timeout),
              "BOOT_TIMEOUT": str(boot_timeout), "PAGES": str(page_file),
              "COUNTER": str(tmp_path / "counter"), "INCUS_LOG": str(tmp_path / "incus.log"),
-             "STDIN_LOG": str(tmp_path / "stdin.log"), "ATTACH_RC": str(attach_rc)},
+             "STDIN_LOG": str(tmp_path / "stdin.log"), "ATTACH_RC": str(attach_rc),
+             "DELAY_PAGE": str(delay_page), "DELAY_SECONDS": str(delay_seconds)},
         capture_output=True, text=True, check=False, timeout=60,
     )
     incus_calls = (tmp_path / "incus.log").read_text().splitlines()
@@ -1196,23 +1201,79 @@ def test_a_reset_log_is_read_as_this_boot_only(lane, tmp_path):
 def test_every_console_read_in_the_passphrase_loop_is_bounded(lane):
     block = _unlock_block(lane)
     assert "read_boot_console() {" in block
-    assert 'timeout -k 5 30 incus console "${VM}" --show-log 2>/dev/null' in block
+    assert 'timeout -k 2 "${budget}" incus console "${VM}" --show-log 2>/dev/null' in block
+    assert 'local budget="${1:-30}"' in block
+    assert "(( budget > 30 )) && budget=30" in block
+    assert "(( budget < 1 )) && budget=1" in block
     assert 'PRE_LOG="$(read_boot_console)"' in block
     loop = block.split('if [[ "${ENC}" == luks-passphrase ]]; then', 1)[1].split("\nelse", 1)[0]
     assert "read_boot_console" in loop
     assert "console_log" not in loop
     # The count baseline is the log boundary, never a prompt count.
     assert "PROMPT_BASE" not in block and "prompt_count" not in block
-    # The pass order: deadline, reject, prompt budget, done, then one answer.
-    for marker in ("# 1. The overall deadline", "# 2. One bounded read",
-                   "# 3. More prompts", "# 4. No prompt answered",
-                   "# 5. The probe reported", "# 6. One new prompt", "# 7. Wait"):
+    # The pass order: deadline, bounded read, deadline again, reject, prompt
+    # budget, done, then one answer.
+    for marker in ("# 1. The overall deadline", "# 2. One read per pass",
+                   "# 3. The read can spend", "# 4. More prompts",
+                   "# 5. No prompt answered", "# 6. The probe reported",
+                   "# 7. One new prompt", "# 8. Wait"):
         assert marker in loop, marker
-    assert (loop.index("# 1. The overall deadline") < loop.index("# 2. One bounded read")
-            < loop.index("# 3. More prompts") < loop.index("# 4. No prompt answered")
-            < loop.index("# 5. The probe reported") < loop.index("# 6. One new prompt")
-            < loop.index("# 7. Wait"))
+    assert (loop.index("# 1. The overall deadline") < loop.index("# 2. One read per pass")
+            < loop.index("# 3. The read can spend") < loop.index("# 4. More prompts")
+            < loop.index("# 5. No prompt answered") < loop.index("# 6. The probe reported")
+            < loop.index("# 7. One new prompt") < loop.index("# 8. Wait"))
     assert "boot_deadline - SECONDS < 25" in loop
+    # The read is bounded by the budget that is left, never by a fixed 30 s.
+    assert 'read_boot_console "$(( boot_deadline - SECONDS ))"' in loop
+
+
+def test_read_boot_console_budget_is_clamped(lane, tmp_path):
+    # Every read gets a budget: the default is 30 s, more is cut to 30, less
+    # than 1 s is lifted to 1 (a read may not outlive the boot deadline).
+    block = _unlock_block(lane)
+    definition = ("read_boot_console() {"
+                  + block.split("read_boot_console() {", 1)[1].split("\n}", 1)[0] + "\n}")
+    log = tmp_path / "budgets"
+    script = ('set -euo pipefail\nVM=fq-test\n'
+              'timeout() { printf "%s\\n" "$3" >> "$LOG"; }\n'
+              'incus() { return 0; }\n'
+              + definition
+              + '\nread_boot_console\nread_boot_console 0\nread_boot_console 5\n'
+              'read_boot_console 100\nread_boot_console -3\n')
+    result = subprocess.run(["bash", "-c", script], env={**os.environ, "LOG": str(log)},
+                            capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    assert log.read_text().splitlines() == ["30", "1", "5", "30", "1"]
+
+
+def test_a_read_that_outlives_the_deadline_does_not_pass(lane, tmp_path):
+    # The fake clock moves 5 s per pass, so this read starts at 25 s of a 27 s
+    # budget and spends 2.5 s of real time: it ends after the deadline, with the
+    # done marker in the log. It must not pass.
+    result, _, _, sends, summary = _run_unlock(
+        lane, tmp_path, "luks-passphrase",
+        ["FIRN_QA__INSTALL_OK", PASSPHRASE_PROMPT, "", "", "", "",
+         "FIRN_QA__CHECKS_DONE"],
+        prompt_timeout=600, boot_timeout=27, delay_page=7, delay_seconds=2.5)
+    assert result.returncode == 1, result.stdout
+    assert summary == "FAILED: boot:no_report (bootc/floe/luks-passphrase/sb=false) firn=firn_0.6.0"
+    assert sends == ["firn-qa-passphrase"]
+    assert "--- console tail (installed system did not report) ---" in result.stderr
+
+
+def test_step_one_never_reads_the_console_after_the_deadline(lane, tmp_path):
+    # 1 pre-start read plus 2 passes; the pass after the deadline must not read.
+    result, incus_calls, _, _, summary = _run_unlock(
+        lane, tmp_path, "luks-passphrase", ["FIRN_QA__INSTALL_OK"],
+        prompt_timeout=600, boot_timeout=10)
+    assert result.returncode == 1
+    assert summary == ("FAILED: boot:passphrase_prompt_missing "
+                       "(bootc/floe/luks-passphrase/sb=false) firn=firn_0.6.0")
+    reads = [call for call in incus_calls if call.endswith("--show-log")]
+    assert len(reads) == 3
+    assert "(the console log of this pass was empty)" in result.stderr
+    # The log of the pass before the deadline is the tail; no new read happens.
+    assert "--- console tail (installed system did not report) ---" in result.stderr
 
 
 def test_pass_summary_carries_the_unlock_note_before_the_firn_version(lane, tmp_path):

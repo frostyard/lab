@@ -63,25 +63,34 @@ with `luks=present`, `login=active` and the pinned Floe digest.
 - **Log boundary, not a prompt count.** Before `incus start` the pod saves
   the console log: `PRE_LOG="$(read_boot_console)"`. In each pass it reads the
   log with the same bounded function,
-  `timeout -k 5 30 incus console "${VM}" --show-log | tr -d '\r'`, and tests
-  whether the new read still starts with the saved text. If it does, only
+  `timeout -k 2 <budget> incus console "${VM}" --show-log | tr -d '\r'`, and
+  tests whether the new read still starts with the saved text. If it does, only
   the part after the saved text belongs to this boot. If it does not, Incus
   reset (or rotated) the log at start, and the whole read is this boot. So the
   boundary is right whether Incus keeps the log or resets it, and a prompt
   line from the install boot is never answered. The loop never calls
   `console_log` (the unbounded read); the other cells keep it.
+- **The read budget is bounded by the time that is left.** `read_boot_console`
+  takes an optional budget in seconds: the default is 30, a larger value is cut
+  to 30, and a value under 1 is lifted to 1. `PRE_LOG` uses the default. The
+  loop asks for `boot_deadline - SECONDS`, so a read near the deadline cannot
+  outlive it.
 - **Pass order.** Each pass, 5 s apart, does these steps in this order:
   1. the overall deadline `installed-boot-timeout-seconds`, which fails
   `boot:passphrase_prompt_missing` when nothing was answered, else
-  `boot:no_report`;
-  2. one bounded read, cut to this boot;
-  3. more prompts than `MAX_PROMPTS` fail `boot:passphrase_rejected`, before
+  `boot:no_report`. This step never reads the console: it prints the log of the
+  previous pass, and says so when that log was empty;
+  2. one read, bounded by the budget that is left, cut to this boot;
+  3. the same deadline check again, with the log just read. A read can start
+  1 s before the deadline and return up to 30 s later, so a done marker in that
+  read must not pass a cell that overran its budget;
+  4. more prompts than `MAX_PROMPTS` fail `boot:passphrase_rejected`, before
   the done marker is read;
-  4. the prompt budget `passphrase-prompt-timeout-seconds` with no answer yet
+  5. the prompt budget `passphrase-prompt-timeout-seconds` with no answer yet
   fails `boot:passphrase_prompt_missing`;
-  5. `FIRN_QA__CHECKS_DONE` with no answer fails `boot:passphrase_prompt_missing`,
+  6. `FIRN_QA__CHECKS_DONE` with no answer fails `boot:passphrase_prompt_missing`,
   and with an answer it ends the loop;
-  6. one new prompt is answered, at most 1 per pass, unless less than 25 s of
+  7. one new prompt is answered, at most 1 per pass, unless less than 25 s of
   the boot budget is left (an attach takes up to about 22 s): then the cell
   fails `boot:no_report`, because the probe cannot report in time either.
 - **At most 2 prompts.** `MAX_PROMPTS=2`. One prompt is answered, and a boot
@@ -140,8 +149,10 @@ with `luks=present`, `login=active` and the pinned Floe digest.
 - A prompt line that is already in the saved pre-start log is not answered
   again, because the boundary cuts it off. That boot then fails
   `boot:passphrase_prompt_missing`, never a vacuous pass.
-- Each read is bounded at 30 s, so one hung `incus console --show-log` costs
-  1 pass, not the whole cell.
+- Each read is bounded, and near the deadline its budget shrinks to the time
+  that is left, so one hung `incus console --show-log` costs 1 pass, not the
+  whole cell. The deadline is checked before and after the read, so a cell
+  cannot pass on a done marker that arrived after its budget ran out.
 - The 25 s attach guard turns a prompt that arrives too late into
   `boot:no_report` at once, instead of an answer that cannot help and a
   900 s wait.

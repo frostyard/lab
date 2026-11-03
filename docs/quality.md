@@ -134,10 +134,12 @@ The lane tells the install boot from the installed boot by a log boundary, not
 by a prompt count. It saves the console log before `incus start`. A later read
 that still starts with that saved text holds the saved log plus this boot, so
 only the new part counts; a read that does not was reset by Incus at start and
-is this boot only. Every read is bounded (`timeout -k 5 30`). Each pass of 5 s
-then goes in this order: the overall installed-boot deadline, a
-`boot:passphrase_prompt_missing` when nothing was answered else
-`boot:no_report`; the read; a third prompt fails `boot:passphrase_rejected`
+is this boot only. Every read is bounded: its budget is the time that is left,
+at most 30 s and at least 1 s. Each pass of 5 s then goes in this order:
+the overall installed-boot deadline, a `boot:passphrase_prompt_missing` when
+nothing was answered else `boot:no_report` (this step reads nothing); the
+bounded read; the same deadline check again, with the log just read, because a
+read can end after the deadline; a third prompt fails `boot:passphrase_rejected`
 before the done marker is read; the prompt budget with no answer fails
 `boot:passphrase_prompt_missing`; the done marker with no answer fails
 `boot:passphrase_prompt_missing` (a passphrase cell that never prompted proves
