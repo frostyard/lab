@@ -934,11 +934,11 @@ def test_one_public_passphrase_feeds_the_install_file_and_the_serial_prompt(lane
     ("Please enter passphrase for disk /dev/vda3:\nPlease enter passphrase for disk /dev/vdb1:", "2"),
     ("FIRN_QA__INSTALL_OK", "0"),
 ])
-def test_prompt_count_is_zero_without_a_prompt_under_errexit(lane, console, want):
+def test_count_prompts_is_zero_without_a_prompt_under_errexit(lane, console, want):
     # `grep -c` exits 1 on no match, so the count must survive pipefail and `set -e`.
     definitions = _unlock_block(lane).split("send_passphrase() {", 1)[0]
     script = ('set -euo pipefail\nM_PROMPT="Please enter passphrase for disk"\n'
-              'console_log() { printf "%b\\n" "$CONSOLE"; }\n' + definitions + '\nprompt_count\n')
+              + definitions + '\nprintf "%b\\n" "$CONSOLE" | count_prompts\n')
     result = subprocess.run(["bash", "-c", script], env={**os.environ, "CONSOLE": console},
                             capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
@@ -1109,6 +1109,110 @@ def test_other_encryptions_keep_the_old_no_report_failure(lane, tmp_path):
     assert summary == "FAILED: boot:no_report (bootc/floe/tpm2-luks/sb=false) firn=firn_0.6.0"
     assert attaches == []
     assert "--- console tail (installed system did not report) ---" in result.stderr
+
+
+def test_three_prompts_in_one_sample_are_rejected_before_the_done_marker(lane, tmp_path):
+    result, _, _, sends, summary = _run_unlock(
+        lane, tmp_path, "luks-passphrase",
+        ["FIRN_QA__INSTALL_OK",
+         "\n".join([PASSPHRASE_PROMPT] * 3) + "\nFIRN_QA__CHECKS_DONE"])
+    assert result.returncode == 1
+    assert summary == ("FAILED: boot:passphrase_rejected "
+                       "(bootc/floe/luks-passphrase/sb=false) firn=firn_0.6.0")
+    assert sends == []
+
+
+def test_a_third_prompt_after_two_answers_is_rejected_even_with_the_done_marker(lane, tmp_path):
+    result, _, _, sends, summary = _run_unlock(
+        lane, tmp_path, "luks-passphrase",
+        ["FIRN_QA__INSTALL_OK", PASSPHRASE_PROMPT,
+         "\n".join([PASSPHRASE_PROMPT] * 2),
+         "\n".join([PASSPHRASE_PROMPT] * 3) + "\nFIRN_QA__CHECKS_DONE"])
+    assert result.returncode == 1
+    assert summary.startswith("FAILED: boot:passphrase_rejected (")
+    assert sends == ["firn-qa-passphrase", "firn-qa-passphrase"]
+
+
+def test_a_first_prompt_after_the_prompt_budget_fails_without_a_send(lane, tmp_path):
+    result, _, _, sends, summary = _run_unlock(
+        lane, tmp_path, "luks-passphrase",
+        ["FIRN_QA__INSTALL_OK", "", "", PASSPHRASE_PROMPT],
+        prompt_timeout=10, boot_timeout=120)
+    assert result.returncode == 1
+    assert summary == ("FAILED: boot:passphrase_prompt_missing "
+                       "(bootc/floe/luks-passphrase/sb=false) firn=firn_0.6.0")
+    assert sends == []
+
+
+def test_a_prompt_with_too_little_boot_budget_left_fails_no_report(lane, tmp_path):
+    # An attach takes up to about 22 s, so a prompt with less than 25 s left is
+    # not answered: the boot cannot report in time either way.
+    result, _, _, sends, summary = _run_unlock(
+        lane, tmp_path, "luks-passphrase",
+        ["FIRN_QA__INSTALL_OK", "", PASSPHRASE_PROMPT],
+        prompt_timeout=600, boot_timeout=27)
+    assert result.returncode == 1
+    assert summary == "FAILED: boot:no_report (bootc/floe/luks-passphrase/sb=false) firn=firn_0.6.0"
+    assert sends == []
+    assert "--- console tail (no budget left for an answer) ---" in result.stderr
+
+
+def test_the_done_marker_after_the_boot_deadline_fails(lane, tmp_path):
+    # The deadline is checked before the read, so a late done marker never passes.
+    result, _, _, sends, summary = _run_unlock(
+        lane, tmp_path, "luks-passphrase",
+        ["FIRN_QA__INSTALL_OK", PASSPHRASE_PROMPT, "", "", "", "", "FIRN_QA__CHECKS_DONE"],
+        prompt_timeout=600, boot_timeout=25)
+    assert result.returncode == 1
+    assert summary == "FAILED: boot:no_report (bootc/floe/luks-passphrase/sb=false) firn=firn_0.6.0"
+    assert sends == ["firn-qa-passphrase"]
+
+
+def test_a_retained_log_is_read_as_the_new_part_only(lane, tmp_path):
+    # Incus kept the log: the pre-start prompt line is not answered again.
+    result, _, _, sends, summary = _run_unlock(
+        lane, tmp_path, "luks-passphrase",
+        [PASSPHRASE_PROMPT,
+         PASSPHRASE_PROMPT + "\n" + PASSPHRASE_PROMPT,
+         PASSPHRASE_PROMPT + "\n" + PASSPHRASE_PROMPT + "\nFIRN_QA__CHECKS_DONE"])
+    assert result.returncode == 0, result.stderr
+    assert summary is None
+    assert "NOTE= unlock=serial-passphrase prompts=1" in result.stdout
+    assert sends == ["firn-qa-passphrase"]
+
+
+def test_a_reset_log_is_read_as_this_boot_only(lane, tmp_path):
+    # Incus reset the log at start: the whole log belongs to this boot.
+    fresh = "Linux version 7.3.1 (the installed system)\n" + PASSPHRASE_PROMPT
+    result, _, _, sends, summary = _run_unlock(
+        lane, tmp_path, "luks-passphrase",
+        [PASSPHRASE_PROMPT, fresh, fresh + "\nFIRN_QA__CHECKS_DONE"])
+    assert result.returncode == 0, result.stderr
+    assert summary is None
+    assert "NOTE= unlock=serial-passphrase prompts=1" in result.stdout
+    assert sends == ["firn-qa-passphrase"]
+
+
+def test_every_console_read_in_the_passphrase_loop_is_bounded(lane):
+    block = _unlock_block(lane)
+    assert "read_boot_console() {" in block
+    assert 'timeout -k 5 30 incus console "${VM}" --show-log 2>/dev/null' in block
+    assert 'PRE_LOG="$(read_boot_console)"' in block
+    loop = block.split('if [[ "${ENC}" == luks-passphrase ]]; then', 1)[1].split("\nelse", 1)[0]
+    assert "read_boot_console" in loop
+    assert "console_log" not in loop
+    # The count baseline is the log boundary, never a prompt count.
+    assert "PROMPT_BASE" not in block and "prompt_count" not in block
+    # The pass order: deadline, reject, prompt budget, done, then one answer.
+    for marker in ("# 1. The overall deadline", "# 2. One bounded read",
+                   "# 3. More prompts", "# 4. No prompt answered",
+                   "# 5. The probe reported", "# 6. One new prompt", "# 7. Wait"):
+        assert marker in loop, marker
+    assert (loop.index("# 1. The overall deadline") < loop.index("# 2. One bounded read")
+            < loop.index("# 3. More prompts") < loop.index("# 4. No prompt answered")
+            < loop.index("# 5. The probe reported") < loop.index("# 6. One new prompt")
+            < loop.index("# 7. Wait"))
+    assert "boot_deadline - SECONDS < 25" in loop
 
 
 def test_pass_summary_carries_the_unlock_note_before_the_firn_version(lane, tmp_path):

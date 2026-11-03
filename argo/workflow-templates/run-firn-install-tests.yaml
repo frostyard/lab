@@ -711,7 +711,11 @@ spec:
         UNLOCK_NOTE=""
         # 0 when nothing matches: grep exits 1 then, and `|| true` keeps the count.
         count_prompts() { grep -acF "${M_PROMPT}" || true; }
-        prompt_count() { console_log | tr -d '\r' | count_prompts; }
+        # Bounded read: the console log can be large and a hung attach must not
+        # stop the loop. The loop reads the log only through this function.
+        read_boot_console() {
+          timeout -k 5 30 incus console "${VM}" --show-log 2>/dev/null | tr -d '\r' || true
+        }
         send_passphrase() {
           # `incus console` reads the terminal size, so a pipe fails with
           # "inappropriate ioctl for device" (dev run dev-firn-install-msnh2):
@@ -728,19 +732,49 @@ spec:
           fail boot "unlock_attach_failed_rc_${rc}"
         }
         echo "Booting the installed system..." >&2
-        # The console log also holds the install boot, so start from its count.
-        PROMPT_BASE="$(prompt_count)"
+        # Incus can keep or reset the console log across a stop and start, so save
+        # the pre-start text: a log that still starts with it is that log plus
+        # this boot, and a log that does not was reset (or rotated) and is this
+        # boot only. The boundary is right in both cases.
+        PRE_LOG="$(read_boot_console)"
         PROMPT_DEADLINE=$(( SECONDS + PASSPHRASE_PROMPT_TIMEOUT ))
         incus start "${VM}" || fail vm restart_failed
         if [[ "${ENC}" == luks-passphrase ]]; then
           answered=0
+          boot_log=""
           boot_deadline=$(( SECONDS + INSTALLED_BOOT_TIMEOUT ))
           while :; do
-            # One console read per pass: 1 sample of both the marker and the prompt.
-            boot_log="$(console_log | tr -d '\r')"
+            # 1. The overall deadline wins over everything that follows.
+            if (( SECONDS >= boot_deadline )); then
+              echo "--- console tail (installed system did not report) ---" >&2
+              if [[ -n "${boot_log}" ]]; then
+                printf '%s\n' "${boot_log}" | tail -n 400 >&2
+              else
+                read_boot_console | tail -n 400 >&2
+              fi
+              if (( answered == 0 )); then fail boot passphrase_prompt_missing; fi
+              fail boot no_report
+            fi
+            # 2. One bounded read per pass, cut to this boot.
+            boot_log="$(read_boot_console)"
+            if [[ "${boot_log}" == "${PRE_LOG}"* ]]; then
+              boot_log="${boot_log:${#PRE_LOG}}"
+            fi
+            seen="$(printf '%s\n' "${boot_log}" | count_prompts)"
+            # 3. More prompts than the budget: the passphrase did not unlock.
+            if (( seen > MAX_PROMPTS )); then
+              echo "--- console tail (passphrase rejected) ---" >&2
+              printf '%s\n' "${boot_log}" | tail -n 400 >&2
+              fail boot passphrase_rejected
+            fi
+            # 4. No prompt answered within the prompt budget.
+            if (( answered == 0 )) && (( SECONDS >= PROMPT_DEADLINE )); then
+              echo "--- console tail (no passphrase prompt) ---" >&2
+              printf '%s\n' "${boot_log}" | tail -n 400 >&2
+              fail boot passphrase_prompt_missing
+            fi
+            # 5. The probe reported. No answer means no unlock (ADR-0010).
             if [[ "${boot_log}" == *"${M_DONE}"* ]]; then
-              # ADR-0010: a passphrase cell that reports without ever showing
-              # the prompt proves no unlock, so it is not a pass.
               if (( answered == 0 )); then
                 echo "--- console tail (no passphrase prompt) ---" >&2
                 printf '%s\n' "${boot_log}" | tail -n 400 >&2
@@ -748,29 +782,19 @@ spec:
               fi
               break
             fi
-            prompts_now="$(printf '%s\n' "${boot_log}" | count_prompts)"
-            seen=$(( prompts_now - PROMPT_BASE ))
+            # 6. One new prompt: answer it, unless an attach no longer fits.
             if (( seen > answered )); then
-              if (( answered >= MAX_PROMPTS )); then
-                echo "--- console tail (passphrase rejected) ---" >&2
+              if (( boot_deadline - SECONDS < 25 )); then
+                echo "--- console tail (no budget left for an answer) ---" >&2
                 printf '%s\n' "${boot_log}" | tail -n 400 >&2
-                fail boot passphrase_rejected
+                fail boot no_report
               fi
               send_passphrase
               answered=$(( answered + 1 ))
               echo "  [installed-boot] answered passphrase prompt ${answered}" >&2
               tail -c 2000 /tmp/results/unlock-console.txt >&2 || true
-            elif (( answered == 0 )) && (( SECONDS >= PROMPT_DEADLINE )); then
-              echo "--- console tail (no passphrase prompt) ---" >&2
-              printf '%s\n' "${boot_log}" | tail -n 400 >&2
-              fail boot passphrase_prompt_missing
             fi
-            if (( SECONDS >= boot_deadline )); then
-              echo "--- console tail (installed system did not report) ---" >&2
-              printf '%s\n' "${boot_log}" | tail -n 400 >&2
-              if (( answered == 0 )); then fail boot passphrase_prompt_missing; fi
-              fail boot no_report
-            fi
+            # 7. Wait, then sample again.
             sleep 5
           done
           UNLOCK_NOTE=" unlock=serial-passphrase prompts=${answered}"

@@ -128,16 +128,27 @@ value the install script writes to `/run/firn-qa-pass.txt`) into
 for a pty; a pipe fails `inappropriate ioctl for device`. Exit code 0, 124 or
 137 of the attach is a normal end; any other code fails the cell as
 `boot:unlock_attach_failed_rc_<N>` with the attach output as evidence, because
-the passphrase did not reach the guest. A prompt that never shows fails
-`boot:passphrase_prompt_missing`, also when the probe reports its checks: a
-passphrase cell that never prompted proves no unlock. A third prompt fails
-`boot:passphrase_rejected`, which means the passphrase did not unlock the disk.
+the passphrase did not reach the guest.
+
+The lane tells the install boot from the installed boot by a log boundary, not
+by a prompt count. It saves the console log before `incus start`. A later read
+that still starts with that saved text holds the saved log plus this boot, so
+only the new part counts; a read that does not was reset by Incus at start and
+is this boot only. Every read is bounded (`timeout -k 5 30`). Each pass of 5 s
+then goes in this order: the overall installed-boot deadline, a
+`boot:passphrase_prompt_missing` when nothing was answered else
+`boot:no_report`; the read; a third prompt fails `boot:passphrase_rejected`
+before the done marker is read; the prompt budget with no answer fails
+`boot:passphrase_prompt_missing`; the done marker with no answer fails
+`boot:passphrase_prompt_missing` (a passphrase cell that never prompted proves
+no unlock, also when the probe reports); and 1 new prompt is answered, unless
+less than 25 s of the boot budget is left, which fails `boot:no_report`.
 A green cell adds `unlock=serial-passphrase prompts=<N>` to the PASS line. That
 proves a user can unlock this mode from the serial console in a VM. It does not
 qualify hardware, and it does not prove the graphical (Plymouth) prompt on
-tty0. Neither a passing VM nor offline contract tests
-qualify hardware, graphical login, encrypted unlock on real hardware or
-upgrades. No run or pass is claimed by the submit file alone.
+tty0. Neither a passing VM nor offline contract tests qualify hardware,
+graphical login, encrypted unlock on real hardware or upgrades. No run or pass
+is claimed by the submit file alone.
 
 ## fs-verity regression checks (snosi#1130)
 

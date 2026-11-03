@@ -38,8 +38,8 @@ with `luks=present`, `login=active` and the pinned Floe digest.
 
 - **Answer on the serial console, through a pty.** When `ENC` is
   `luks-passphrase`, the pod watches the console log for
-  `Please enter passphrase for disk`. When the count of prompt lines rises
-  above the count taken before `incus start`, it runs
+  `Please enter passphrase for disk`. When a pass finds a prompt that no answer
+  covers, it runs
   `timeout -k 5 15 script -qfec "incus console ${VM}" /dev/null` with the
   passphrase on stdin, and keeps the attach's output in
   `/tmp/results/unlock-console.txt`. `script(1)` (util-linux) gives
@@ -60,6 +60,30 @@ with `luks=present`, `login=active` and the pinned Floe digest.
   `firn-qa-passphrase`. The install script heredoc writes it to
   `/run/firn-qa-pass.txt` (expanded pod-side), and the unlock block types the
   same variable. It is a public test value, never a secret.
+- **Log boundary, not a prompt count.** Before `incus start` the pod saves
+  the console log: `PRE_LOG="$(read_boot_console)"`. In each pass it reads the
+  log with the same bounded function,
+  `timeout -k 5 30 incus console "${VM}" --show-log | tr -d '\r'`, and tests
+  whether the new read still starts with the saved text. If it does, only
+  the part after the saved text belongs to this boot. If it does not, Incus
+  reset (or rotated) the log at start, and the whole read is this boot. So the
+  boundary is right whether Incus keeps the log or resets it, and a prompt
+  line from the install boot is never answered. The loop never calls
+  `console_log` (the unbounded read); the other cells keep it.
+- **Pass order.** Each pass, 5 s apart, does these steps in this order:
+  1. the overall deadline `installed-boot-timeout-seconds`, which fails
+  `boot:passphrase_prompt_missing` when nothing was answered, else
+  `boot:no_report`;
+  2. one bounded read, cut to this boot;
+  3. more prompts than `MAX_PROMPTS` fail `boot:passphrase_rejected`, before
+  the done marker is read;
+  4. the prompt budget `passphrase-prompt-timeout-seconds` with no answer yet
+  fails `boot:passphrase_prompt_missing`;
+  5. `FIRN_QA__CHECKS_DONE` with no answer fails `boot:passphrase_prompt_missing`,
+  and with an answer it ends the loop;
+  6. one new prompt is answered, at most 1 per pass, unless less than 25 s of
+  the boot budget is left (an attach takes up to about 22 s): then the cell
+  fails `boot:no_report`, because the probe cannot report in time either.
 - **At most 2 prompts.** `MAX_PROMPTS=2`. One prompt is answered, and a boot
   that reports `FIRN_QA__CHECKS_DONE` passes. A third prompt fails the cell as
   `boot:passphrase_rejected`: the passphrase did not unlock the disk. A boot
@@ -113,10 +137,14 @@ with `luks=present`, `login=active` and the pinned Floe digest.
 - A failed attach is its own failure code, not `boot:no_report`, so a red
   `luks-passphrase` cell says whether the prompt, the attach or the boot
   failed.
-- A prompt that the lane already saw before `incus start` is not answered
-  again, so a stale prompt line in the console log cannot cause a wrong
-  answer. That boot then fails `boot:passphrase_prompt_missing`, never a
-  vacuous pass.
+- A prompt line that is already in the saved pre-start log is not answered
+  again, because the boundary cuts it off. That boot then fails
+  `boot:passphrase_prompt_missing`, never a vacuous pass.
+- Each read is bounded at 30 s, so one hung `incus console --show-log` costs
+  1 pass, not the whole cell.
+- The 25 s attach guard turns a prompt that arrives too late into
+  `boot:no_report` at once, instead of an answer that cannot help and a
+  900 s wait.
 - 1 more cell joins the matrix, serialized on the same `snosi-vm-qa`
   semaphore, so the full matrix takes 1 install longer.
 
