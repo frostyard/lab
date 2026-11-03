@@ -11,8 +11,9 @@ metadata:
 
       An empty UEFI VM + vTPM boots the verified firn installer ISO. A generated
       recipe TOML drives `firn install` non-interactively, and the installed system
-      is booted to prove it came up (for encrypted cells, coming up IS the
-      TPM/passphrase-unlock proof). One cell per invocation; the matrix is a
+      is booted to prove it came up (for tpm2 encrypted cells, coming up IS the
+      TPM-unlock proof; the luks-passphrase cell types the public QA passphrase
+      at the serial prompt, ADR-0015). One cell per invocation; the matrix is a
       fan-out in firn-install-test.yaml.
 
       Driving a guest with no agent and no SSH: systemd reads SMBIOS type-11
@@ -76,6 +77,10 @@ spec:
       # the kernel canary (see the fsverity-probe block).
       - name: installed-boot-timeout-seconds
         value: "900"
+      # How long a luks-passphrase cell waits for the serial passphrase prompt
+      # before it fails boot:passphrase_prompt_missing (ADR-0015).
+      - name: passphrase-prompt-timeout-seconds
+        value: "600"
     outputs:
       parameters:
       - name: result
@@ -114,6 +119,7 @@ spec:
       - { name: ISO_BOOT_TIMEOUT, value: "{{inputs.parameters.iso-boot-timeout-seconds}}" }
       - { name: INSTALL_TIMEOUT,  value: "{{inputs.parameters.install-timeout-seconds}}" }
       - { name: INSTALLED_BOOT_TIMEOUT, value: "{{inputs.parameters.installed-boot-timeout-seconds}}" }
+      - { name: PASSPHRASE_PROMPT_TIMEOUT, value: "{{inputs.parameters.passphrase-prompt-timeout-seconds}}" }
       - { name: DEBIAN_FRONTEND, value: noninteractive }
       volumeMounts:
       - { name: incus-pools, mountPath: /var/lib/incus/storage-pools }
@@ -153,6 +159,15 @@ spec:
             || fail mok dependencies
           pip install --quiet --break-system-packages virt-firmware || fail mok virt_firmware_install
           command -v virt-fw-vars >/dev/null || fail mok virt_fw_vars_unavailable
+        fi
+
+        # The public QA passphrase, in 1 place: the install script writes it to
+        # /run/firn-qa-pass.txt (expanded pod-side) and the unlock block types it
+        # at the serial prompt (ADR-0015). It is a test value, never a secret.
+        QA_PASSPHRASE='firn-qa-passphrase'
+        # The answer needs a pty for `incus console` (script(1), util-linux).
+        if [[ "${ENC}" == luks-passphrase ]]; then
+          command -v script >/dev/null || fail params script_missing
         fi
 
         M_BEGIN="FIRN_QA__INSTALL_BEGIN"
@@ -251,7 +266,7 @@ spec:
         echo "--- recipe ---"; cat /run/firn-qa-recipe.toml
 
         case "${ENC}" in
-          *-passphrase) printf 'firn-qa-passphrase' > /run/firn-qa-pass.txt; chmod 600 /run/firn-qa-pass.txt ;;
+          *-passphrase) printf '%s' '${QA_PASSPHRASE}' > /run/firn-qa-pass.txt; chmod 600 /run/firn-qa-pass.txt ;;
         esac
         # bootc + Secure Boot: firn's mok-stage needs a one-time MokManager
         # password file (mok = "enroll"). The harness completes enrollment
@@ -345,7 +360,8 @@ spec:
 
         # ── boot what was installed ──────────────────────────────────────────
         # Detach the ISO so firmware falls through to the freshly written ESP.
-        # For encrypted cells, booting at all IS the TPM/passphrase-unlock proof.
+        # For encrypted cells, booting at all IS the TPM-unlock proof. The
+        # luks-passphrase cell also answers the serial prompt (ADR-0015).
         incus stop "${VM}" --force || fail vm stop_failed
         incus config device remove "${VM}" installer || fail vm device_detach_failed
 
@@ -681,13 +697,133 @@ spec:
         CD_B64="$(printf '%s' "${CD}"    | base64 -w0)"
         incus config set "${VM}" raw.qemu="-smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.firn-qa-check.service=${CU_B64} -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.multi-user.target=${CD_B64}" || fail vm config_failed
 
-        echo "Booting the installed system..." >&2
-        incus start "${VM}" || fail vm restart_failed
-        if ! wait_for "${M_DONE}" "${INSTALLED_BOOT_TIMEOUT}" "installed-boot"; then
+        # --- BEGIN passphrase-unlock ---
+        # ADR-0015: a luks-passphrase cell prompts "Please enter passphrase for
+        # disk ..." on ttyS0 (dracut) at every boot, and an unattended lab had
+        # no input path. The pod attaches with `incus console` through script(1)
+        # and types the same public QA passphrase the install script wrote to
+        # /run/firn-qa-pass.txt. The attach is short and bounded; its output goes
+        # to unlock-console.txt, and the console log stays the judge's surface.
+        # A passphrase cell that reports its checks without ever showing the
+        # prompt is not proof of unlock (ADR-0010).
+        M_PROMPT="Please enter passphrase for disk"
+        MAX_PROMPTS=2
+        UNLOCK_NOTE=""
+        # 0 when nothing matches: grep exits 1 then, and `|| true` keeps the count.
+        count_prompts() { grep -acF "${M_PROMPT}" || true; }
+        # Bounded read: the console log can be large and a hung attach must not
+        # stop the loop. The budget is capped at 30 s and floored at 1 s, so a
+        # read near the boot deadline ends at most about 3 s after it (floor plus
+        # the kill grace); step 3 rejects what such a late read returns. The loop
+        # reads the log only through this function.
+        read_boot_console() {
+          local budget="${1:-30}"
+          (( budget > 30 )) && budget=30
+          (( budget < 1 )) && budget=1
+          timeout -k 2 "${budget}" incus console "${VM}" --show-log 2>/dev/null | tr -d '\r' || true
+        }
+        send_passphrase() {
+          # `incus console` reads the terminal size, so a pipe fails with
+          # "inappropriate ioctl for device" (dev run dev-firn-install-msnh2):
+          # script(1) gives it a pty. The stdin group outlives the timeout, so
+          # script never relays an EOF (^D, byte 4) to the guest prompt; the
+          # timeout ends the attach. rc 0, 124 or 137 is a normal end.
+          local rc=0
+          { sleep 2; printf '%s\n' "${QA_PASSPHRASE}"; sleep 20; } \
+            | timeout -k 5 15 script -qfec "incus console ${VM}" /dev/null >> /tmp/results/unlock-console.txt 2>&1 || rc=$?
+          case "${rc}" in
+            0|124|137) return 0 ;;
+          esac
+          tail -c 2000 /tmp/results/unlock-console.txt >&2 || true
+          fail boot "unlock_attach_failed_rc_${rc}"
+        }
+        # The same failure before and after the read. It never reads the console
+        # itself: the tail comes from the log this pass already has.
+        deadline_fail() {
           echo "--- console tail (installed system did not report) ---" >&2
-          console_log | tail -n 400 >&2
+          if [[ -n "${boot_log}" ]]; then
+            printf '%s\n' "${boot_log}" | tail -n 400 >&2
+          else
+            echo "(the console log of this pass was empty)" >&2
+          fi
+          if (( answered == 0 )); then fail boot passphrase_prompt_missing; fi
           fail boot no_report
+        }
+        echo "Booting the installed system..." >&2
+        # Incus can keep or reset the console log across a stop and start, so save
+        # the pre-start text: a log that still starts with it is that log plus
+        # this boot, and a log that does not was reset (or rotated) and is this
+        # boot only. The boundary is right in both cases.
+        PRE_LOG="$(read_boot_console)"
+        PROMPT_DEADLINE=$(( SECONDS + PASSPHRASE_PROMPT_TIMEOUT ))
+        incus start "${VM}" || fail vm restart_failed
+        if [[ "${ENC}" == luks-passphrase ]]; then
+          answered=0
+          boot_log=""
+          boot_deadline=$(( SECONDS + INSTALLED_BOOT_TIMEOUT ))
+          while :; do
+            # 1. The overall deadline wins over everything that follows. It
+            # never reads the console: a read after the deadline could see the
+            # done marker and pass a cell that overran its budget, so this step
+            # only uses the log of the previous pass.
+            if (( SECONDS >= boot_deadline )); then deadline_fail; fi
+            # 2. One read per pass, bounded by the budget that is left, cut to
+            # this boot.
+            boot_log="$(read_boot_console "$(( boot_deadline - SECONDS ))")"
+            if [[ "${boot_log}" == "${PRE_LOG}"* ]]; then
+              boot_log="${boot_log:${#PRE_LOG}}"
+            fi
+            # 3. The read can spend the last seconds (up to 30 s), so the
+            # deadline is checked again, with the log just read.
+            if (( SECONDS >= boot_deadline )); then deadline_fail; fi
+            seen="$(printf '%s\n' "${boot_log}" | count_prompts)"
+            # 4. More prompts than the budget: the passphrase did not unlock.
+            if (( seen > MAX_PROMPTS )); then
+              echo "--- console tail (passphrase rejected) ---" >&2
+              printf '%s\n' "${boot_log}" | tail -n 400 >&2
+              fail boot passphrase_rejected
+            fi
+            # 5. No prompt answered within the prompt budget.
+            if (( answered == 0 )) && (( SECONDS >= PROMPT_DEADLINE )); then
+              echo "--- console tail (no passphrase prompt) ---" >&2
+              printf '%s\n' "${boot_log}" | tail -n 400 >&2
+              fail boot passphrase_prompt_missing
+            fi
+            # 6. The probe reported. No answer means no unlock (ADR-0010).
+            if [[ "${boot_log}" == *"${M_DONE}"* ]]; then
+              if (( answered == 0 )); then
+                echo "--- console tail (no passphrase prompt) ---" >&2
+                printf '%s\n' "${boot_log}" | tail -n 400 >&2
+                fail boot passphrase_prompt_missing
+              fi
+              break
+            fi
+            # 7. One new prompt: answer it, unless an attach no longer fits.
+            if (( seen > answered )); then
+              if (( boot_deadline - SECONDS < 25 )); then
+                echo "--- console tail (no budget left for an answer) ---" >&2
+                printf '%s\n' "${boot_log}" | tail -n 400 >&2
+                fail boot no_report
+              fi
+              send_passphrase
+              answered=$(( answered + 1 ))
+              echo "  [installed-boot] answered passphrase prompt ${answered}" >&2
+              tail -c 2000 /tmp/results/unlock-console.txt >&2 || true
+            fi
+            # 8. Wait, then sample again.
+            sleep 5
+          done
+          UNLOCK_NOTE=" unlock=serial-passphrase prompts=${answered}"
+          echo "Installed system reported (passphrase answered ${answered}x)." >&2
+        else
+          # Every other cell: unchanged. Never attach without --show-log.
+          if ! wait_for "${M_DONE}" "${INSTALLED_BOOT_TIMEOUT}" "installed-boot"; then
+            echo "--- console tail (installed system did not report) ---" >&2
+            console_log | tail -n 400 >&2
+            fail boot no_report
+          fi
         fi
+        # --- END passphrase-unlock ---
 
         # `|| true` is load-bearing (pipefail + set -e): see the native lane.
         # Only complete records count (ADR-0013): after `\r` is stripped, the value
@@ -803,7 +939,7 @@ spec:
           if [[ -z "${serial_tty}" ]]; then fail boot serial_check_missing; fi
           if [[ "${serial_tty}" == stalled ]]; then fail boot serial_tty_stalled; fi
           if [[ "${serial_tty}" != ok ]]; then fail boot serial_tty_unknown; fi
-          printf '%s' "PASS: ${CELL} image=${bootc_image} digest=${bootc_digest}${fsverity_note} firn=${FIRN_VERSION}" > /tmp/results/result-summary.txt
+          printf '%s' "PASS: ${CELL} image=${bootc_image} digest=${bootc_digest}${fsverity_note}${UNLOCK_NOTE} firn=${FIRN_VERSION}" > /tmp/results/result-summary.txt
           cat /tmp/results/result-summary.txt >&2
         }
         judge /tmp/results/checks.txt

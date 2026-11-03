@@ -82,6 +82,8 @@ minideb (10.0.1.175), never selfie. It covers snow, floe and sundog bootc
 with `encryption=none` and `secureboot=true`; Snowfield is untested by
 decision. The broader [firn matrix](../argo/firn-install-test.yaml) retains
 other bootc cells but no A/B family: A/B is removed from this runner's scope.
+Its 7 active cells include 1 `encryption=luks-passphrase` cell (Floe, Secure
+Boot off); see the passphrase paragraph below.
 Each run needs the immutable ISO URL and its lowercase SHA-256 checked against
 the signed ISO index, and a product-specific image digest; placeholders are
 not evidence and must be replaced before submission. The cells share the
@@ -94,10 +96,11 @@ a btrfs root (directly, or a composefs overlay backed by a btrfs
 `/sysroot`), and the installed bootc ref and digest.
 `FAILED: <step>:<code> (<cell>) firn=<version>` identifies the failing stage;
 `PASS: <cell> image=<ref> digest=<digest> firn=<version>` names the cell,
-image ref and digest. The trailing version comes from `firn --version` in the
-installer VM; `unknown` means it booted but printed no version, and
-`not_reached` means the run failed before installer boot. It is recorded, not
-judged. The guest check unit writes each `FIRN_QA__CHECK` line to
+image ref and digest, with any note (`fsverity_known_defect=<kernel>`,
+`unlock=serial-passphrase prompts=<N>`) before `firn=`. The trailing version
+comes from `firn --version` in the installer VM; `unknown` means it booted but
+printed no version, and `not_reached` means the run failed before installer
+boot. It is recorded, not judged. The guest check unit writes each `FIRN_QA__CHECK` line to
 `/run/firn-qa-checks.txt` and to a fresh `/dev/ttyS0` open per line, then
 replays the file plus `FIRN_QA__CHECKS_DONE` twice after serial-getty has set
 up the TTY, because its `TTYVHangup` revokes older serial fds
@@ -112,9 +115,42 @@ cell as `boot:serial_tty_stalled` (`boot:serial_check_missing` and
 `FIRN_QA__DIAG` lines in the console log as evidence. The host takes a marker only
 as a complete record (the value ends the line, after `\r` is stripped), so a
 line that kernel printk cut into is dropped; a key with 2 different complete
-values fails the cell as `boot:checks_ambiguous` before any check is judged. Neither a passing VM nor offline contract
-tests qualify hardware, graphical login, encrypted unlock or upgrades. No
-run or pass is claimed by the submit file alone.
+values fails the cell as `boot:checks_ambiguous` before any check is judged.
+
+One matrix cell uses `encryption=luks-passphrase`, which prompts for the LUKS
+passphrase at every boot (dracut). The lane answers that prompt on the serial
+console: it types the public test passphrase (`firn-qa-passphrase`, the same
+value the install script writes to `/run/firn-qa-pass.txt`) into
+`incus console` when `Please enter passphrase for disk` shows on ttyS0, at most
+2 times, and then runs the normal probe and judge
+([ADR-0015](adr/0015-firn-lane-answers-the-luks-passphrase-prompt-on-serial.md)).
+`incus console` reads the terminal size, so the lane runs it under `script(1)`
+for a pty; a pipe fails `inappropriate ioctl for device`. Exit code 0, 124 or
+137 of the attach is a normal end; any other code fails the cell as
+`boot:unlock_attach_failed_rc_<N>` with the attach output as evidence, because
+the passphrase did not reach the guest.
+
+The lane tells the install boot from the installed boot by a log boundary, not
+by a prompt count. It saves the console log before `incus start`. A later read
+that still starts with that saved text holds the saved log plus this boot, so
+only the new part counts; a read that does not was reset by Incus at start and
+is this boot only. Every read is bounded: its budget is the time that is left,
+at most 30 s and at least 1 s. Each pass of 5 s then goes in this order:
+the overall installed-boot deadline, a `boot:passphrase_prompt_missing` when
+nothing was answered else `boot:no_report` (this step reads nothing); the
+bounded read; the same deadline check again, with the log just read, because a
+read can end after the deadline; a third prompt fails `boot:passphrase_rejected`
+before the done marker is read; the prompt budget with no answer fails
+`boot:passphrase_prompt_missing`; the done marker with no answer fails
+`boot:passphrase_prompt_missing` (a passphrase cell that never prompted proves
+no unlock, also when the probe reports); and 1 new prompt is answered, unless
+less than 25 s of the boot budget is left, which fails `boot:no_report`.
+A green cell adds `unlock=serial-passphrase prompts=<N>` to the PASS line. That
+proves a user can unlock this mode from the serial console in a VM. It does not
+qualify hardware, and it does not prove the graphical (Plymouth) prompt on
+tty0. Neither a passing VM nor offline contract tests qualify hardware,
+graphical login, encrypted unlock on real hardware or upgrades. No run or pass
+is claimed by the submit file alone.
 
 ## fs-verity regression checks (snosi#1130)
 
