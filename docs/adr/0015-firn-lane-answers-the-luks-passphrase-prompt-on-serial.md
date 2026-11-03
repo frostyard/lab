@@ -29,7 +29,10 @@ once, but `incus console` failed with `Error: inappropriate ioctl for device`:
 it reads the terminal size, so it needs a terminal on stdin. The lane ignored
 that error, the boot went to emergency mode again, and the cell failed
 `boot:no_report` after 900 s. A passphrase answer must therefore arrive
-through a pty, and a failed attach must fail the cell.
+through a pty, and a failed attach must fail the cell. Dev run
+`dev-firn-install-jzn6v` (commit `bca7aa21`, the pty answer) then passed:
+`PASS: bootc/floe/luks-passphrase/sb=false ... unlock=serial-passphrase prompts=1`,
+with `luks=present`, `login=active` and the pinned Floe digest.
 
 ## Decision
 
