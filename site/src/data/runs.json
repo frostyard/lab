@@ -1,5 +1,5 @@
 {
-  "generated": "2026-11-03T14:00:18Z",
+  "generated": "2026-11-03T14:30:18Z",
   "lanes": [
     {
       "laneKey": "run-firn-install-tests",
@@ -75,9 +75,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1793714400",
+        "name": "publish-results-1793716200",
         "phase": "Running",
-        "started": "2026-11-03T14:00:00Z",
+        "started": "2026-11-03T14:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -261,11 +261,28 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1793714400",
+      "name": "publish-results-1793716200",
       "phase": "Running",
-      "started": "2026-11-03T14:00:00Z",
+      "started": "2026-11-03T14:30:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": null,
+      "checks": [],
+      "fsverity": []
+    },
+    {
+      "name": "publish-results-1793714400",
+      "phase": "Succeeded",
+      "started": "2026-11-03T14:00:00Z",
+      "finished": "2026-11-03T14:00:31Z",
+      "durationSeconds": 31,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -376,23 +393,6 @@
         "serial_tty=ok",
         "sysroot=btrfs"
       ],
-      "fsverity": []
-    },
-    {
-      "name": "publish-results-1793709000",
-      "phase": "Succeeded",
-      "started": "2026-11-03T12:30:00Z",
-      "finished": "2026-11-03T12:30:36Z",
-      "durationSeconds": 36,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": null,
-      "checks": [],
       "fsverity": []
     },
     {
