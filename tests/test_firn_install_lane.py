@@ -72,7 +72,7 @@ def test_installer_version_line_tokenises(lane, fake, want):
     rendered = subprocess.run(
         ["bash", "-c", ('set -euo pipefail\nM_BEGIN=FIRN_QA__INSTALL_BEGIN\n'
                        'M_OK=FIRN_QA__INSTALL_OK\nM_FAIL=FIRN_QA__INSTALL_FAIL\n'
-                       'IMAGE=floe\nENC=none\nSECUREBOOT=false\n'
+                       'IMAGE=floe\nENC=none\nSECUREBOOT=false\nQA_PASSPHRASE=firn-qa-passphrase\n'
                        + assignment + '\nprintf "%s" "$INSTALL_SH"')],
         capture_output=True, text=True, check=True,
     ).stdout
@@ -330,7 +330,7 @@ def _judge_case(lane, tmp_path, change, expected):
     checks = tmp_path / "checks.txt"
     checks.write_text("".join(f"{k}={v}\n" for k, v in values.items() if v is not None))
     result = subprocess.run(
-        ["bash", "-c", "set -euo pipefail\nFIRN_VERSION=firn_0.6.0\n" + fail.replace("/tmp/results", str(tmp_path))
+        ["bash", "-c", "set -euo pipefail\nFIRN_VERSION=firn_0.6.0\nUNLOCK_NOTE=\n" + fail.replace("/tmp/results", str(tmp_path))
          + "\n" + judge.replace("/tmp/results", str(tmp_path)) + "\njudge \"$CHECKS\""],
         env={**os.environ, "CELL": "bootc/floe/none/sb=false", "IMAGE": "floe", "ENC": "none",
              "IMAGE_DIGEST": EXPECTED_DIGEST, "CHECKS": str(checks)},
@@ -790,10 +790,26 @@ def test_required_image_digest_is_forwarded_and_validated(lane):
     passed = {p["name"]: p["value"] for p in cell_task["arguments"]["parameters"]}
     assert passed["image-digest"] == "{{item.image-digest}}"
     cells = cell_task["withItems"]
-    assert len(cells) == 6
+    assert len(cells) == 7
     assert all(cell["image-digest"] == f"REPLACE_{cell['product'].upper()}_DIGEST" for cell in cells)
     assert {cell["product"] for cell in cells} == {"floe", "snow", "snowfield"}
     assert {cell["family"] for cell in cells} == {"bootc"}
+
+
+def test_matrix_runs_one_floe_luks_passphrase_cell():
+    # ADR-0015: the lane answers the serial passphrase prompt, so the cell is no
+    # longer held out. Floe is the Firn roadmap's luks-passphrase hardware row.
+    path = TEMPLATE.parents[2] / "argo/firn-install-test.yaml"
+    workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+    text = path.read_text(encoding="utf-8")
+    cells = workflow["spec"]["templates"][0]["dag"]["tasks"][0]["withItems"]
+    assert [cell for cell in cells if cell["encryption"] == "luks-passphrase"] == [{
+        "family": "bootc", "product": "floe", "encryption": "luks-passphrase",
+        "secureboot": "false", "image-digest": "REPLACE_FLOE_DIGEST",
+    }]
+    assert "INTERACTIVE-UNLOCK" not in text
+    assert "held out" not in text
+    assert "7 active bootc cells" in text
 
 
 def test_bootc_only_submit_file_pins_three_secure_unencrypted_cells():
@@ -855,7 +871,10 @@ def test_incus_failure_records_step_and_runs_cleanup(lane, tmp_path, phase, oper
     version = "not_reached" if phase == "create" else "firn_0.6.0"
     script = (f'set -euo pipefail\nCELL=bootc/floe/none/sb=false\nFIRN_VERSION={version}\nVM=fq-test\n'
               'SECUREBOOT=false; TARGET_DISK_SIZE=40GiB; VM_CPUS=4; VM_MEMORY=8GiB\n'
+              'ENC=none; QA_PASSPHRASE=firn-qa-passphrase\n'
+              'PASSPHRASE_PROMPT_TIMEOUT=600; INSTALLED_BOOT_TIMEOUT=60\n'
               'ISO_PATH=/tmp/test.iso; U_B64=a; D_B64=b; M_CHECK=FIRN_QA__CHECK; M_DONE=FIRN_QA__CHECKS_DONE\n'
+              'console_log() { return 0; }\n'
               + fail.replace('/tmp/results', str(tmp_path)) + '\n' + cleanup + '\n'
               'incus() {\n'
               '  if [[ "$1" == delete ]]; then printf "%s\\n" "$*" >> "$CLEANUP_LOG"; return 0; fi\n'
@@ -872,6 +891,197 @@ def test_incus_failure_records_step_and_runs_cleanup(lane, tmp_path, phase, oper
         f"FAILED: vm:{expected} (bootc/floe/none/sb=false) firn={version}"
     )
     assert "delete --force fq-test" in (tmp_path / "cleanup").read_text()
+
+
+# ── ADR-0015: the luks-passphrase cell answers the serial prompt ──────────────
+PASSPHRASE_PROMPT = "Please enter passphrase for disk /dev/vda3:"
+
+
+def _unlock_block(lane):
+    """Only the passphrase-unlock block, between its BEGIN/END markers."""
+    source = lane["script"]["source"]
+    return source.split("# --- BEGIN passphrase-unlock ---\n", 1)[1].split("# --- END passphrase-unlock ---", 1)[0]
+
+
+def _render_install_sh(lane, enc="none", secureboot="false"):
+    source = lane["script"]["source"]
+    assignment = source[source.index("INSTALL_SH=$(cat <<SCRIPT\n"):source.index("\n)", source.index("INSTALL_SH=$(cat <<SCRIPT\n")) + 2]
+    return subprocess.run(
+        ["bash", "-c", ('set -euo pipefail\nM_BEGIN=FIRN_QA__INSTALL_BEGIN\n'
+                        'M_OK=FIRN_QA__INSTALL_OK\nM_FAIL=FIRN_QA__INSTALL_FAIL\n'
+                        f'IMAGE=floe\nENC={enc}\nSECUREBOOT={secureboot}\n'
+                        'QA_PASSPHRASE=firn-qa-passphrase\n'
+                        + assignment + '\nprintf "%s" "$INSTALL_SH"')],
+        capture_output=True, text=True, check=True,
+    ).stdout
+
+
+def test_one_public_passphrase_feeds_the_install_file_and_the_serial_prompt(lane):
+    source = lane["script"]["source"]
+    # 1 shell variable, 2 users: the install heredoc (expanded pod-side) and the
+    # unlock block that types it at the prompt.
+    assert source.count("QA_PASSPHRASE='firn-qa-passphrase'") == 1
+    assert "firn-qa-passphrase" not in source.replace("QA_PASSPHRASE='firn-qa-passphrase'", "")
+    rendered = _render_install_sh(lane, enc="tpm2-luks-passphrase")
+    assert "printf '%s' 'firn-qa-passphrase' > /run/firn-qa-pass.txt" in rendered
+    assert 'passphrase_file = "/run/firn-qa-pass.txt"' in rendered
+    assert """printf '%s\\n' "${QA_PASSPHRASE}";""" in _unlock_block(lane)
+
+
+@pytest.mark.parametrize("console,want", [
+    ("", "0"),
+    ("Please enter passphrase for disk /dev/vda3:", "1"),
+    ("Please enter passphrase for disk /dev/vda3:\nPlease enter passphrase for disk /dev/vdb1:", "2"),
+    ("FIRN_QA__INSTALL_OK", "0"),
+])
+def test_prompt_count_is_zero_without_a_prompt_under_errexit(lane, console, want):
+    # `grep -c` exits 1 on no match, so the count must survive pipefail and `set -e`.
+    definitions = _unlock_block(lane).split("send_passphrase() {", 1)[0]
+    script = ('set -euo pipefail\nM_PROMPT="Please enter passphrase for disk"\n'
+              'console_log() { printf "%b\\n" "$CONSOLE"; }\n' + definitions + '\nprompt_count\n')
+    result = subprocess.run(["bash", "-c", script], env={**os.environ, "CONSOLE": console},
+                            capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == want
+
+
+def _run_unlock(lane, tmp_path, enc, pages, prompt_timeout=10, boot_timeout=60):
+    """Run only the passphrase-unlock block, with a fake console, incus and clock.
+
+    `pages` is what each console read returns, in order: a fake that returns
+    different text on each call. A read past the end is empty. Each fake
+    `incus console <vm>` without `--show-log` records its stdin, and `sleep`
+    moves the clock so the loop always ends.
+    """
+    source = lane["script"]["source"]
+    fail = source[source.index("fail() {"):source.index("\n}", source.index("fail() {")) + 2]
+    block = _unlock_block(lane).replace("/tmp/results", str(tmp_path))
+    page_file = tmp_path / "pages"
+    page_file.write_text("".join(page.replace("\n", "\\n") + "\n" for page in pages))
+    (tmp_path / "counter").write_text("0\n")
+    script = (
+        'set -euo pipefail\n'
+        'CELL="bootc/floe/${ENC_REQUEST}/sb=false"\nFIRN_VERSION=firn_0.6.0\nVM=fq-test\n'
+        'QA_PASSPHRASE=firn-qa-passphrase\nM_DONE=FIRN_QA__CHECKS_DONE\n'
+        'ENC=$ENC_REQUEST; PASSPHRASE_PROMPT_TIMEOUT=$PROMPT_TIMEOUT; INSTALLED_BOOT_TIMEOUT=$BOOT_TIMEOUT\n'
+        'sleep() { SECONDS=$((SECONDS + $1)); }\n'
+        'timeout() { shift 3; "$@"; }\n'
+        'console_log() { incus console "${VM}" --show-log 2>/dev/null || true; }\n'
+        'wait_for() { console_log | grep -qaF "$M_DONE"; }\n'
+        'incus() {\n'
+        '  printf "%s\\n" "$*" >> "$INCUS_LOG"\n'
+        '  if [[ "${*: -1}" == --show-log ]]; then\n'
+        '    n=$(<"$COUNTER"); n=$((n + 1)); printf "%s\\n" "$n" > "$COUNTER"\n'
+        '    printf "%b\\n" "$(sed -n "${n}p" "$PAGES")"\n'
+        '    return 0\n'
+        '  fi\n'
+        '  cat >> "$STDIN_LOG"\n'
+        '}\n'
+        + fail.replace("/tmp/results", str(tmp_path)) + "\n"
+        + block
+        + '\nprintf "NOTE=%s\\n" "${UNLOCK_NOTE}"\n'
+    )
+    result = subprocess.run(
+        ["bash", "-c", script],
+        env={**os.environ, "ENC_REQUEST": enc, "PROMPT_TIMEOUT": str(prompt_timeout),
+             "BOOT_TIMEOUT": str(boot_timeout), "PAGES": str(page_file),
+             "COUNTER": str(tmp_path / "counter"), "INCUS_LOG": str(tmp_path / "incus.log"),
+             "STDIN_LOG": str(tmp_path / "stdin.log")},
+        capture_output=True, text=True, check=False, timeout=60,
+    )
+    incus_calls = (tmp_path / "incus.log").read_text().splitlines()
+    attaches = [call for call in incus_calls if call.startswith("console ") and "--show-log" not in call]
+    stdin_log = tmp_path / "stdin.log"
+    sends = stdin_log.read_text().splitlines() if stdin_log.exists() else []
+    summary = tmp_path / "result-summary.txt"
+    return result, incus_calls, attaches, sends, (summary.read_text() if summary.exists() else None)
+
+
+def test_luks_passphrase_cell_answers_the_serial_prompt_once(lane, tmp_path):
+    result, incus_calls, attaches, sends, summary = _run_unlock(
+        lane, tmp_path, "luks-passphrase",
+        ["FIRN_QA__INSTALL_OK", PASSPHRASE_PROMPT,
+         PASSPHRASE_PROMPT + "\nFIRN_QA__CHECKS_DONE"])
+    assert result.returncode == 0, result.stderr
+    assert summary is None
+    assert "NOTE= unlock=serial-passphrase prompts=1" in result.stdout
+    # The passphrase, once, on stdin of the ONE attach without --show-log.
+    assert sends == ["firn-qa-passphrase"]
+    assert attaches == ["console fq-test"]
+    # The prompt baseline is read before the start, from the console log.
+    assert incus_calls[0] == "console fq-test --show-log"
+    assert "answered passphrase prompt 1" in result.stderr
+
+
+def test_luks_passphrase_cell_fails_when_the_prompt_never_shows(lane, tmp_path):
+    result, _, attaches, sends, summary = _run_unlock(
+        lane, tmp_path, "luks-passphrase", ["FIRN_QA__INSTALL_OK"], prompt_timeout=10)
+    assert result.returncode == 1
+    assert summary == "FAILED: boot:passphrase_prompt_missing (bootc/floe/luks-passphrase/sb=false) firn=firn_0.6.0"
+    assert sends == [] and attaches == []
+    assert "--- console tail (no passphrase prompt) ---" in result.stderr
+
+
+def test_luks_passphrase_cell_fails_after_two_rejected_prompts(lane, tmp_path):
+    result, _, _, sends, summary = _run_unlock(
+        lane, tmp_path, "luks-passphrase",
+        ["FIRN_QA__INSTALL_OK", PASSPHRASE_PROMPT,
+         "\n".join([PASSPHRASE_PROMPT] * 2), "\n".join([PASSPHRASE_PROMPT] * 3)])
+    assert result.returncode == 1
+    assert summary == "FAILED: boot:passphrase_rejected (bootc/floe/luks-passphrase/sb=false) firn=firn_0.6.0"
+    # At most 2 answers, then the third prompt is the verdict.
+    assert sends == ["firn-qa-passphrase", "firn-qa-passphrase"]
+    assert "--- console tail (passphrase rejected) ---" in result.stderr
+    assert "NOTE=" not in result.stdout
+
+
+def test_a_prompt_already_in_the_console_log_before_start_is_not_answered(lane, tmp_path):
+    result, _, attaches, sends, _ = _run_unlock(
+        lane, tmp_path, "luks-passphrase",
+        [PASSPHRASE_PROMPT, PASSPHRASE_PROMPT,
+         PASSPHRASE_PROMPT + "\nFIRN_QA__CHECKS_DONE"])
+    assert result.returncode == 0, result.stderr
+    assert "NOTE= unlock=serial-passphrase prompts=0" in result.stdout
+    assert sends == [] and attaches == []
+
+
+@pytest.mark.parametrize("enc", ["none", "tpm2-luks", "tpm2-luks-passphrase"])
+def test_other_encryptions_never_attach_to_the_serial_console(lane, tmp_path, enc):
+    result, _, attaches, sends, summary = _run_unlock(
+        lane, tmp_path, enc, ["FIRN_QA__INSTALL_OK", "FIRN_QA__CHECKS_DONE"])
+    assert result.returncode == 0, result.stderr
+    assert summary is None
+    assert "NOTE=\n" in result.stdout
+    assert sends == [] and attaches == []
+
+
+def test_other_encryptions_keep_the_old_no_report_failure(lane, tmp_path):
+    result, _, attaches, _, summary = _run_unlock(
+        lane, tmp_path, "tpm2-luks", ["FIRN_QA__INSTALL_OK"], boot_timeout=10)
+    assert result.returncode == 1
+    assert summary == "FAILED: boot:no_report (bootc/floe/tpm2-luks/sb=false) firn=firn_0.6.0"
+    assert attaches == []
+    assert "--- console tail (installed system did not report) ---" in result.stderr
+
+
+def test_pass_summary_carries_the_unlock_note_before_the_firn_version(lane, tmp_path):
+    source = lane["script"]["source"]
+    fail = source[source.index("fail() {"):source.index("\n}", source.index("fail() {")) + 2]
+    judge = source[source.index("judge() {"):source.index("\n}", source.index("judge() {")) + 2]
+    checks = tmp_path / "checks.txt"
+    checks.write_text(GOOD_CHECKS.replace("luks=absent", "luks=present"))
+    result = subprocess.run(
+        ["bash", "-c", "set -euo pipefail\nFIRN_VERSION=firn_0.6.0\n"
+         'UNLOCK_NOTE=" unlock=serial-passphrase prompts=2"\n' + fail.replace("/tmp/results", str(tmp_path))
+         + "\n" + judge.replace("/tmp/results", str(tmp_path)) + "\njudge \"$CHECKS\""],
+        env={**os.environ, "CELL": "bootc/floe/luks-passphrase/sb=false", "IMAGE": "floe",
+             "ENC": "luks-passphrase", "IMAGE_DIGEST": EXPECTED_DIGEST, "CHECKS": str(checks)},
+        text=True, capture_output=True, check=False)
+    assert result.returncode == 0, result.stderr
+    summary = (tmp_path / "result-summary.txt").read_text()
+    assert summary == (f"PASS: bootc/floe/luks-passphrase/sb=false image={EXPECTED_IMAGE} "
+                       f"digest={EXPECTED_DIGEST} unlock=serial-passphrase prompts=2 firn=firn_0.6.0")
+    assert summary.index(" unlock=serial-passphrase") < summary.index(" firn=")
 
 
 @pytest.mark.parametrize("failure,code", [
@@ -929,7 +1139,7 @@ def _collect_and_judge(lane, tmp_path, console_lines, extra=()):
     judge = source[source.index("judge() {"):source.index("\n}", source.index("judge() {")) + 2]
     console = tmp_path / "console.log"
     console.write_text("\n".join(console_lines) + "\n")
-    script = ("set -euo pipefail\nFIRN_VERSION=firn_0.6.0\nM_CHECK=FIRN_QA__CHECK\n"
+    script = ("set -euo pipefail\nFIRN_VERSION=firn_0.6.0\nUNLOCK_NOTE=\nM_CHECK=FIRN_QA__CHECK\n"
               'console_log() { cat "$CONSOLE_FILE"; }\n' + fail + "\n"
               + _collect_slice(source) + "\n" + judge + '\njudge /tmp/results/checks.txt\n')
     result = subprocess.run(
@@ -1326,7 +1536,7 @@ def test_judge_records_the_known_defect_note_in_the_checks_file(lane, tmp_path):
     checks = tmp_path / "checks.txt"
     checks.write_text("".join(f"{k}={v}\n" for k, v in values.items()))
     result = subprocess.run(
-        ["bash", "-c", "set -euo pipefail\nFIRN_VERSION=firn_0.6.0\n" + fail.replace("/tmp/results", str(tmp_path))
+        ["bash", "-c", "set -euo pipefail\nFIRN_VERSION=firn_0.6.0\nUNLOCK_NOTE=\n" + fail.replace("/tmp/results", str(tmp_path))
          + "\n" + judge.replace("/tmp/results", str(tmp_path)) + "\njudge \"$CHECKS\""],
         env={**os.environ, "CELL": "c", "IMAGE": "floe", "ENC": "none", "IMAGE_DIGEST": EXPECTED_DIGEST,
              "CHECKS": str(checks)}, text=True, capture_output=True, check=False)
@@ -1377,7 +1587,7 @@ def test_judge_needs_one_unambiguous_kernel_for_the_exemption(lane, tmp_path, ke
     checks = tmp_path / "checks.txt"
     checks.write_text("".join(line + "\n" for line in lines))
     result = subprocess.run(
-        ["bash", "-c", "set -euo pipefail\nFIRN_VERSION=firn_0.6.0\n" + fail.replace("/tmp/results", str(tmp_path))
+        ["bash", "-c", "set -euo pipefail\nFIRN_VERSION=firn_0.6.0\nUNLOCK_NOTE=\n" + fail.replace("/tmp/results", str(tmp_path))
          + "\n" + judge.replace("/tmp/results", str(tmp_path)) + "\njudge \"$CHECKS\""],
         env={**os.environ, "CELL": "c", "IMAGE": "floe", "ENC": "none", "IMAGE_DIGEST": EXPECTED_DIGEST,
              "CHECKS": str(checks)}, text=True, capture_output=True, check=False)

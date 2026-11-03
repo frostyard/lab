@@ -152,13 +152,17 @@ artifact.
 `firn` is the single snosi installer (core ADR-0027/0028). The runner accepts
 only bootc recipes; the A/B family was removed from this firn lane. One
 `run-firn-install-tests` invocation is a cell (`family=bootc`, `image`,
-`encryption`, `secureboot`). `firn-install-test.yaml` fans out six bootc cells
-with `withItems`: floe, snow and snowfield across selected auto-unlockable
-encryption and Secure Boot settings. It generates a recipe TOML per cell,
-drives `firn install <recipe> --confirm <disk> --json-progress` against a fresh
-blank virtual disk, then boots the result. For encrypted cells, **booting is
-the unlock proof**. Cells serialize on the `snosi-vm-qa` semaphore (one VM at
-a time), so the matrix runs back-to-back.
+`encryption`, `secureboot`). `firn-install-test.yaml` fans out seven bootc
+cells with `withItems`: floe, snow and snowfield across selected
+auto-unlockable encryption and Secure Boot settings, plus one interactive
+`luks-passphrase` cell (floe, Secure Boot off). It generates a recipe TOML per
+cell, drives `firn install <recipe> --confirm <disk> --json-progress` against a
+fresh blank virtual disk, then boots the result. For tpm2 encrypted cells,
+**booting is the unlock proof**. The `luks-passphrase` cell prompts for the
+passphrase at every boot, so the lane types the public test passphrase into the
+serial console with `incus console` (at most 2 prompts, ADR-0015) and then runs
+the normal probe and judge. Cells serialize on the `snosi-vm-qa` semaphore (one
+VM at a time), so the matrix runs back-to-back.
 
 `bootc-only-iso-install-test.yaml` is a narrower manual run: snow, floe and
 sundog, all unencrypted with Secure Boot on. Snowfield is untested in this
@@ -168,8 +172,9 @@ proves a fresh ISO-to-blank-virtual-disk install, the Secure Boot MOK chain,
 first boot with a login prompt ready (display manager, tty1 getty or serial
 getty), a btrfs root (directly, or a composefs overlay backed by a btrfs
 `/sysroot`), and the installed bootc image ref and digest. This is VM evidence,
-**not hardware qualification**; it does not prove
-graphical login, encrypted unlock or upgrades. See
+**not hardware qualification**; it does not prove graphical login or upgrades,
+and the `luks-passphrase` cell proves the serial passphrase unlock in a VM, not
+the graphical prompt or real hardware. See
 [quality evidence limits](docs/quality.md#bootc-only-iso-install-evidence).
 
 Each `run-firn-install-tests` result line ends in `firn=<version>`, read from
@@ -526,6 +531,13 @@ To test a lane fix before it merges, run `scripts/snow-lifecycle-dev-submit.sh`
 scripts as input artifacts instead of the ConfigMap, and `--print` only
 renders. A dev run publishes nothing, moves no tag and changes neither the
 main WorkflowTemplate nor its ConfigMap.
+
+For the firn install lane the same rule applies with
+`scripts/firn-install-dev-submit.sh NAME=VALUE...`: it renders one
+`dev-firn-install-*` Workflow from the current checkout with the branch's
+`run-firn-install-tests` templates inline, and takes the cell's input
+parameters (`iso-url`, `iso-sha256`, `image-digest` are required). `--print`
+only renders.
 
 ### Driving a guest with no agent and no SSH
 
