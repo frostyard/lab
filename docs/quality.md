@@ -118,18 +118,24 @@ line that kernel printk cut into is dropped; a key with 2 different complete
 values fails the cell as `boot:checks_ambiguous` before any check is judged.
 
 One matrix cell uses `encryption=luks-passphrase`, which prompts for the LUKS
-passphrase at every boot. The lane answers that prompt on the serial console:
-it types the public test passphrase (`firn-qa-passphrase`, the same value the
-install script writes to `/run/firn-qa-pass.txt`) into `incus console` when
-`Please enter passphrase for disk` shows on ttyS0, at most 2 times, and then
-runs the normal probe and judge
+passphrase at every boot (dracut). The lane answers that prompt on the serial
+console: it types the public test passphrase (`firn-qa-passphrase`, the same
+value the install script writes to `/run/firn-qa-pass.txt`) into
+`incus console` when `Please enter passphrase for disk` shows on ttyS0, at most
+2 times, and then runs the normal probe and judge
 ([ADR-0015](adr/0015-firn-lane-answers-the-luks-passphrase-prompt-on-serial.md)).
-A prompt that never shows fails `boot:passphrase_prompt_missing`; a third
-prompt fails `boot:passphrase_rejected`, which means the passphrase did not
-unlock the disk. A green cell adds `unlock=serial-passphrase prompts=<N>` to
-the PASS line. That proves a user can unlock this mode from the serial console
-in a VM. It does not qualify hardware, and it does not prove the graphical
-(Plymouth) prompt on tty0. Neither a passing VM nor offline contract tests
+`incus console` reads the terminal size, so the lane runs it under `script(1)`
+for a pty; a pipe fails `inappropriate ioctl for device`. Exit code 0, 124 or
+137 of the attach is a normal end; any other code fails the cell as
+`boot:unlock_attach_failed_rc_<N>` with the attach output as evidence, because
+the passphrase did not reach the guest. A prompt that never shows fails
+`boot:passphrase_prompt_missing`, also when the probe reports its checks: a
+passphrase cell that never prompted proves no unlock. A third prompt fails
+`boot:passphrase_rejected`, which means the passphrase did not unlock the disk.
+A green cell adds `unlock=serial-passphrase prompts=<N>` to the PASS line. That
+proves a user can unlock this mode from the serial console in a VM. It does not
+qualify hardware, and it does not prove the graphical (Plymouth) prompt on
+tty0. Neither a passing VM nor offline contract tests
 qualify hardware, graphical login, encrypted unlock on real hardware or
 upgrades. No run or pass is claimed by the submit file alone.
 

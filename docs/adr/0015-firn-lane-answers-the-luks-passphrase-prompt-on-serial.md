@@ -20,24 +20,50 @@ for the mode. The install itself already writes a fixed public test value,
 `firn-qa-passphrase`, to `/run/firn-qa-pass.txt`
 (`passphrase_file` in the generated recipe), so the lane knows the value.
 
+Dev run `dev-firn-install-gzvf7` (the main template, 2026-11-03) showed the
+prompt on ttyS0 from the dracut initrd:
+`Please enter passphrase for disk root: (press TAB for no echo)`. No one
+answered, so dracut went to emergency mode and the cell failed
+`boot:no_report`. Dev run `dev-firn-install-msnh2` then answered the prompt at
+once, but `incus console` failed with `Error: inappropriate ioctl for device`:
+it reads the terminal size, so it needs a terminal on stdin. The lane ignored
+that error, the boot went to emergency mode again, and the cell failed
+`boot:no_report` after 900 s. A passphrase answer must therefore arrive
+through a pty, and a failed attach must fail the cell.
+
 ## Decision
 
-- **Answer on the serial console.** When `ENC` is `luks-passphrase`, the pod
-  watches the console log for `Please enter passphrase for disk`. When the
-  count of prompt lines rises above the count taken before `incus start`, it
-  runs `incus console "${VM}"` with the passphrase on stdin, bounded by
-  `timeout -k 5 30`, and keeps the attach's output in
-  `/tmp/results/unlock-console.txt`. The pipe stays open for 5 s after the
-  bytes, because `incus console` disconnects at EOF and the write must land
-  first. The attach output never feeds the judge; the console log stays the
-  judge's surface (`console_log`, `--show-log`).
+- **Answer on the serial console, through a pty.** When `ENC` is
+  `luks-passphrase`, the pod watches the console log for
+  `Please enter passphrase for disk`. When the count of prompt lines rises
+  above the count taken before `incus start`, it runs
+  `timeout -k 5 15 script -qfec "incus console ${VM}" /dev/null` with the
+  passphrase on stdin, and keeps the attach's output in
+  `/tmp/results/unlock-console.txt`. `script(1)` (util-linux) gives
+  `incus console` the terminal it reads the size from; a plain pipe fails with
+  `inappropriate ioctl for device` (dev run `dev-firn-install-msnh2`). The
+  stdin group sleeps 2 s, writes the passphrase, then sleeps 20 s, so it
+  outlives the 15 s timeout and `script` never relays an EOF (^D, byte 4) to
+  the guest prompt: the timeout ends the attach. The attach output never feeds
+  the judge; the console log stays the judge's surface (`console_log`,
+  `--show-log`).
+- **A failed attach fails the cell.** Exit code 0, 124 or 137 (the timeout
+  ended it, or a normal detach) continues. Any other code prints the tail of
+  `unlock-console.txt` and fails
+  `boot:unlock_attach_failed_rc_<N>`: the passphrase did not reach the guest,
+  so the boot cannot be judged. The pod also checks for `script` at the start
+  and fails `params:script_missing` when it is absent.
 - **1 public passphrase value.** The shell variable `QA_PASSPHRASE` holds
   `firn-qa-passphrase`. The install script heredoc writes it to
   `/run/firn-qa-pass.txt` (expanded pod-side), and the unlock block types the
   same variable. It is a public test value, never a secret.
 - **At most 2 prompts.** `MAX_PROMPTS=2`. One prompt is answered, and a boot
   that reports `FIRN_QA__CHECKS_DONE` passes. A third prompt fails the cell as
-  `boot:passphrase_rejected`: the passphrase did not unlock the disk.
+  `boot:passphrase_rejected`: the passphrase did not unlock the disk. A boot
+  that reports `FIRN_QA__CHECKS_DONE` with no prompt answered fails
+  `boot:passphrase_prompt_missing` with the console tail: a passphrase cell
+  that never prompted proves no unlock, so it is not a pass
+  ([ADR-0010](0010-vacuous-success-is-forbidden.md)).
 - **A missing prompt is a failure.** The new input
   `passphrase-prompt-timeout-seconds` (default 600) bounds how long the lane
   waits for the first prompt with no answer yet. When that budget is used up,
@@ -79,9 +105,15 @@ for the mode. The install itself already writes a fixed public test value,
 - The pod writes to the guest for the first time. The write is 1 short
   bounded attach, and its bytes go to a pod file, not to the console log. A
   noisy attach therefore never changes what the judge reads.
+- The pod image needs util-linux `script`. A missing binary fails the cell at
+  the start as `params:script_missing`, before any VM work.
+- A failed attach is its own failure code, not `boot:no_report`, so a red
+  `luks-passphrase` cell says whether the prompt, the attach or the boot
+  failed.
 - A prompt that the lane already saw before `incus start` is not answered
   again, so a stale prompt line in the console log cannot cause a wrong
-  answer.
+  answer. That boot then fails `boot:passphrase_prompt_missing`, never a
+  vacuous pass.
 - 1 more cell joins the matrix, serialized on the same `snosi-vm-qa`
   semaphore, so the full matrix takes 1 install longer.
 
@@ -98,6 +130,9 @@ for the mode. The install itself already writes a fixed public test value,
 - **Wait for the done marker only and tolerate the prompt:** rejected. Then a
   cell that never unlocked would burn the whole installed-boot budget and
   report `no_report`, which hides the cause.
+- **A pipe into `incus console`:** rejected by the dev run. `incus console`
+  reads the terminal size and fails with `inappropriate ioctl for device`, so
+  the attach needs a pty from `script(1)`.
 
 ## References
 

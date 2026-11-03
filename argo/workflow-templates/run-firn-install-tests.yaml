@@ -165,6 +165,10 @@ spec:
         # /run/firn-qa-pass.txt (expanded pod-side) and the unlock block types it
         # at the serial prompt (ADR-0015). It is a test value, never a secret.
         QA_PASSPHRASE='firn-qa-passphrase'
+        # The answer needs a pty for `incus console` (script(1), util-linux).
+        if [[ "${ENC}" == luks-passphrase ]]; then
+          command -v script >/dev/null || fail params script_missing
+        fi
 
         M_BEGIN="FIRN_QA__INSTALL_BEGIN"
         M_OK="FIRN_QA__INSTALL_OK"
@@ -695,11 +699,13 @@ spec:
 
         # --- BEGIN passphrase-unlock ---
         # ADR-0015: a luks-passphrase cell prompts "Please enter passphrase for
-        # disk ..." on ttyS0 at every boot, and an unattended lab had no input
-        # path. The pod attaches with `incus console` and types the same public
-        # QA passphrase the install script wrote to /run/firn-qa-pass.txt. The
-        # attach is short and bounded; its output goes to unlock-console.txt, and
-        # the console log stays the judge's surface.
+        # disk ..." on ttyS0 (dracut) at every boot, and an unattended lab had
+        # no input path. The pod attaches with `incus console` through script(1)
+        # and types the same public QA passphrase the install script wrote to
+        # /run/firn-qa-pass.txt. The attach is short and bounded; its output goes
+        # to unlock-console.txt, and the console log stays the judge's surface.
+        # A passphrase cell that reports its checks without ever showing the
+        # prompt is not proof of unlock (ADR-0010).
         M_PROMPT="Please enter passphrase for disk"
         MAX_PROMPTS=2
         UNLOCK_NOTE=""
@@ -707,11 +713,19 @@ spec:
         count_prompts() { grep -acF "${M_PROMPT}" || true; }
         prompt_count() { console_log | tr -d '\r' | count_prompts; }
         send_passphrase() {
-          # The bytes must leave before `incus console` sees EOF and disconnects,
-          # so its stdin stays open for 5 s after the passphrase: a pipe that
-          # closes at once sends nothing. Bounded, and never fatal.
-          { sleep 2; printf '%s\n' "${QA_PASSPHRASE}"; sleep 5; } \
-            | timeout -k 5 30 incus console "${VM}" >> /tmp/results/unlock-console.txt 2>&1 || true
+          # `incus console` reads the terminal size, so a pipe fails with
+          # "inappropriate ioctl for device" (dev run dev-firn-install-msnh2):
+          # script(1) gives it a pty. The stdin group outlives the timeout, so
+          # script never relays an EOF (^D, byte 4) to the guest prompt; the
+          # timeout ends the attach. rc 0, 124 or 137 is a normal end.
+          local rc=0
+          { sleep 2; printf '%s\n' "${QA_PASSPHRASE}"; sleep 20; } \
+            | timeout -k 5 15 script -qfec "incus console ${VM}" /dev/null >> /tmp/results/unlock-console.txt 2>&1 || rc=$?
+          case "${rc}" in
+            0|124|137) return 0 ;;
+          esac
+          tail -c 2000 /tmp/results/unlock-console.txt >&2 || true
+          fail boot "unlock_attach_failed_rc_${rc}"
         }
         echo "Booting the installed system..." >&2
         # The console log also holds the install boot, so start from its count.
@@ -724,7 +738,16 @@ spec:
           while :; do
             # One console read per pass: 1 sample of both the marker and the prompt.
             boot_log="$(console_log | tr -d '\r')"
-            if [[ "${boot_log}" == *"${M_DONE}"* ]]; then break; fi
+            if [[ "${boot_log}" == *"${M_DONE}"* ]]; then
+              # ADR-0010: a passphrase cell that reports without ever showing
+              # the prompt proves no unlock, so it is not a pass.
+              if (( answered == 0 )); then
+                echo "--- console tail (no passphrase prompt) ---" >&2
+                printf '%s\n' "${boot_log}" | tail -n 400 >&2
+                fail boot passphrase_prompt_missing
+              fi
+              break
+            fi
             prompts_now="$(printf '%s\n' "${boot_log}" | count_prompts)"
             seen=$(( prompts_now - PROMPT_BASE ))
             if (( seen > answered )); then

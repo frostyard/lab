@@ -945,13 +945,14 @@ def test_prompt_count_is_zero_without_a_prompt_under_errexit(lane, console, want
     assert result.stdout.strip() == want
 
 
-def _run_unlock(lane, tmp_path, enc, pages, prompt_timeout=10, boot_timeout=60):
+def _run_unlock(lane, tmp_path, enc, pages, prompt_timeout=10, boot_timeout=60, attach_rc=0):
     """Run only the passphrase-unlock block, with a fake console, incus and clock.
 
     `pages` is what each console read returns, in order: a fake that returns
     different text on each call. A read past the end is empty. Each fake
-    `incus console <vm>` without `--show-log` records its stdin, and `sleep`
-    moves the clock so the loop always ends.
+    `incus console <vm>` without `--show-log` records its stdin and returns
+    `attach_rc`, `script(1)` runs the command it is given (the pod's pty), and
+    `sleep` moves the clock so the loop always ends.
     """
     source = lane["script"]["source"]
     fail = source[source.index("fail() {"):source.index("\n}", source.index("fail() {")) + 2]
@@ -966,6 +967,7 @@ def _run_unlock(lane, tmp_path, enc, pages, prompt_timeout=10, boot_timeout=60):
         'ENC=$ENC_REQUEST; PASSPHRASE_PROMPT_TIMEOUT=$PROMPT_TIMEOUT; INSTALLED_BOOT_TIMEOUT=$BOOT_TIMEOUT\n'
         'sleep() { SECONDS=$((SECONDS + $1)); }\n'
         'timeout() { shift 3; "$@"; }\n'
+        'script() { eval "$2"; }\n'
         'console_log() { incus console "${VM}" --show-log 2>/dev/null || true; }\n'
         'wait_for() { console_log | grep -qaF "$M_DONE"; }\n'
         'incus() {\n'
@@ -975,7 +977,8 @@ def _run_unlock(lane, tmp_path, enc, pages, prompt_timeout=10, boot_timeout=60):
         '    printf "%b\\n" "$(sed -n "${n}p" "$PAGES")"\n'
         '    return 0\n'
         '  fi\n'
-        '  cat >> "$STDIN_LOG"\n'
+        '  if [[ "$1" == console ]]; then cat >> "$STDIN_LOG"; return "$ATTACH_RC"; fi\n'
+        '  return 0\n'
         '}\n'
         + fail.replace("/tmp/results", str(tmp_path)) + "\n"
         + block
@@ -986,7 +989,7 @@ def _run_unlock(lane, tmp_path, enc, pages, prompt_timeout=10, boot_timeout=60):
         env={**os.environ, "ENC_REQUEST": enc, "PROMPT_TIMEOUT": str(prompt_timeout),
              "BOOT_TIMEOUT": str(boot_timeout), "PAGES": str(page_file),
              "COUNTER": str(tmp_path / "counter"), "INCUS_LOG": str(tmp_path / "incus.log"),
-             "STDIN_LOG": str(tmp_path / "stdin.log")},
+             "STDIN_LOG": str(tmp_path / "stdin.log"), "ATTACH_RC": str(attach_rc)},
         capture_output=True, text=True, check=False, timeout=60,
     )
     incus_calls = (tmp_path / "incus.log").read_text().splitlines()
@@ -1013,6 +1016,46 @@ def test_luks_passphrase_cell_answers_the_serial_prompt_once(lane, tmp_path):
     assert "answered passphrase prompt 1" in result.stderr
 
 
+def _send_passphrase_body(lane):
+    return _unlock_block(lane).split("send_passphrase() {", 1)[1].split("\n}", 1)[0]
+
+
+def test_the_attach_gets_a_pty_and_outlives_its_own_timeout(lane):
+    # `incus console` reads the terminal size: a pipe fails "inappropriate ioctl
+    # for device" (dev-firn-install-msnh2), so script(1) supplies the pty.
+    body = _send_passphrase_body(lane)
+    assert 'timeout -k 5 15 script -qfec "incus console ${VM}" /dev/null' in body
+    assert "inappropriate ioctl for device" in body
+    assert "rc 0, 124 or 137 is a normal end" in body
+    # stdin stays open past the timeout, so script never relays an EOF (^D) to
+    # the guest prompt: the timeout ends the attach.
+    sleeps = [int(number) for number in re.findall(r"sleep (\d+)", body)]
+    assert sleeps and sleeps[-1] > 15
+    assert "command -v script >/dev/null || fail params script_missing" in lane["script"]["source"]
+
+
+def test_a_failed_attach_fails_the_cell_after_one_send(lane, tmp_path):
+    result, _, attaches, sends, summary = _run_unlock(
+        lane, tmp_path, "luks-passphrase",
+        ["FIRN_QA__INSTALL_OK", PASSPHRASE_PROMPT], attach_rc=1)
+    assert result.returncode == 1
+    assert summary == ("FAILED: boot:unlock_attach_failed_rc_1 "
+                       "(bootc/floe/luks-passphrase/sb=false) firn=firn_0.6.0")
+    assert sends == ["firn-qa-passphrase"] and len(attaches) == 1
+
+
+@pytest.mark.parametrize("attach_rc", [0, 124, 137])
+def test_an_attach_the_timeout_ended_is_a_normal_end(lane, tmp_path, attach_rc):
+    result, _, _, sends, summary = _run_unlock(
+        lane, tmp_path, "luks-passphrase",
+        ["FIRN_QA__INSTALL_OK", PASSPHRASE_PROMPT,
+         PASSPHRASE_PROMPT + "\nFIRN_QA__CHECKS_DONE"], attach_rc=attach_rc)
+    assert result.returncode == 0, result.stderr
+    assert summary is None
+    assert "NOTE= unlock=serial-passphrase prompts=1" in result.stdout
+    assert sends == ["firn-qa-passphrase"]
+
+
 def test_luks_passphrase_cell_fails_when_the_prompt_never_shows(lane, tmp_path):
     result, _, attaches, sends, summary = _run_unlock(
         lane, tmp_path, "luks-passphrase", ["FIRN_QA__INSTALL_OK"], prompt_timeout=10)
@@ -1036,13 +1079,17 @@ def test_luks_passphrase_cell_fails_after_two_rejected_prompts(lane, tmp_path):
 
 
 def test_a_prompt_already_in_the_console_log_before_start_is_not_answered(lane, tmp_path):
-    result, _, attaches, sends, _ = _run_unlock(
+    # The baseline prompt is not answered, so nothing unlocks: a boot that reports
+    # its checks without an answer proves no unlock (ADR-0010).
+    result, _, attaches, sends, summary = _run_unlock(
         lane, tmp_path, "luks-passphrase",
         [PASSPHRASE_PROMPT, PASSPHRASE_PROMPT,
          PASSPHRASE_PROMPT + "\nFIRN_QA__CHECKS_DONE"])
-    assert result.returncode == 0, result.stderr
-    assert "NOTE= unlock=serial-passphrase prompts=0" in result.stdout
+    assert result.returncode == 1
+    assert summary == "FAILED: boot:passphrase_prompt_missing (bootc/floe/luks-passphrase/sb=false) firn=firn_0.6.0"
     assert sends == [] and attaches == []
+    assert "--- console tail (no passphrase prompt) ---" in result.stderr
+    assert "NOTE=" not in result.stdout
 
 
 @pytest.mark.parametrize("enc", ["none", "tpm2-luks", "tpm2-luks-passphrase"])
