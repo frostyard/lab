@@ -713,8 +713,9 @@ spec:
         count_prompts() { grep -acF "${M_PROMPT}" || true; }
         # Bounded read: the console log can be large and a hung attach must not
         # stop the loop. The budget is capped at 30 s and floored at 1 s, so a
-        # read near the boot deadline cannot outlive it. The loop reads the log
-        # only through this function.
+        # read near the boot deadline ends at most about 3 s after it (floor plus
+        # the kill grace); step 3 rejects what such a late read returns. The loop
+        # reads the log only through this function.
         read_boot_console() {
           local budget="${1:-30}"
           (( budget > 30 )) && budget=30

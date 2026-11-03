@@ -73,17 +73,18 @@ with `luks=present`, `login=active` and the pinned Floe digest.
 - **The read budget is bounded by the time that is left.** `read_boot_console`
   takes an optional budget in seconds: the default is 30, a larger value is cut
   to 30, and a value under 1 is lifted to 1. `PRE_LOG` uses the default. The
-  loop asks for `boot_deadline - SECONDS`, so a read near the deadline cannot
-  outlive it.
+  loop asks for `boot_deadline - SECONDS`, so a read near the deadline ends at
+  most about 3 s after it (the 1 s floor plus the 2 s kill grace of
+  `timeout -k 2`). Step 3 below rejects anything such a late read returns.
 - **Pass order.** Each pass, 5 s apart, does these steps in this order:
   1. the overall deadline `installed-boot-timeout-seconds`, which fails
   `boot:passphrase_prompt_missing` when nothing was answered, else
   `boot:no_report`. This step never reads the console: it prints the log of the
   previous pass, and says so when that log was empty;
   2. one read, bounded by the budget that is left, cut to this boot;
-  3. the same deadline check again, with the log just read. A read can start
-  1 s before the deadline and return up to 30 s later, so a done marker in that
-  read must not pass a cell that overran its budget;
+  3. the same deadline check again, with the log just read. A read can end
+  after the deadline (by its budget plus the 2 s kill grace), so a done marker
+  in that read must not pass a cell that overran its budget;
   4. more prompts than `MAX_PROMPTS` fail `boot:passphrase_rejected`, before
   the done marker is read;
   5. the prompt budget `passphrase-prompt-timeout-seconds` with no answer yet
