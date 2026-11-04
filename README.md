@@ -86,6 +86,8 @@ recorded in
 [ADR-0001](docs/adr/0001-two-argocd-applications-and-hand-applied-bootstrap.md);
 the digest-gated trigger flow in
 [ADR-0002](docs/adr/0002-digest-gated-qa-with-compare-and-swap-state.md).
+For the poller, three registry fetch failures emit `none`; a ConfigMap read
+failure is different and makes the poll fail rather than masquerading as empty state.
 
 ---
 
