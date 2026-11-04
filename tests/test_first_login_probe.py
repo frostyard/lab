@@ -4,12 +4,16 @@ The probe is report-only: after a fresh install a test-only autologin
 configuration in the installed /etc logs a user in, and the probe records which
 first-login app started. It never fails the run because of which app started.
 """
+import ast
+import base64
+import importlib.util
 import json
 import os
 import re
 import subprocess
 import sys
 import types
+import zlib
 from pathlib import Path
 
 import pytest
@@ -1167,3 +1171,99 @@ def test_guest_login_autologin_ignores_a_commented_sddm_main_config(qa, tmp_path
         "[Autologin]\n# snow-qa: User=other\n[General]\nUser=keep\n")
     record = login_payload(qa, qa.login(credentials))
     assert record["autologin"] is True
+
+
+# ------------------------------------- the SMBIOS bound on the guest unit
+
+PLAN_MANIFEST = (Path(__file__).resolve().parents[1] /
+                 "docs/plans/first-login-probe-2026-11-04/manifest-snow.json")
+
+
+def qa_payload_snippet():
+    """The real run.sh statement that writes $WORK/qa.z, whatever its form."""
+    snippet = re.search(r"(?ms)^\s*python3 -c '.*?' /opt/snow-qa/qa\.py \"\$WORK/qa\.z\" \|\| fail qa_payload",
+                        run_script())
+    assert snippet, "run.sh must compress qa.py into $WORK/qa.z"
+    return snippet.group()
+
+
+def real_qa_payload(tmp_path):
+    """$qa_b64 exactly as run.sh makes it, from the real ConfigMap qa.py."""
+    qa_path = tmp_path / "qa.py"
+    qa_path.write_text(scripts()["qa.py"])
+    work = tmp_path / "work"
+    work.mkdir(exist_ok=True)
+    snippet = qa_payload_snippet().replace("/opt/snow-qa/qa.py", str(qa_path))
+    result = subprocess.run(["bash", "-c", "set -euo pipefail\nfail() { exit 9; }\n" + snippet],
+                            env={"WORK": str(work), "PATH": "/usr/bin:/bin"},
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    return (work / "qa.z").read_bytes(), qa_path
+
+
+def guest_unit_length(tmp_path, phase):
+    """len(gb) of the real guest unit for one phase, encoded as run.sh does."""
+    assignment = re.search(r'(?m)^  guestunit="\[Unit\].*?^  gb=', run_script(), re.S)
+    assert assignment
+    statement = assignment.group().rsplit("  gb=", 1)[0]
+    payload, qa_path = real_qa_payload(tmp_path)
+    raw = tmp_path / "manifest.json"
+    raw.write_text(PLAN_MANIFEST.read_text())
+    normalized = tmp_path / "normalized.json"
+    validated = subprocess.run([sys.executable, str(qa_path), "validate", str(raw), str(normalized)],
+                               capture_output=True, text=True)
+    assert validated.returncode == 0, validated.stderr
+    spec = json.loads(normalized.read_text())
+    unit = subprocess.run(
+        ["bash", "-c", statement + '\nprintf "%s" "$guestunit"'],
+        env={"PATH": "/usr/bin:/bin", "phase": phase, "nonce": NONCE,
+             "n": spec["image_n"], "next": spec["image_n_plus_1"], "target": spec["target_ref"],
+             "qa_b64": base64.b64encode(payload).decode(),
+             "manifest_b64": base64.b64encode(normalized.read_bytes()).decode()},
+        capture_output=True, text=True)
+    assert unit.returncode == 0, unit.stderr
+    return len(base64.b64encode(unit.stdout.encode()).decode())
+
+
+@pytest.mark.parametrize("phase", ["login-1", "installed-n"])
+def test_guest_unit_stays_under_the_smbios_bound(tmp_path, phase):
+    # The guest unit holds the base64 of qa.z, which is itself base64, and the
+    # SMBIOS credential is bounded at 64 KiB; dev-snow-bootc-lifecycle-9hvgj
+    # failed unit_size at 60980 characters before the payload was stripped.
+    gb = guest_unit_length(tmp_path, phase)
+    assert gb < 60000, gb
+    assert gb <= 54000, gb
+
+
+def test_qa_payload_is_the_same_program_without_comments(tmp_path):
+    payload, _ = real_qa_payload(tmp_path)
+    source = zlib.decompress(payload).decode()
+    original = scripts()["qa.py"]
+    # Comments and blank lines go, the program stays: the AST must be identical,
+    # the text must be shorter, and the module must still load and refuse a
+    # command it does not know with a bounded gate error.
+    assert ast.dump(ast.parse(source)) == ast.dump(ast.parse(original))
+    assert 0 < len(source) < len(original)
+    path = tmp_path / "unparsed-qa.py"
+    path.write_text(source)
+    spec = importlib.util.spec_from_file_location("snow_qa_unparsed", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    for name in ("guest", "sysext", "login", "login_phase_attest", "login_report", "main"):
+        assert callable(getattr(module, name)), name
+    assert module.main(["usage-error"]) == 1
+
+
+def test_qa_payload_fails_closed_when_the_source_cannot_be_parsed(tmp_path):
+    broken = tmp_path / "qa.py"
+    broken.write_text("def broken(:\n    pass\n")
+    work = tmp_path / "work"
+    work.mkdir()
+    snippet = qa_payload_snippet().replace("/opt/snow-qa/qa.py", str(broken))
+    result = subprocess.run(
+        ["bash", "-c", "set -euo pipefail\nfail() { printf 'FAIL:%s' qa_payload; exit 9; }\n" + snippet],
+        env={"WORK": str(work), "PATH": "/usr/bin:/bin"}, capture_output=True, text=True)
+    # A payload that cannot be parsed is never injected: the run fails qa_payload.
+    assert result.returncode == 9 and "FAIL:qa_payload" in result.stdout, result.stderr
+    assert not (work / "qa.z").exists()

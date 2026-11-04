@@ -507,7 +507,16 @@ data:
     manifest_b64=$(base64 -w0 "$WORK/normalized.json") || fail manifest_read
     # Compress the trusted ConfigMap payload to keep the SMBIOS value below
     # firmware's 64 KiB string bound; the guest decompresses using Python.
-    python3 -c 'import pathlib,zlib,sys; pathlib.Path(sys.argv[2]).write_bytes(zlib.compress(pathlib.Path(sys.argv[1]).read_bytes(),9))' /opt/snow-qa/qa.py "$WORK/qa.z" || fail qa_payload
+    # qa.py travels in a SMBIOS credential that firmware bounds at 64 KiB, and the
+    # guest unit holding it is base64-encoded a second time, so the payload is
+    # compressed without comments: ast.unparse keeps the program, drops the prose,
+    # and an unchanged AST proves the stripped source is the same program.
+    python3 -c 'import ast,pathlib,sys,zlib
+    source = pathlib.Path(sys.argv[1]).read_text()
+    stripped = ast.unparse(ast.parse(source))
+    if ast.dump(ast.parse(stripped)) != ast.dump(ast.parse(source)):
+        sys.exit(1)
+    pathlib.Path(sys.argv[2]).write_bytes(zlib.compress(stripped.encode(), 9))' /opt/snow-qa/qa.py "$WORK/qa.z" || fail qa_payload
     qa_b64=$(base64 -w0 "$WORK/qa.z") || fail qa_payload
     # The ISO boot runs only after validation, authenticated preflight and a
     # persistent manifest hash. A single root disk and a read-only ISO.
