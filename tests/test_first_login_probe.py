@@ -1267,3 +1267,66 @@ def test_qa_payload_fails_closed_when_the_source_cannot_be_parsed(tmp_path):
     # A payload that cannot be parsed is never injected: the run fails qa_payload.
     assert result.returncode == 9 and "FAIL:qa_payload" in result.stdout, result.stderr
     assert not (work / "qa.z").exists()
+
+
+# ------------------------------------- whitespace around keys and [sections]
+
+def test_login_setup_comments_out_spaced_sddm_autologin_keys(tmp_path):
+    root = tmp_path / "root"
+    (root / "etc").mkdir(parents=True)
+    # SDDM strips whitespace around a section name and around '=', so every one
+    # of these keys is active and would win over the drop-in.
+    (root / "etc/sddm.conf").write_text(
+        "[General]\nUser = keep\n\n [Autologin] \nUser = other\nSession\t=\tplasmax11\n"
+        "Relogin = false\n\n[Theme]\n")
+    assert run_setup(tmp_path, root, stub_tools(tmp_path), dm="sddm.service").returncode == 0
+    body = (root / "etc/sddm.conf").read_text().splitlines()
+    assert "# snow-qa: User = other" in body
+    assert "# snow-qa: Session\t=\tplasmax11" in body
+    assert "# snow-qa: Relogin = false" in body
+    assert "User = keep" in body          # another section stays untouched
+
+
+def test_login_setup_removes_spaced_gdm_autologin_keys(tmp_path):
+    root = tmp_path / "root"
+    (root / "etc/gdm3").mkdir(parents=True)
+    (root / "etc/gdm3/daemon.conf").write_text(
+        "[daemon]\nAutomaticLoginEnable = false\nAutomaticLogin\t=\troot\n"
+        "TimedLoginEnable=true\nWaylandEnable = true\n")
+    assert run_setup(tmp_path, root, stub_tools(tmp_path)).returncode == 0
+    body = (root / "etc/gdm3/daemon.conf").read_text()
+    assert "AutomaticLogin = false" not in body and "AutomaticLogin\t" not in body
+    assert "TimedLoginEnable" not in body and "WaylandEnable = true" in body
+    assert "AutomaticLogin=snowqa" in body and "AutomaticLoginEnable=true" in body
+
+
+def test_guest_login_reads_a_spaced_sddm_dropin(qa, tmp_path, monkeypatch):
+    credentials, root, _ = login_guest(qa, tmp_path, monkeypatch, dm="sddm")
+    (root / "etc/sddm.conf.d/zz-snow-qa-autologin.conf").write_text(
+        " [Autologin] \nUser = snowqa\nSession\t=\tplasma.desktop\n")
+    record = login_payload(qa, qa.login(credentials))
+    assert record["autologin"] is True
+
+
+def test_guest_login_sddm_autologin_false_for_a_spaced_main_key(qa, tmp_path, monkeypatch):
+    credentials, root, _ = login_guest(qa, tmp_path, monkeypatch, dm="sddm")
+    (root / "etc/sddm.conf").write_text(" [Autologin] \nUser = other\n")
+    record = login_payload(qa, qa.login(credentials))
+    assert record["autologin"] is False
+
+
+def test_guest_login_reads_a_spaced_gdm_daemon_conf(qa, tmp_path, monkeypatch):
+    credentials, root, _ = login_guest(qa, tmp_path, monkeypatch)
+    (root / "etc/gdm3/daemon.conf").write_text(
+        "[daemon]\nAutomaticLoginEnable = true\nAutomaticLogin\t=\tsnowqa\n")
+    record = login_payload(qa, qa.login(credentials))
+    assert record["autologin"] is True
+
+
+def test_guest_login_gdm_autologin_ignores_another_section(qa, tmp_path, monkeypatch):
+    credentials, root, _ = login_guest(qa, tmp_path, monkeypatch)
+    # The same key outside [daemon] does not enable GDM autologin.
+    (root / "etc/gdm3/daemon.conf").write_text(
+        "[debug]\nAutomaticLogin=snowqa\n[daemon]\nAutomaticLoginEnable=true\n")
+    record = login_payload(qa, qa.login(credentials))
+    assert record["autologin"] is False

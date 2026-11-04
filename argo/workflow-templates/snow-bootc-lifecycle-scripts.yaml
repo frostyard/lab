@@ -3112,39 +3112,52 @@ data:
         return login_config_lines(path) or []
 
 
-    def login_section(lines, name):
-        """The active lines of one [section] of an INI-style configuration."""
-        inside, found = False, []
+    def login_section_keys(lines, name):
+        """key -> value of the active lines of one [section], whitespace stripped.
+
+        SDDM and GLib both strip whitespace around `=` and around a section
+        name, so `User = other` is as active as `User=other`, and ` [Autologin] `
+        names the same section. Keys stay case-sensitive. The last active line
+        of a key wins, as GLib's key file reader takes it.
+        """
+        values, inside = {}, False
         for line in lines:
             stripped = line.strip()
             if stripped.startswith("[") and stripped.endswith("]"):
-                inside = stripped[1:-1] == name
-            elif inside:
-                found.append(stripped)
-        return found
+                inside = stripped[1:-1].strip() == name
+                continue
+            if not inside:
+                continue
+            key, separator, value = stripped.partition("=")
+            if separator:
+                values[key.strip()] = value.strip()
+        return values
 
 
     def login_autologin(display_manager):
         """True when the autologin configuration the setup wrote still applies."""
         if display_manager == "gdm":
-            lines = login_active_lines(login_path("etc/gdm3/daemon.conf"))
-            return "AutomaticLoginEnable=true" in lines and "AutomaticLogin=" + LOGIN_USER in lines
+            values = login_section_keys(login_active_lines(login_path("etc/gdm3/daemon.conf")), "daemon")
+            return (values.get("AutomaticLoginEnable") == "true"
+                    and values.get("AutomaticLogin") == LOGIN_USER)
         if display_manager != "sddm":
             return False
-        dropin = login_section(login_active_lines(
+        # The same parse for the drop-in: an effective `User = snowqa` is the
+        # one the setup wrote, whatever whitespace it carries.
+        dropin = login_section_keys(login_active_lines(
             login_path("etc/sddm.conf.d/zz-snow-qa-autologin.conf")), "Autologin")
-        if "User=" + LOGIN_USER not in dropin:
+        if dropin.get("User") != LOGIN_USER:
             return False
         main = login_path("etc/sddm.conf")
         if not (main.exists() or main.is_symlink()):
             return True
         # SDDM reads /etc/sddm.conf after /etc/sddm.conf.d, so an active
-        # [Autologin] User= there wins over the drop-in. A file that cannot be
-        # read may hold such a line: fail closed.
+        # [Autologin] User there wins over the drop-in. A file that cannot be
+        # read may hold such a key: fail closed.
         lines = login_config_lines(main)
         if lines is None:
             return False
-        return not any(line.startswith("User=") for line in login_section(lines, "Autologin"))
+        return "User" not in login_section_keys(lines, "Autologin")
 
 
     def login_account():
@@ -3619,7 +3632,7 @@ data:
         # 0644 so the greeter can read it; an existing file keeps its own mode.
         [[ -e "$conf" ]] || install -m 0644 /dev/null "$conf"
         python3 - "$conf" "$user" <<'PY'
-    import re, sys
+    import sys
     from pathlib import Path
 
     path, user = Path(sys.argv[1]), sys.argv[2]
@@ -3631,13 +3644,16 @@ data:
              "AutomaticLogin=" + user]
 
 
-    def active(line):
+    def remove(line):
+        """An active autologin key, whitespace around '=' allowed (GKeyFile)."""
         stripped = line.strip()
-        return bool(stripped) and not stripped.startswith("#")
+        if not stripped or stripped.startswith("#"):
+            return False
+        key, separator, _ = stripped.partition("=")
+        return bool(separator) and key.strip().lower().startswith(("automaticlogin", "timedlogin"))
 
 
-    kept = [line for line in raw.decode("utf-8", "replace").splitlines()
-            if not (active(line) and re.match(r"(?i)(?:automaticlogin|timedlogin)", line.strip()))]
+    kept = [line for line in raw.decode("utf-8", "replace").splitlines() if not remove(line)]
     index = next((number for number, line in enumerate(kept) if line.strip() == "[daemon]"), None)
     if index is None:
         kept = kept + ["[daemon]"] + block
@@ -3670,13 +3686,33 @@ data:
         } > "$root/etc/sddm.conf.d/zz-snow-qa-autologin.conf"
         chmod 0644 "$root/etc/sddm.conf.d/zz-snow-qa-autologin.conf"
         # SDDM reads /etc/sddm.conf after /etc/sddm.conf.d, so an [Autologin]
-        # section there would win over the drop-in. Comment out its active User=,
-        # Session= and Relogin= lines; the file is never created and keeps its mode.
+        # section there would win over the drop-in. Comment out its active User,
+        # Session and Relogin keys; the file is never created and keeps its mode.
         if [[ -f "$root/etc/sddm.conf" ]]; then
-          sed -E '/^\[Autologin\]/,/^\[/ s/^([[:space:]]*)(User|Session|Relogin)=/# snow-qa: \1\2=/' \
-            "$root/etc/sddm.conf" > "$root/etc/sddm.conf.snow-qa"
-          cat "$root/etc/sddm.conf.snow-qa" > "$root/etc/sddm.conf"
-          rm -f "$root/etc/sddm.conf.snow-qa"
+          python3 - "$root/etc/sddm.conf" <<'PY'
+    import sys
+    from pathlib import Path
+
+    path = Path(sys.argv[1])
+    raw = path.read_bytes()
+    if len(raw) > 65536:
+        sys.exit(1)
+    kept, inside = [], False
+    for line in raw.decode("utf-8", "replace").splitlines():
+        text = line.strip()
+        if text.startswith("[") and text.endswith("]"):
+            # SDDM and GLib strip whitespace around a section name too.
+            inside = text[1:-1].strip() == "Autologin"
+            kept.append(line)
+            continue
+        key, separator, _ = text.partition("=")
+        if inside and text and not text.startswith("#") and separator \
+                and key.strip() in ("User", "Session", "Relogin"):
+            kept.append("# snow-qa: " + line)
+            continue
+        kept.append(line)
+    path.write_bytes(("\n".join(kept) + "\n").encode())
+    PY
         fi
         ;;
     esac
