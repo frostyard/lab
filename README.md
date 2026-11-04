@@ -546,12 +546,16 @@ test-only autologin configuration into the installed `/etc` (GDM
 session it finds; SDDM reads every file of `/etc/sddm.conf.d` in alphabetical
 order and the last one wins, so `zz-` sorts after a drop-in such as
 `10-sundog.conf`, and because SDDM reads `/etc/sddm.conf` after that directory
-the setup comments out the active `User=`, `Session=` and `Relogin=` lines of
-its `[Autologin]` section, keeping the file's mode and never creating it). It
+the setup comments out the active `User`, `Session` and `Relogin` keys of its
+`[Autologin]` section, keeping the file's mode and never creating it). It
 never writes below `/usr` and never touches the image; a system with no GDM or
 SDDM records `dm=none` and creates no account. Each boot publishes one
 `SNOW_LOGIN_V1` record: display manager, whether the autologin configuration is
-still there, the session (type `wayland`/`x11`, class `user`, state
+still there (SDDM: the drop-in's effective `User` is `snowqa` and
+`/etc/sddm.conf` has no active `User`, `Session` or `Relogin` key in
+`[Autologin]`; GDM: `[daemon]` has `AutomaticLoginEnable=true` and
+`AutomaticLogin=snowqa`; whitespace around `=` and around a section name is
+allowed), the session (type `wayland`/`x11`, class `user`, state
 `active`/`online`, desktop), the first-run autostart entries it found, which
 known apps have an entry and a binary, which apps ran (`first-setup` in two
 consecutive process polls; `chairlift` only through its own `first-run: window

@@ -1381,6 +1381,8 @@ data:
     LOGIN_MARK_DONE = {"first-setup": ["/bin/bash", "/usr/share/org.frostyard.FirstSetup/snow_first_setup/scripts/complete-setup"],
                        "chairlift": ["/usr/bin/chairlift-first-run", "--mark-done"]}
     LOGIN_AUTOSTART_DIRS = ("etc/xdg/autostart", "usr/etc/xdg/autostart", "usr/share/gnome/autostart")
+    # An active key of this set in /etc/sddm.conf [Autologin] wins over the drop-in.
+    LOGIN_SDDM_AUTOLOGIN_KEYS = ("User", "Session", "Relogin")
     # A first-run autostart file by name only; a full path would also match.
     LOGIN_ENTRY_NAME = re.compile(r"(?i)first.?(setup|run)|initial.?setup")
     LOGIN_USER = "snowqa"
@@ -3152,12 +3154,14 @@ data:
         if not (main.exists() or main.is_symlink()):
             return True
         # SDDM reads /etc/sddm.conf after /etc/sddm.conf.d, so an active
-        # [Autologin] User there wins over the drop-in. A file that cannot be
-        # read may hold such a key: fail closed.
+        # [Autologin] User, Session or Relogin key there wins over the drop-in:
+        # autologin is then not the configuration this probe wrote. A file that
+        # cannot be read may hold such a key: fail closed.
         lines = login_config_lines(main)
         if lines is None:
             return False
-        return "User" not in login_section_keys(lines, "Autologin")
+        return not any(key in login_section_keys(lines, "Autologin")
+                       for key in LOGIN_SDDM_AUTOLOGIN_KEYS)
 
 
     def login_account():

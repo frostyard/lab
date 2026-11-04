@@ -1295,7 +1295,7 @@ def test_login_setup_removes_spaced_gdm_autologin_keys(tmp_path):
         "TimedLoginEnable=true\nWaylandEnable = true\n")
     assert run_setup(tmp_path, root, stub_tools(tmp_path)).returncode == 0
     body = (root / "etc/gdm3/daemon.conf").read_text()
-    assert "AutomaticLogin = false" not in body and "AutomaticLogin\t" not in body
+    assert "AutomaticLoginEnable = false" not in body and "AutomaticLogin\t" not in body
     assert "TimedLoginEnable" not in body and "WaylandEnable = true" in body
     assert "AutomaticLogin=snowqa" in body and "AutomaticLoginEnable=true" in body
 
@@ -1308,10 +1308,14 @@ def test_guest_login_reads_a_spaced_sddm_dropin(qa, tmp_path, monkeypatch):
     assert record["autologin"] is True
 
 
-def test_guest_login_sddm_autologin_false_for_a_spaced_main_key(qa, tmp_path, monkeypatch):
+@pytest.mark.parametrize("line", ["User = other", "Session = plasmax11", "Relogin = true",
+                                  "User=other", "Session\t=\tplasmax11", "Relogin=true"])
+def test_guest_login_sddm_main_autologin_keys_override_the_dropin(qa, tmp_path, monkeypatch, line):
+    """Any active User, Session or Relogin in /etc/sddm.conf [Autologin] wins."""
     credentials, root, _ = login_guest(qa, tmp_path, monkeypatch, dm="sddm")
-    (root / "etc/sddm.conf").write_text(" [Autologin] \nUser = other\n")
+    (root / "etc/sddm.conf").write_text(" [Autologin] \n" + line + "\n")
     record = login_payload(qa, qa.login(credentials))
+    assert record["display_manager"] == "sddm"
     assert record["autologin"] is False
 
 

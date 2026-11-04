@@ -40,14 +40,18 @@ names the active display manager, creates the `snowqa` account, and writes
 either GDM's `daemon.conf` or SDDM's `zz-snow-qa-autologin.conf`. SDDM reads
 every file of `/etc/sddm.conf.d` in alphabetical order, so `zz-` sorts last,
 and it reads `/etc/sddm.conf` after that directory, so the setup comments out
-the active `[Autologin]` `User=`, `Session=` and `Relogin=` lines of that file
-(keeping its mode, never creating it) and the probe reports autologin false if
-such a line stays active. `/etc` directories are created only when missing and
-never get a new mode: the greeter and the session user must still read them. A
-system with no GDM or SDDM gets `dm=none` and no account.
+the active `[Autologin]` `User`, `Session` and `Relogin` keys of that file
+(keeping its mode, never creating it). The probe reports autologin true only
+when the drop-in's effective `User` is `snowqa` and `/etc/sddm.conf` has no
+active `User`, `Session` or `Relogin` key in `[Autologin]`; for GDM only when
+`[daemon]` has `AutomaticLoginEnable=true` and `AutomaticLogin=snowqa`. Both
+parsers strip whitespace around `=` and around a section name, as SDDM and
+GKeyFile do, and keep keys case-sensitive. `/etc` directories are created only
+when missing and never get a new mode: the greeter and the session user must
+still read them. A system with no GDM or SDDM gets `dm=none` and no account.
 
 The guest publishes one `SNOW_LOGIN_V1` record per boot: display manager,
-whether the autologin configuration survived, the session (a `wayland` or `x11`
+whether the autologin configuration survived by the rule above, the session (a `wayland` or `x11`
 user session that is `active` or `online`; the host refuses anything else), the
 first-run autostart entries it found, which known apps have an entry and a
 binary, which apps ran (`first-setup` through a pid seen in two consecutive
