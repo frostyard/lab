@@ -29,6 +29,7 @@ Docs are split by the question they answer
 - [0013 — Firn lane markers also travel through the kernel log](adr/0013-firn-lane-markers-also-travel-through-the-kernel-log.md) (amends 0005)
 - [0014 — Lifecycle lane records also travel through the kernel log](adr/0014-lifecycle-lane-records-also-travel-through-the-kernel-log.md) (amends 0005)
 - [0015 — The firn lane answers the LUKS passphrase prompt on the serial console](adr/0015-firn-lane-answers-the-luks-passphrase-prompt-on-serial.md) (builds on 0005, 0010, 0013)
+- [0016 — The first-login probe is a report-only lane mode](adr/0016-first-login-probe-is-a-report-only-lane-mode.md)
 
 Org-wide decisions binding this repo: [org-adrs.md](org-adrs.md).
 

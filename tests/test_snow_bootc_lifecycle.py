@@ -2270,7 +2270,7 @@ def test_run_guest_unit_uses_manifest_phase_budget_without_systemd_specifiers(tm
     work.mkdir()
     (work / "normalized.json").write_text(json.dumps(manifest()))
     # Run the real phase budget selection and the actual unit assignment.
-    selection = re.search(r'(?m)^  case "\$phase" in installed-n\).*?;; esac', script, re.S)
+    selection = re.search(r'(?m)^  case "\$phase" in installed-n\|login-1\).*?;; esac', script, re.S)
     assert selection
     unit = subprocess.run(["bash", "-c", selection.group() + "\n" +
                            assignment.group().rsplit("  gb=", 1)[0] + '\nprintf "%s" "$guestunit"'],
@@ -2290,7 +2290,7 @@ def test_run_guest_unit_uses_manifest_phase_budget_without_systemd_specifiers(tm
 ])
 def test_host_wait_outlives_guest_unit_budget(tmp_path, phase, key):
     script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
-    selection = re.search(r'(?m)^  case "\$phase" in installed-n\).*?;; esac', script, re.S)
+    selection = re.search(r'(?m)^  case "\$phase" in installed-n\|login-1\).*?;; esac', script, re.S)
     assignment = re.search(r'(?m)^  guestunit="\[Unit\].*?^  gb=', script, re.S)
     # The wait sits in the shared boot body (2 or 3 levels deep with two modes).
     wait = re.search(r'(?m)^ +await SNOW_QA_V1 .*$', script)
@@ -2508,7 +2508,7 @@ def test_single_marker_rejects_noncanonical_pad_bits(qa, tmp_path, capsys):
 
 def test_guest_shell_requires_credentials_without_echoing_inputs(tmp_path):
     scripts = yaml.safe_load(SOURCE.read_text())["data"]
-    assert set(scripts) == {"guest.sh", "qa.py", "run.sh"}
+    assert set(scripts) == {"guest.sh", "login-setup.sh", "qa.py", "run.sh"}
     guest = tmp_path / "guest.sh"
     guest.write_text(scripts["guest.sh"])
     no_creds = subprocess.run(["sh", str(guest)], capture_output=True, env={"PATH": "/usr/bin"}, check=False)
@@ -2720,7 +2720,8 @@ def test_manual_template_contract():
     assert entry["synchronization"]["semaphores"][0]["configMapKeyRef"]["key"] == "snosi-vm-qa"
     outputs = entry["outputs"]["parameters"]
     assert {o["valueFrom"]["path"] for o in outputs} == {
-        "/tmp/results/result-summary.txt", "/tmp/results/checks.txt", "/tmp/results/fsverity.txt"}
+        "/tmp/results/result-summary.txt", "/tmp/results/checks.txt", "/tmp/results/fsverity.txt",
+        "/tmp/results/first-login.txt"}
     container = entry["container"]
     assert container["command"] == ["/bin/bash", "/opt/snow-qa/run.sh"]
     assert {v["name"] for v in container["volumeMounts"]} == {"scripts", "incus-bin", "incus-sock", "incus-pools", "iso-cache", "evidence", "results"}
@@ -4867,9 +4868,10 @@ def test_run_records_the_channel_of_every_accepted_phase_record():
     write = ('printf \'phase=%s %s\\n\' "$phase" "$(cat "$WORK/serial-channel" 2>/dev/null)"'
              ' >> "$OUT/serial-channel.txt" || true')
     persist = 'persist "$OUT/serial-channel.txt" "$EVIDENCE/serial-channel.txt" || true'
-    # Both branches of the phase case: the attestation boot and the sysext boot.
-    assert loop.count(write) == 2 and loop.count(persist) == 2
-    for marker in ("printf 'phase=%s boot_id=%s kernel=", "printf 'phase=%s boot_id=%s sysext_failures="):
+    # Every branch of the phase case: the attestation, sysext and first-login boots.
+    assert loop.count(write) == 3 and loop.count(persist) == 3
+    for marker in ("printf 'phase=%s boot_id=%s kernel=", "printf 'phase=%s boot_id=%s sysext_failures=",
+                   "printf 'phase=%s boot_id=%s session="):
         start = loop.index(marker)
         assert loop.index('persist "$OUT/checks.txt"', start) < loop.index(write, start)
         assert loop.index(write, start) < loop.index(persist, start) < loop.index(";;", start)

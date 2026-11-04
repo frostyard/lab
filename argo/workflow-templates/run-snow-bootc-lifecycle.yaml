@@ -41,6 +41,11 @@ spec:
         valueFrom:
           path: /tmp/results/fsverity.txt
           default: "evidence unavailable"
+      # The first-login probe report: one summary line, then 1 detail line per boot.
+      - name: first-login
+        valueFrom:
+          path: /tmp/results/first-login.txt
+          default: "evidence unavailable"
     container:
       image: docker.io/library/debian:trixie-slim
       command: [/bin/bash, /opt/snow-qa/run.sh]

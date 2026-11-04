@@ -447,6 +447,18 @@ the [console marker](adr/0005-console-marker-protocol-for-agentless-guests.md),
 [private evidence limitation](adr/0009-no-artifact-store-logs-are-the-surface.md),
 and [non-vacuous success](adr/0010-vacuous-success-is-forbidden.md) decisions.
 
+The optional `first_login_probe` mode is report-only evidence about a desktop
+login: the installed `/etc` of the QA VM gets a test-only autologin
+configuration in `login-1`, and each login boot keeps its `SNOW_LOGIN_V1`
+record as `login-N.json` plus one `first-login.txt` summary
+(`headless-*`, `unproven-*`, `<app>-once`, `both-once`, `repeated-*`, `late-*`
+or `none`) in the results and in the private evidence directory. A summary that
+starts with `unproven-` ends `BLOCKED`, never `FAILED`, and every other one ends
+`PASS`, so a first-run app that does not start is recorded and not judged: the
+report proves which app ran in that VM, not the product's UX, and no
+update, rollback, secure-boot or fs-verity check runs in this mode
+([ADR-0016](adr/0016-first-login-probe-is-a-report-only-lane-mode.md)).
+
 ## Evidence expected by change
 
 | Changed area | Expected evidence |
