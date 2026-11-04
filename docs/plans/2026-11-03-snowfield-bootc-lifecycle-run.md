@@ -12,15 +12,20 @@ updater, signature policy rule, cosign key and Firn installer ISO as Snow,
 Floe and Sundog. The lane stays advisory and not a release gate
 ([ADR-0003](../adr/0003-unproven-is-distinct-from-failed.md),
 [ADR-0010](../adr/0010-vacuous-success-is-forbidden.md)). The field contract
-is in the [README](../../README.md#manual-snow-bootc-lifecycle).
+is in the [README](../../README.md#manual-snow-bootc-lifecycle). Its first dev
+run [ended `BLOCKED` in the first installed boot](#result-2026-11-04-dev-run-blocked-lockdown):
+the Snowfield kernel runs with Secure Boot on and kernel lockdown `none`
+([snosi#1213](https://github.com/frostyard/snosi/issues/1213)).
 
 ## Selected inputs
 
 The manifest is
 [`manifest.json`](snowfield-bootc-lifecycle-run-2026-11-03/manifest.json)
 (file SHA-256 `2285f37a…856c034b8`; canonical lane `manifest_sha256`
-`d137680f…0ae2f516`). Every value is public. Selected on 2026-11-03 at about
-01:50Z. N is from the same snosi build run as the Sundog N.
+`d137680f…0ae2f516`). Every value is public. N, N+1 and the target were selected on 2026-11-04
+at about 01:45Z (N+1 was `latest` then); the ISO fields were refreshed to the
+only entry of the signed index just before the preflight at 02:03Z. N is from
+the same snosi build run as the Sundog N.
 
 | Input | Value | Why |
 | --- | --- | --- |
@@ -93,9 +98,49 @@ tag unchanged until the workflow ends.
 - Add the workflow name, `result`, `checks` and the canonical
   `manifest_sha256` here. Record a `FAILED` or `BLOCKED` result with its code.
 
-### Result — pending
+### Result 2026-11-04: dev run BLOCKED (lockdown)
 
-No lifecycle run was recorded.
+`dev-snow-bootc-lifecycle-pnljz`, from this branch at `8404d7d6` (label
+`snosi.io/trigger=dev`, no publish, no tag move), 2026-11-04 02:07:51Z to
+02:16:31Z, under the `lab-dev` lease (thread T791). Canonical
+`manifest_sha256` `d137680f60647366e2a2a1a219a7cddf6b2a738ff524ce911eac631d0ae2f516`.
+
+```
+BLOCKED: guest_probe_error_observed
+```
+
+`checks.txt`:
+
+```
+manifest_sha256=d137680f60647366e2a2a1a219a7cddf6b2a738ff524ce911eac631d0ae2f516
+tag=before-install timestamp=2026-11-04T02:09:12.636928+00:00
+tag=before-installed-n timestamp=2026-11-04T02:14:50.017148+00:00
+```
+
+`fsverity.txt` exists and is empty: no phase record arrived, so no phase kept
+a line.
+
+- Firn installed N, and N booted with Secure Boot (`Secure boot enabled`) on
+  kernel `7.2.12-1-surface`. The guest probe of `installed-n` wrote
+  `SNOW_QA_ERR lockdown` (to ttyS0 and as a kmsg chunk, ADR-0014) at about
+  64 s: `/sys/kernel/security/lockdown` was neither `[integrity]` nor
+  `[confidentiality]`. The kernel command line was
+  `rw composefs=?… console=uart,io,0x3f8 console=tty0`, with no
+  `lockdown=integrity`, and the serial log has no "Kernel is locked down"
+  line.
+- This is a product finding, not a lane defect:
+  [snosi#1213](https://github.com/frostyard/snosi/issues/1213). The
+  linux-surface kernel does not raise lockdown in Secure Boot mode, and the
+  sealed UKI command line does not carry the `lockdown=integrity` karg. The
+  Debian kernels of Snow, Floe and Sundog raise it by themselves.
+- The lane reports a guest probe error as `BLOCKED` (unproven, ADR-0003); the
+  gate is not relaxed. No later phase ran, so stage, N+1, rollback and
+  fs-verity are unproven for Snowfield. Rerun after snosi#1213 is fixed, with
+  a new N and N+1 that carry the fix.
+- The VM is gone (`keep-vm-on-failure=false`); the evidence directory on
+  minideb keeps `checks.txt`, `checks.json`, `fsverity.txt`,
+  `preflight.json`, `result-summary.txt` and `serial-redacted.log`. The lease
+  is released.
 
 ## References
 

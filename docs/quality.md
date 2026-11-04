@@ -306,7 +306,10 @@ Floe has offline contract tests and a
 [run plan](plans/2026-10-30-sundog-bootc-lifecycle-run.md) with a dev-run PASS
 (`dev-snow-bootc-lifecycle-rs6sh`, 2026-10-30), but no main-lane run yet.
 Snowfield is accepted with offline contract tests and a
-[run plan](plans/2026-11-03-snowfield-bootc-lifecycle-run.md), pending a run.
+[run plan](plans/2026-11-03-snowfield-bootc-lifecycle-run.md); its first dev run
+(`dev-snow-bootc-lifecycle-pnljz`) ended `BLOCKED` on the guest `lockdown` gate
+([snosi#1213](https://github.com/frostyard/snosi/issues/1213)), so no Snowfield
+lifecycle phase is proven yet.
 Offline mocked tests cannot establish published ISO/OCI availability or
 Snowfield hardware qualification.
 Submission includes the JSON in the `argo` process argv; workflow/pod parameters

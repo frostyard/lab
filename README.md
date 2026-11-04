@@ -347,7 +347,10 @@ inputs and its first dev-run PASS (`dev-snow-bootc-lifecycle-rs6sh`,
 Snowfield is the GNOME image for Microsoft Surface hardware, with the
 linux-surface kernel. The
 [Snowfield run plan](docs/plans/2026-11-03-snowfield-bootc-lifecycle-run.md)
-holds the N and N+1 inputs; no run is recorded yet. Snowfield hardware
+holds the N and N+1 inputs and its first dev run (`dev-snow-bootc-lifecycle-pnljz`,
+2026-11-04): `BLOCKED` in `installed-n`, because the Snowfield kernel boots with
+Secure Boot on and kernel lockdown `none`
+([snosi#1213](https://github.com/frostyard/snosi/issues/1213)). Snowfield hardware
 qualification is outside this VM lane.
 The lane's first manual main-lane PASS (Snow,
 `run-snow-bootc-lifecycle-tbjnp`, 2026-10-26, bootc 1.16.8 N → N+1) is
