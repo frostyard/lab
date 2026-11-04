@@ -150,7 +150,7 @@ spec:
           snosi.io/step: fetch-digest
       script:
         image: quay.io/skopeo/stable:latest
-        command: [sh]
+        command: [bash]
         resources:
           requests:
             cpu: 100m
@@ -159,22 +159,29 @@ spec:
             cpu: 500m
             memory: 256Mi
         source: |
-          set -eu
+          set -euo pipefail
           IMAGE_REF="{{inputs.parameters.image}}:{{inputs.parameters.image-tag}}"
           REMOTE=""
           for i in 1 2 3; do
-            REMOTE=$(timeout 60s skopeo inspect --no-tags \
-              --format '{{.Digest}}' "docker://${IMAGE_REF}" 2>/dev/null || true)
-            [ -n "${REMOTE}" ] && break
+            CANDIDATE=""
+            if CANDIDATE=$(timeout 60s skopeo inspect --no-tags \
+              --format '{{.Digest}}' "docker://${IMAGE_REF}" 2>/dev/null); then
+              if [[ "${CANDIDATE}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                REMOTE="${CANDIDATE}"
+                break
+              fi
+            fi
             echo "skopeo attempt ${i}/3 failed for ${IMAGE_REF}; retrying in $(( i * 15 ))s" >&2
-            sleep $(( i * 15 ))
+            if (( i < 3)); then
+              sleep $(( i * 15 ))
+            fi
           done
 
           # A transient registry failure must not read as "digest changed" and
           # kick off a pointless QA run. Emit the sentinel and let compare-local
           # treat it as no-change.
-          if [ -z "${REMOTE}" ]; then
-            echo "Failed to resolve digest for ${IMAGE_REF}" >&2
+          if [[ -z "${REMOTE}" ]]; then
+            echo "Failed to resolve digest for ${IMAGE_REF} after 3 attempts" >&2
             echo "none" > /tmp/digest
           else
             echo "${REMOTE}" > /tmp/digest
@@ -211,8 +218,11 @@ spec:
           set -euo pipefail
           KEY="{{inputs.parameters.state-key}}"
           REMOTE="{{inputs.parameters.remote-digest}}"
-          STORED=$(kubectl get configmap image-polling-digests -n argo \
-            -o jsonpath="{.data.${KEY}}" 2>/dev/null || true)
+          if ! STORED=$(kubectl get configmap image-polling-digests -n argo \
+            -o jsonpath="{.data.${KEY}}"); then
+            echo "Failed to read stored digest for key '${KEY}' from ConfigMap image-polling-digests" >&2
+            exit 1
+          fi
 
           printf '%s' "${STORED}" > /tmp/stored-digest
 
@@ -258,8 +268,11 @@ spec:
           KEY="{{inputs.parameters.state-key}}"
           REMOTE="{{inputs.parameters.remote-digest}}"
           EXPECTED="{{inputs.parameters.expected-digest}}"
-          STORED=$(kubectl get configmap image-polling-digests -n argo \
-            -o jsonpath="{.data.${KEY}}" 2>/dev/null || true)
+          if ! STORED=$(kubectl get configmap image-polling-digests -n argo \
+            -o jsonpath="{.data.${KEY}}"); then
+            echo "Failed to read stored digest for key '${KEY}' from ConfigMap image-polling-digests" >&2
+            exit 1
+          fi
 
           # Compare-and-swap. The mutex makes this near-impossible, but writing
           # a digest we never actually tested is the one unrecoverable failure
