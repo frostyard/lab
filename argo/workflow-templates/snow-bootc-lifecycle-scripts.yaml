@@ -1376,9 +1376,9 @@ data:
     LOGIN_ENTRY_NAME = re.compile(r"(?i)first.?(setup|run)|initial.?setup")
     LOGIN_USER = "snowqa"
     LOGIN_POLL = 5
-    # How often login-1 reads the user journal while no process app runs; a
-    # presented window is logged once per first run.
-    LOGIN_JOURNAL_EVERY = 30
+    # chairlift is evidence only through its own journal line: it logs the line
+    # when it presents its first-run window, and a bare `--first-run` process
+    # never proves that window was shown.
     LOGIN_PRESENTED = b"first-run: window presented"
     LOGIN_OUTPUT_MAX = 1024 * 1024
     # 8 KiB, the same bound SNOW_QA_V1 uses in the serial line and the kernel-log
@@ -2168,9 +2168,13 @@ data:
                 and type(record["autologin"]) is bool, "record_fields")
         session = record["session"]
         if session is not None:
+            # Only a real user session is evidence: a tty, a greeter or a closing
+            # session says nothing about the first login, and every value must be
+            # free of control characters and spaces.
             require(type(session) is dict and set(session) == {"type", "class", "state", "desktop"}
-                    and all(type(value) is str and len(value) <= 64 for value in session.values()),
-                    "record_session")
+                    and session["type"] in ("wayland", "x11") and session["class"] == "user"
+                    and session["state"] in ("active", "online")
+                    and full(r"[A-Za-z0-9:._+-]{0,64}", session["desktop"]), "record_session")
         require(type(record["entries"]) is list and len(record["entries"]) <= 16
                 and all(type(path) is str and path.startswith("/")
                         and full(r"[A-Za-z0-9._/@+-]{1,160}", path) for path in record["entries"]),
@@ -3085,24 +3089,53 @@ data:
         return "sddm" if name == b"sddm.service" else None
 
 
-    def login_active_lines(path):
-        """The active (non-comment) lines of a config file; read only, never edited."""
+    def login_config_lines(path):
+        """The active (non-comment) lines of a config file, or None when unreadable."""
         raw = login_read(path)
         if raw is None:
-            return []
+            return None
         return [line.strip() for line in raw.decode("utf-8", "replace").splitlines()
                 if line.strip() and not line.lstrip().startswith("#")]
 
 
+    def login_active_lines(path):
+        """The active (non-comment) lines of a config file; read only, never edited."""
+        return login_config_lines(path) or []
+
+
+    def login_section(lines, name):
+        """The active lines of one [section] of an INI-style configuration."""
+        inside, found = False, []
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("[") and stripped.endswith("]"):
+                inside = stripped[1:-1] == name
+            elif inside:
+                found.append(stripped)
+        return found
+
+
     def login_autologin(display_manager):
-        """True when the autologin configuration the setup wrote is still there."""
+        """True when the autologin configuration the setup wrote still applies."""
         if display_manager == "gdm":
             lines = login_active_lines(login_path("etc/gdm3/daemon.conf"))
             return "AutomaticLoginEnable=true" in lines and "AutomaticLogin=" + LOGIN_USER in lines
-        if display_manager == "sddm":
-            return "User=" + LOGIN_USER in login_active_lines(
-                login_path("etc/sddm.conf.d/zz-snow-qa-autologin.conf"))
-        return False
+        if display_manager != "sddm":
+            return False
+        dropin = login_section(login_active_lines(
+            login_path("etc/sddm.conf.d/zz-snow-qa-autologin.conf")), "Autologin")
+        if "User=" + LOGIN_USER not in dropin:
+            return False
+        main = login_path("etc/sddm.conf")
+        if not (main.exists() or main.is_symlink()):
+            return True
+        # SDDM reads /etc/sddm.conf after /etc/sddm.conf.d, so an active
+        # [Autologin] User= there wins over the drop-in. A file that cannot be
+        # read may hold such a line: fail closed.
+        lines = login_config_lines(main)
+        if lines is None:
+            return False
+        return not any(line.startswith("User=") for line in login_section(lines, "Autologin"))
 
 
     def login_account():
@@ -3235,13 +3268,15 @@ data:
 
 
     def login_app_names(argv):
-        """The known first-login apps one process's argument list names."""
+        """The first-setup process evidence one argument list carries.
+
+        chairlift is never counted from a process: only its own journal line is
+        evidence that it presented a window (see login_observe).
+        """
         names = set()
         base = [os.path.basename(part) for part in argv]
         if "snow-first-setup" in base:
             names.add("first-setup")
-        if "chairlift" in base and "--first-run" in argv:
-            names.add("chairlift")
         return names
 
 
@@ -3252,41 +3287,24 @@ data:
         return rc == 0 and LOGIN_PRESENTED in out
 
 
-    def login_observe(phase, uid, app_wait):
-        """Which known apps ran during the window, and how long the probe watched."""
+    def login_observe(uid, app_wait):
+        """Which known apps ran during the full window, and how long it watched."""
         start = time.monotonic()
         end = start + app_wait
-        started, previous, polls, stop_after = set(), set(), 0, None
-        presented, read_at = False, start - LOGIN_JOURNAL_EVERY
+        started, previous = set(), set()
         while True:
-            now = time.monotonic()
             current = {(pid, app) for pid, argv in login_processes(uid).items()
                        for app in login_app_names(argv)}
             # A first-run gate that starts and exits at once must not count as a
             # started app: the same pid has to show it in two consecutive polls.
             started.update({app for _, app in current & previous})
             previous = current
-            polls += 1
-            if phase == "login-1" and not started and now >= read_at + LOGIN_JOURNAL_EVERY:
-                # A presented window is app evidence without a process: the gate
-                # can exec, log and exit between two polls, so login-1 must not
-                # stop early on an empty process table. One bounded read each
-                # 30 s catches it without reading the journal on every 5 s poll.
-                read_at, presented = now, login_presented(uid)
-                if presented:
-                    started.add("chairlift")
-            if phase == "login-1" and started and stop_after is None:
-                # login-1 proves the first login only: one more poll can still
-                # catch a second app that started with the first, then stop.
-                stop_after = polls + 1
-            if stop_after is not None and polls >= stop_after:
-                break
+            # Both login boots watch the whole window: a second app can start
+            # long after the first, and mark-done runs only after the window.
             if time.monotonic() >= end:
                 break
             time.sleep(LOGIN_POLL)
-        if not presented and login_presented(uid):
-            # One read after the window: the presented line is logged once per
-            # first run and this boot's journal keeps it.
+        if login_presented(uid):
             started.add("chairlift")
         return sorted(started), int(time.monotonic() - start)
 
@@ -3330,7 +3348,7 @@ data:
         if display_manager is not None and account is not None:
             session = login_session(probe["session_wait"])
             if session is not None:
-                started, waited = login_observe(phase, account.pw_uid, probe["app_wait"])
+                started, waited = login_observe(account.pw_uid, probe["app_wait"])
                 if phase == "login-1" and home is not None:
                     # Only login-1 marks an app done: login-2 must see the app's
                     # own second first-run behavior, not a marker this probe wrote.
@@ -3631,6 +3649,8 @@ data:
         done
         # An existing /etc/sddm.conf.d keeps its own mode, for the same reason.
         [[ -d "$root/etc/sddm.conf.d" ]] || install -d -m 0755 "$root/etc/sddm.conf.d"
+        # SDDM reads every file of /etc/sddm.conf.d in alphabetical order and the
+        # last one wins, so zz- sorts after a drop-in such as 10-sundog.conf.
         {
           printf '# snow-qa: test-only autologin for the lab first-login probe, never in an image\n'
           printf '[Autologin]\n'
@@ -3640,6 +3660,15 @@ data:
           fi
         } > "$root/etc/sddm.conf.d/zz-snow-qa-autologin.conf"
         chmod 0644 "$root/etc/sddm.conf.d/zz-snow-qa-autologin.conf"
+        # SDDM reads /etc/sddm.conf after /etc/sddm.conf.d, so an [Autologin]
+        # section there would win over the drop-in. Comment out its active User=,
+        # Session= and Relogin= lines; the file is never created and keeps its mode.
+        if [[ -f "$root/etc/sddm.conf" ]]; then
+          sed -E '/^\[Autologin\]/,/^\[/ s/^([[:space:]]*)(User|Session|Relogin)=/# snow-qa: \1\2=/' \
+            "$root/etc/sddm.conf" > "$root/etc/sddm.conf.snow-qa"
+          cat "$root/etc/sddm.conf.snow-qa" > "$root/etc/sddm.conf"
+          rm -f "$root/etc/sddm.conf.snow-qa"
+        fi
         ;;
     esac
 

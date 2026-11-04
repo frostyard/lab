@@ -542,15 +542,21 @@ which is not a first-login fact. `login-1` alone also runs
 `/opt/snow-qa/login-setup.sh` from its own unit: it names the active display
 manager (`gdm`/`gdm3`/`sddm`), creates a `snowqa` account, and writes a
 test-only autologin configuration into the installed `/etc` (GDM
-`daemon.conf`, or SDDM `zz-snow-qa-autologin.conf` with the first Plasma
-session it finds). It never writes below `/usr` and never touches the image; a
-system with no GDM or SDDM records `dm=none` and creates no account. Each boot
-publishes one `SNOW_LOGIN_V1` record: display manager, whether the autologin
-configuration is still there, the session (type, class, state, desktop), the
-first-run autostart entries it found, which known apps have an entry and a
-binary, which apps ran (the same pid in two consecutive polls, or `chairlift`'s
-`first-run: window presented` journal line), the `login-1` mark-done results and
-the done markers. The runner keeps `login-N.json` and `first-login.txt`
+`daemon.conf`, or SDDM's `zz-snow-qa-autologin.conf` with the first Plasma
+session it finds; SDDM reads every file of `/etc/sddm.conf.d` in alphabetical
+order and the last one wins, so `zz-` sorts after a drop-in such as
+`10-sundog.conf`, and because SDDM reads `/etc/sddm.conf` after that directory
+the setup comments out the active `User=`, `Session=` and `Relogin=` lines of
+its `[Autologin]` section, keeping the file's mode and never creating it). It
+never writes below `/usr` and never touches the image; a system with no GDM or
+SDDM records `dm=none` and creates no account. Each boot publishes one
+`SNOW_LOGIN_V1` record: display manager, whether the autologin configuration is
+still there, the session (type `wayland`/`x11`, class `user`, state
+`active`/`online`, desktop), the first-run autostart entries it found, which
+known apps have an entry and a binary, which apps ran (`first-setup` in two
+consecutive process polls; `chairlift` only through its own `first-run: window
+presented` journal line, never through a bare `--first-run` process), the
+`login-1` mark-done results and the done markers. The runner keeps `login-N.json` and `first-login.txt`
 evidence and prints one `first_login=<summary>` line in `checks.txt`. Known
 apps today are `first-setup` and `chairlift`. The probe never fails the run
 because of which app started: a summary that starts with `unproven-` ends

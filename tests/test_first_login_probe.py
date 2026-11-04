@@ -359,7 +359,7 @@ def login_guest(qa, tmp_path, monkeypatch, *, phase="login-1", product="snow", d
     def fake_sleep(seconds):
         clock["now"] += seconds
         if on_sleep is not None:
-            on_sleep()
+            on_sleep(clock)
 
     monkeypatch.setattr(qa.time, "sleep", fake_sleep)
     if pw_dir is None:
@@ -378,7 +378,7 @@ def login_guest(qa, tmp_path, monkeypatch, *, phase="login-1", product="snow", d
         if args[:2] == ["loginctl", "show-session"]:
             return 0, ("Type=%s\nClass=user\nState=active\nDesktop=plasmax11\n" % session).encode()
         if args[0] == "journalctl":
-            return 0, journal
+            return 0, journal() if callable(journal) else journal
         if args[0] == "runuser":
             # The app's own completion command writes its done marker.
             if "--mark-done" in args:
@@ -427,8 +427,9 @@ def test_guest_login_records_first_setup_running_on_the_first_login(qa, tmp_path
         str(root / "etc/xdg/autostart/org.frostyard.FirstSetup.autostart.desktop")]
     assert record["apps"] == {"first-setup": {"entry": True, "binary": True},
                               "chairlift": {"entry": False, "binary": False}}
-    # The same pid in two consecutive polls: the app ran, 2 polls after it showed.
-    assert record["started"] == ["first-setup"] and record["waited"] == 10
+    # The same pid in two consecutive polls: the app ran, and the whole window
+    # is watched before any mark-done command runs.
+    assert record["started"] == ["first-setup"] and record["waited"] == 60
     assert record["mark_done"] == [{"app": "first-setup", "rc": 0}]
     assert record["markers"] == {"first-setup": True, "chairlift": False}
     assert ["runuser", "-u", "snowqa", "--"] == calls[-1][:4]
@@ -439,7 +440,7 @@ def test_guest_login_records_first_setup_running_on_the_first_login(qa, tmp_path
 def test_guest_login_does_not_count_a_gate_process_seen_only_once(qa, tmp_path, monkeypatch):
     root = tmp_path / "root"
 
-    def gone():
+    def gone(clock):
         if (root / "proc" / "101").exists():
             drop_process(root, "101")
 
@@ -587,6 +588,15 @@ def test_login_phase_accepts_a_record_only_the_kernel_log_carried(qa, tmp_path, 
     (lambda r: r.update(session={"type": "wayland"}), "record_session"),
     (lambda r: r.update(session={"type": "wayland", "class": "user", "state": "active",
                                  "desktop": "x" * 65}), "record_session"),
+    # Only a real user session is evidence of a first login.
+    (lambda r: r.update(session={"type": "tty", "class": "user", "state": "active",
+                                 "desktop": ""}), "record_session"),
+    (lambda r: r.update(session={"type": "wayland", "class": "greeter", "state": "active",
+                                 "desktop": "plasma"}), "record_session"),
+    (lambda r: r.update(session={"type": "wayland", "class": "user", "state": "closing",
+                                 "desktop": "plasma"}), "record_session"),
+    (lambda r: r.update(session={"type": "wayland", "class": "user", "state": "active",
+                                 "desktop": "plasma\n"}), "record_session"),
     (lambda r: r.update(entries=["etc/xdg/autostart/x.desktop"]), "record_entries"),
     (lambda r: r.update(entries=["/etc/xdg/autostart/%s.desktop" % ("x" * 200)]), "record_entries"),
     (lambda r: r.update(entries=["/etc/xdg/autostart/%s" % ("x.desktop",)] * 17), "record_entries"),
@@ -1076,21 +1086,84 @@ def test_guest_login_skips_an_autostart_name_it_cannot_carry(qa, tmp_path, monke
     assert record["entries"] == [str(folder / "org.frostyard.FirstSetup.autostart.desktop")]
 
 
-def test_guest_login_first_boot_stops_early_for_a_presented_window(qa, tmp_path, monkeypatch):
-    credentials, _, calls = login_guest(
-        qa, tmp_path, monkeypatch, app_wait=60,
-        journal=b"chairlift[900]: first-run: window presented\n")
-    record = login_payload(qa, qa.login(credentials))
-    # No process ever shows the app, and login-1 must still find the journal line
-    # and stop before the whole window is spent.
-    assert record["started"] == ["chairlift"] and record["waited"] == 5
-    assert record["waited"] < 60
-    assert len([call for call in calls if call[0] == "journalctl"]) == 1
-
-
-def test_guest_login_reads_the_journal_at_most_once_each_30_seconds(qa, tmp_path, monkeypatch):
+def test_guest_login_reads_the_journal_once_after_the_window(qa, tmp_path, monkeypatch):
     credentials, _, calls = login_guest(qa, tmp_path, monkeypatch, app_wait=120)
     record = login_payload(qa, qa.login(credentials))
     assert record["started"] == [] and record["waited"] == 120
-    # 5 reads inside the window (every 30 s) plus 1 after it, never 25 polls.
-    assert len([call for call in calls if call[0] == "journalctl"]) == 6
+    # One bounded read after the window, never one per 5 s poll.
+    assert len([call for call in calls if call[0] == "journalctl"]) == 1
+    assert all("2000" in call for call in calls if call[0] == "journalctl")
+
+
+def test_guest_login_counts_chairlift_only_through_its_journal_line(qa, tmp_path, monkeypatch):
+    # A persistent `chairlift --first-run` process proves no presented window.
+    credentials, _, _ = login_guest(
+        qa, tmp_path, monkeypatch,
+        processes=[("900", ["/usr/bin/chairlift", "--first-run"])])
+    record = login_payload(qa, qa.login(credentials))
+    assert record["started"] == [] and record["mark_done"] == []
+
+
+def test_guest_login_first_boot_watches_the_whole_window_for_a_late_app(qa, tmp_path, monkeypatch):
+    """The presented line arrives at t=20; login-1 must still see it (no early stop)."""
+    state = {"now": 1000.0}
+
+    def track(clock):
+        state["now"] = clock["now"]
+
+    def journal():
+        return (b"chairlift[900]: first-run: window presented\n"
+                if state["now"] >= 1020 else b"")
+
+    credentials, _, _ = login_guest(
+        qa, tmp_path, monkeypatch, app_wait=60, on_sleep=track, journal=journal,
+        processes=[("101", ["/usr/bin/snow-first-setup"])])
+    record = login_payload(qa, qa.login(credentials))
+    # first-setup runs from the start, the window is presented 20 s later, and
+    # mark-done must not have cut the observation short.
+    assert record["started"] == ["chairlift", "first-setup"]
+    assert record["waited"] == 60
+    assert [item["app"] for item in record["mark_done"]] == ["chairlift", "first-setup"]
+
+
+# --------------------------------------- review fixes (chairlift, sddm, host)
+
+def test_login_setup_comments_out_a_conflicting_sddm_autologin(tmp_path):
+    root = tmp_path / "root"
+    (root / "etc").mkdir(parents=True)
+    (root / "etc/sddm.conf").write_text(
+        "[General]\nNumlock=on\n\n[Autologin]\nUser=other\nSession=plasmax11\nRelogin=false\n\n"
+        "[Theme]\nUser=keep\n")
+    (root / "etc/sddm.conf").chmod(0o640)
+    assert run_setup(tmp_path, root, stub_tools(tmp_path), dm="sddm.service").returncode == 0
+    body = (root / "etc/sddm.conf").read_text().splitlines()
+    # SDDM reads /etc/sddm.conf after /etc/sddm.conf.d: its [Autologin] section
+    # must not win over the drop-in.
+    assert "# snow-qa: User=other" in body
+    assert "# snow-qa: Session=plasmax11" in body
+    assert "# snow-qa: Relogin=false" in body
+    assert "User=keep" in body          # another section stays untouched
+    assert (root / "etc/sddm.conf").stat().st_mode & 0o777 == 0o640
+    assert "etc/sddm.conf.d/zz-snow-qa-autologin.conf" in created_paths(root)
+
+
+def test_login_setup_never_creates_an_sddm_main_configuration(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    assert run_setup(tmp_path, root, stub_tools(tmp_path), dm="sddm.service").returncode == 0
+    assert not (root / "etc/sddm.conf").exists()
+
+
+def test_guest_login_autologin_is_false_when_sddm_main_config_conflicts(qa, tmp_path, monkeypatch):
+    credentials, root, _ = login_guest(qa, tmp_path, monkeypatch, dm="sddm")
+    (root / "etc/sddm.conf").write_text("[Autologin]\nUser=other\n")
+    record = login_payload(qa, qa.login(credentials))
+    assert record["display_manager"] == "sddm" and record["autologin"] is False
+
+
+def test_guest_login_autologin_ignores_a_commented_sddm_main_config(qa, tmp_path, monkeypatch):
+    credentials, root, _ = login_guest(qa, tmp_path, monkeypatch, dm="sddm")
+    (root / "etc/sddm.conf").write_text(
+        "[Autologin]\n# snow-qa: User=other\n[General]\nUser=keep\n")
+    record = login_payload(qa, qa.login(credentials))
+    assert record["autologin"] is True
