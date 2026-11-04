@@ -1,0 +1,40 @@
+# Preflight record: run-snow-bootc-lifecycle manifest, product snowfield (read-only)
+# date: 2026-11-04T02:03:23Z (UTC). Lab ConfigMap qa.py from this branch (murbella/snowfield-bootc-lifecycle, PRODUCTS has snowfield).
+# command: TMPDIR=~/.cache/preflight-tmp PREFLIGHT_PULL=never \
+#   scripts/snow-lifecycle-preflight/run.sh docs/plans/snowfield-bootc-lifecycle-run-2026-11-03/manifest.json
+# runner image: docker.io/library/debian:trixie-slim (local). Anonymous registry reads only.
+tools: cosign devel; skopeo version 1.18.0; gpgv (GnuPG) 2.4.7
+manifest file sha256=2285f37a326d01c9178bfa9e4139c7ced4187954b0819e2fb0b6c61856c034b8
+CHECK index_key_sha256 PASS shared/native-ab/keys/import-pubring.gpg@39cf19887547 sha256=977fe2de56de82dab559709178bbf335a28cc648237c69cb88ee3de008c0fc97
+CHECK cosign_key_sha256 PASS cosign.pub@39cf19887547 sha256=3e79750429976e1f1a01cb2a71d0aa1caf61ad918302553b2a8df397c4514fc5
+CHECK mok_cert_sha256 PASS shared/native-ab/keys/mok-2026.crt@39cf19887547 sha256=0446e4780b809711af17934da0b5a39487da1da35d1fe7dbaae5e7f9f39545b4
+CHECK index_key_fingerprint PASS F37282A35CB6BDFEBFC8FE775A2EAC5C8216FD68
+CHECK iso_index_signature PASS gpgv ok, VALIDSIG primary=F37282A35CB6BDFEBFC8FE775A2EAC5C8216FD68
+CHECK iso_index_entry PASS snosi-installer_20261103153531_x86-64.iso 801752ac00ede6ea8baa17bde6316906eb8d4f6f2a7ab9d8ad116c6a7fa3db5b (1 entries in the index)
+CHECK iso_url_versioned PASS https://repository.frostyard.org/isos/native/v1/snosi-installer_20261103153531_x86-64.iso
+CHECK iso_sha256 PASS 801752ac00ede6ea8baa17bde6316906eb8d4f6f2a7ab9d8ad116c6a7fa3db5b (886491136 bytes)
+CHECK iso_esp PASS GPT partition 2 is an ESP at byte 104448
+CHECK iso_initramfs PASS firn-installer/initrd.img 752163550 bytes
+CHECK iso_embedded:/usr/lib/snosi/cosign.pub PASS equals pinned cosign.pub
+CHECK iso_embedded:/usr/lib/snosi/os-update-pubring.gpg PASS equals pinned index.gpg
+CHECK iso_embedded:/usr/lib/snosi/mok.crt PASS equals pinned mok.crt
+CHECK iso_catalog PASS {"n":1,"ref":"ghcr.io/frostyard/snowfield:latest","key":"/usr/lib/snosi/cosign.pub"}
+CHECK iso_release PASS SNOSI_INSTALLER_VERSION=20261103153531 SNOSI_INSTALLER_BUILD_ID=firn-installer 
+CHECK iso_firn INFO sha256=97869ef5bc64d32f30b5f72a87480cb3e33fea490b61549d0de4a97e2bbda82e version=0.11.0
+CHECK iso_bootc INFO no bootc in the installer initramfs: Firn runs bootc from image N with podman
+CHECK oci_signature_n PASS 1 claim(s), signed digest=sha256:b40995ef197bfccf34d8c205bf633fa56262bd145db3dad4581a7e2c4665dea4
+CHECK oci_digest_n PASS sha256:b40995ef197bfccf34d8c205bf633fa56262bd145db3dad4581a7e2c4665dea4
+CHECK oci_labels_n PASS {"v":"20261026191603","a":"bootc-1.16.8-storage-digest-v1","c":"true"} assembly=bootc-1.16.8-storage-digest-v1
+CHECK oci_version_annotation_n PASS 20261026191603 (application/vnd.oci.image.manifest.v1+json)
+CHECK version_tag_n PASS ghcr.io/frostyard/snowfield:20261026191603 -> sha256:b40995ef197bfccf34d8c205bf633fa56262bd145db3dad4581a7e2c4665dea4
+CHECK oci_signature_n_plus_1 PASS 1 claim(s), signed digest=sha256:88e8136f79bed1271913ffe2cc5fba363bd818bf7d764992a4785fbd555e8ab3
+CHECK oci_digest_n_plus_1 PASS sha256:88e8136f79bed1271913ffe2cc5fba363bd818bf7d764992a4785fbd555e8ab3
+CHECK oci_labels_n_plus_1 PASS {"v":"20261103152032","a":"bootc-1.17.1-storage-digest-v1","c":"true"} assembly=bootc-1.17.1-storage-digest-v1
+CHECK oci_version_annotation_n_plus_1 PASS 20261103152032 (application/vnd.oci.image.manifest.v1+json)
+CHECK version_tag_n_plus_1 PASS ghcr.io/frostyard/snowfield:20261103152032 -> sha256:88e8136f79bed1271913ffe2cc5fba363bd818bf7d764992a4785fbd555e8ab3
+CHECK order_distinct PASS 20261026191603 < 20261103152032, digests distinct
+CHECK target_ref PASS ghcr.io/frostyard/snowfield:qa-controlled -> sha256:88e8136f79bed1271913ffe2cc5fba363bd818bf7d764992a4785fbd555e8ab3
+CHECK lane_validate PASS canonical manifest_sha256=d137680f60647366e2a2a1a219a7cddf6b2a738ff524ce911eac631d0ae2f516
+CHECK lane_preflight PASS full qa.py preflight
+lane preflight.json: {"assembly_n":"bootc-1.16.8-storage-digest-v1","assembly_n_plus_1":"bootc-1.17.1-storage-digest-v1","cosign_key_sha256":"3e79750429976e1f1a01cb2a71d0aa1caf61ad918302553b2a8df397c4514fc5","digest_n":"b40995ef197bfccf34d8c205bf633fa56262bd145db3dad4581a7e2c4665dea4","digest_n_plus_1":"88e8136f79bed1271913ffe2cc5fba363bd818bf7d764992a4785fbd555e8ab3","firn_compatibility":"installer-vm-v2-recipe-validator-only","firn_provenance":"iso-esp-p2/firn-installer/initrd.img","firn_sha256":"97869ef5bc64d32f30b5f72a87480cb3e33fea490b61549d0de4a97e2bbda82e","index_key_sha256":"977fe2de56de82dab559709178bbf335a28cc648237c69cb88ee3de008c0fc97","iso_sha256":"801752ac00ede6ea8baa17bde6316906eb8d4f6f2a7ab9d8ad116c6a7fa3db5b","manifest_sha256":"d137680f60647366e2a2a1a219a7cddf6b2a738ff524ce911eac631d0ae2f516","mok_cert_sha256":"0446e4780b809711af17934da0b5a39487da1da35d1fe7dbaae5e7f9f39545b4","snosi_commit":"39cf19887547f83200866e94e5753888706b49fa","tags":{},"timestamp":"2026-11-04T02:03:23.520110+00:00","version_n":"20261026191603","version_n_plus_1":"20261103152032"}
+failures=0 target_ready=1

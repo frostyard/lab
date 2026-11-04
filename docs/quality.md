@@ -297,15 +297,18 @@ operator-controlled N+1 target tag and submission interface are in the
 release gate. Its first manual main-lane PASS (`run-snow-bootc-lifecycle-tbjnp`,
 2026-10-26) is recorded in the
 [run plan](plans/2026-10-26-snow-bootc-lifecycle-run.md#result-2026-10-26-pass). The manifest field
-`product` (`snow`, `floe` or `sundog`) selects the image
+`product` (`snow`, `floe`, `snowfield` or `sundog`) selects the image
 ([ADR-0012](adr/0012-lifecycle-lane-product-comes-from-the-hashed-manifest.md)); the result line
 and `checks.txt` do not name it, so read a result with its `manifest_sha256`.
 Floe has offline contract tests and a
 [run plan](plans/2026-10-28-floe-bootc-lifecycle-run.md) with its first main-lane PASS
 (`run-snow-bootc-lifecycle-v9bkv`, 2026-10-29). Sundog has offline contract tests and a
 [run plan](plans/2026-10-30-sundog-bootc-lifecycle-run.md) with a dev-run PASS
-(`dev-snow-bootc-lifecycle-rs6sh`, 2026-10-30), but no main-lane run yet. Offline mocked tests cannot
-establish published ISO/OCI availability or Snowfield hardware qualification.
+(`dev-snow-bootc-lifecycle-rs6sh`, 2026-10-30), but no main-lane run yet.
+Snowfield is accepted with offline contract tests and a
+[run plan](plans/2026-11-03-snowfield-bootc-lifecycle-run.md), pending a run.
+Offline mocked tests cannot establish published ISO/OCI availability or
+Snowfield hardware qualification.
 Submission includes the JSON in the `argo` process argv; workflow/pod parameters
 and env are visible: no secrets in the manifest. After tool provisioning,
 before `qa.py`, the runner writes it to a private 0600 file, but this is not a
@@ -375,8 +378,9 @@ is searched whole (the fresh nonce and boot ID still bind the record). The
 searched bytes must never contain that previous log: a changed log that still
 carries it cannot be split safely and makes lineage ambiguous (`BLOCKED`), not
 a fresh proof. The guest writes its one record line (or `SNOW_QA_ERR` code) to a fresh
-`/dev/ttyS0` handle, because `/dev/console` is the graphical tty0 on Snow, and
-writes it again once serial-getty's agetty runs; the runner treats identical
+`/dev/ttyS0` handle, because `/dev/console` is the graphical tty0 on Snow,
+Snowfield and Sundog. Snowfield is the GNOME image with the linux-surface
+kernel. The guest writes the record again once serial-getty's agetty runs; the runner treats identical
 copies as one line. Each write runs under `timeout -k 2 5`, and a target that
 has to be killed is skipped for the rest of the guest run, so a stalled ttyS0
 cannot hold the guest unit. The line also goes to `/dev/kmsg` first, as numbered

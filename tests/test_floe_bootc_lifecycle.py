@@ -194,7 +194,7 @@ def test_floe_manifest_normalizes_and_validates(qa, tmp_path, capsys):
 
 def test_snow_manifest_still_normalizes_and_repo_constant_is_snow(qa):
     assert qa.REPO == SNOW
-    assert qa.PRODUCTS == {"snow": SNOW, "floe": FLOE, "sundog": "ghcr.io/frostyard/sundog"}
+    assert qa.PRODUCTS == {"snow": SNOW, "floe": FLOE, "snowfield": "ghcr.io/frostyard/snowfield", "sundog": "ghcr.io/frostyard/sundog"}
     assert qa.normalize(SNOW_MANIFEST()) == SNOW_MANIFEST()
 
 
@@ -224,7 +224,7 @@ SNOW_FLOE_REF = [
 
 @pytest.mark.parametrize("change", [
     lambda m: m.update(product="cayo", family="cayo"),
-    lambda m: m.update(product="snowfield", family="snowfield"),
+    lambda m: m.update(product="floe-ab", family="floe-ab"),
     lambda m: m.update(product="", family=""),
     lambda m: m.update(product=None),
     lambda m: m.update(product=["floe"], family=["floe"]),
@@ -625,8 +625,8 @@ def test_guest_probe_and_unit_have_no_desktop_dependency():
 
 def test_guest_console_comment_covers_headless_ttys0():
     text = yaml.safe_load(SOURCE.read_text())["data"]["qa.py"]
-    comment = text[text.index("# On Snow and Sundog, /dev/console"):text.index("GUEST_CONSOLES =")]
-    assert "Sundog" in comment and "Floe" in comment and "ttyS0" in comment and "identical copies" in comment
+    comment = text[text.index("# On Snow, Snowfield and Sundog, /dev/console"):text.index("GUEST_CONSOLES =")]
+    assert "Snowfield" in comment and "Sundog" in comment and "Floe" in comment and "ttyS0" in comment and "identical copies" in comment
 
 
 def test_the_same_line_twice_on_ttys0_is_one_record(floe_world, qa, tmp_path, capsys):
@@ -651,7 +651,7 @@ def test_checks_select_the_catalog_entry_by_the_manifest_product():
 
 
 @pytest.mark.skipif(subprocess.run(["which", "jq"], capture_output=True).returncode != 0, reason="jq not installed")
-@pytest.mark.parametrize("product", ["floe", "snow", "snowfield"])
+@pytest.mark.parametrize("product", ["floe", "snow", "snowfield", "sundog"])
 def test_checks_jq_filter_selects_the_product_entry(tmp_path, product):
     line = next(l for l in CHECKS_SH.read_text().splitlines() if "--arg p" in l)
     filt = re.search(r"jq -c --arg p \"\$\(j \.product\)\" '([^']+)'", line)
