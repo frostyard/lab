@@ -57,8 +57,8 @@ Submitted with
 `keep-vm-on-failure=false`) under the `lab-dev` lease (thread T857-t7). No
 publish, no tag move.
 
-- **Done when:** each product has 1 fresh run with `problems=ok`. Met on
-  2026-11-05 (results below).
+- **Done when:** each product has 3 fresh runs with `problems=ok` (the
+  promotion bar of ADR-0017 for this path). Met on 2026-11-05 (results below).
 
 ### Result 2026-11-05: Floe `ttncz` at `aa44ad3c`, missing-coredump (a probe defect)
 
@@ -70,13 +70,19 @@ record proves that systemd-coredump caught the core. Only the probe's own
 coredump socket. Fixed in `61dbab44` (the pipe or `@`/`@@/run/systemd/coredump`;
 test `test_guest_problems_accepts_the_coredump_pipe_and_socket`).
 
-### Result 2026-11-05: Snow, Sundog and Floe PASS, problems=ok
+### Result 2026-11-05: Snow, Sundog and Floe PASS, problems=ok (3 runs each)
 
-| Product | Workflow | Ran (UTC) | Result |
+Every run below ended `PASS: verified_problems_probe;problems=ok`. Runs 1 and
+2 ran the lane at `61dbab44` and `341d6e16` (the probe code of both is the code
+the cross-review read before its fixes); run 3 ran the reviewed fixes at
+`3e7e2645`. The `snosi-vm-qa` semaphore ran them one after the other, so the
+times include queue time.
+
+| Product | Run 1 | Run 2 | Run 3 |
 | --- | --- | --- | --- |
-| Snow | `dev-snow-bootc-lifecycle-5nx9h` | 08:26 to 08:47 (queued) | `PASS: verified_problems_probe;problems=ok` |
-| Sundog | `dev-snow-bootc-lifecycle-v2n2h` | 08:26 to 08:56 (queued) | `PASS: verified_problems_probe;problems=ok` |
-| Floe | `dev-snow-bootc-lifecycle-527ht` | 08:26 to 09:03 (queued) | `PASS: verified_problems_probe;problems=ok` |
+| Snow | `5nx9h` 08:26 to 08:47 | `m7q4x` 09:07 to 09:15 | `p8td6` 09:34 to 09:42 |
+| Sundog | `v2n2h` 08:26 to 08:56 | `8mqtk` 09:07 to 09:24 | `mqfbp` 09:34 to 09:51 |
+| Floe | `527ht` 08:26 to 09:03 | `285qd` 09:07 to 09:31 | `87grt` 09:34 to 09:58 |
 
 Each `problems.txt` (Snow shown; Sundog and Floe have the same lines except the
 boot timing):
@@ -106,20 +112,20 @@ question for phase 2, not a lab check.
 
 `target_ms` is the time from kernel start to the default target
 (`graphical.target` on all 3 products), as `systemd-analyze` computes it; the
-firmware and loader stamps are 0 in these VMs. 1 sample each, on the shared lab
-host, fresh first boot:
+firmware and loader stamps are 0 in these VMs. Fresh first boot on the shared
+lab host; 1 baseline sample per product:
 
-| Product | Baseline (T843 image) | t5 image | Difference |
-| --- | --- | --- | --- |
-| Snow | 24110 ms (`h5gz4`) | 23667 ms (`5nx9h`) | −443 ms |
-| Sundog | 21485 ms (`dh8jg`) | 23451 ms (`v2n2h`) | +1966 ms |
-| Floe | 18411 ms (`zlpm4`) | 25671 ms (`ttncz`), 17654 ms (`527ht`) | +7260 ms, −757 ms |
+| Product | Baseline (T843 image) | t5 image samples | t5 median | Median − baseline |
+| --- | --- | --- | --- | --- |
+| Snow | 24110 ms (`h5gz4`) | 23667, 22820, 22954 ms | 22954 ms | −1156 ms |
+| Sundog | 21485 ms (`dh8jg`) | 23451, 21277, 21492 ms | 21492 ms | +7 ms |
+| Floe | 18411 ms (`zlpm4`) | 25671, 17654, 17528, 17531 ms | 17593 ms | −818 ms |
 
-The 2 Floe samples of the same image differ by 8 s, so a difference of about
-2 s is inside the noise of 1 sample. snosi-health starts only from its timer,
-3 minutes after boot, and is ordered before no boot target, so it cannot delay
-the default target; systemd-coredump adds a socket and an account. No
-regression is visible; more samples come with the 3-run promotion.
+Floe's 25671 ms (`ttncz`, the first run) is the one outlier; the other 3 Floe
+samples of the same image are within 130 ms of each other. snosi-health starts
+only from its timer, 3 minutes after boot, and is ordered before no boot
+target, so it cannot delay the default target; systemd-coredump adds a socket
+and an account. No boot-time regression is visible against the T843 baseline.
 
 ## Phase 3 — Update-path dev runs
 
