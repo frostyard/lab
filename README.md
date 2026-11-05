@@ -445,9 +445,9 @@ VM pool. Do not enable this option without arranging cleanup.
 Preflight authenticates the ISO and embedded public keys, records Firn provenance
 and its hash, verifies signed OCI images with the pinned cosign key and checks
 version/tag mapping. Each image must carry one of the listed bootc
-secure-assembly labels, `bootc-1.16.8-storage-digest-v1` or
-`bootc-1.17.1-storage-digest-v1`, and preflight records the observed label for
-N and N+1, so an N to N+1 run may cross a bootc version. The disposable
+secure-assembly labels, `bootc-1.16.8-storage-digest-v1`,
+`bootc-1.17.1-storage-digest-v1`, or `bootc-1.17.3-storage-digest-v1`, and
+preflight records the observed label for N and N+1, so an N to N+1 run may cross a bootc version. The disposable
 installer VM then checks the Firn hash and narrow Firn v2 recipe validation
 before install (validator only, not full installed compatibility). Installed
 guest checks enforce the shipped signature policy (reject by default; every

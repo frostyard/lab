@@ -154,7 +154,7 @@ for which in n n_plus_1; do
   # Same assembly allowlist as qa.py ASSEMBLIES; Snosi derives it from the bootc
   # version, so N and N+1 may name different listed assemblies.
   assembly=$(jq -r '.a // "none"' <<<"$labels")
-  same "oci_labels_$which" "$(jq -r --arg v "$ver" '.v == $v and (.a == "bootc-1.16.8-storage-digest-v1" or .a == "bootc-1.17.1-storage-digest-v1") and .c == "true"' <<<"$labels")" true "$labels assembly=$assembly"
+  same "oci_labels_$which" "$(jq -r --arg v "$ver" '.v == $v and (.a == "bootc-1.16.8-storage-digest-v1" or .a == "bootc-1.17.1-storage-digest-v1" or .a == "bootc-1.17.3-storage-digest-v1") and .c == "true"' <<<"$labels")" true "$labels assembly=$assembly"
   ann=$(jq -r '.annotations["org.opencontainers.image.version"] // empty' <<<"$raw")
   same "oci_version_annotation_$which" "$ann" "$ver" "$ann ($(jq -r .mediaType <<<"$raw"))"
   tagd=$(skopeo inspect --no-tags "docker://$tag" 2>/dev/null | jq -r .Digest)

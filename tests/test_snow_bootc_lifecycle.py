@@ -562,8 +562,24 @@ def test_preflight_accepts_a_listed_assembly_per_image_and_records_both(qa, tmp_
     qa.tag(m, "before-stage", checks)
 
 
+def test_preflight_accepts_1_17_1_and_1_17_3_assemblies_and_records_both(qa, tmp_path, monkeypatch):
+    # An N to N+1 update may cross a bootc version, so the two labels differ.
+    m = preflight_manifest()
+    checks = tmp_path / "checks.json"
+    monkeypatch.setattr(qa.subprocess, "run", lambda args, **kwargs: fake_inspector(
+        args, m, None, assembly_n="bootc-1.17.1-storage-digest-v1",
+        assembly_n_plus_1="bootc-1.17.3-storage-digest-v1", **kwargs))
+    qa.preflight(m, checks)
+    data = json.loads(checks.read_text())
+    assert data["assembly_n"] == "bootc-1.17.1-storage-digest-v1"
+    assert data["assembly_n_plus_1"] == "bootc-1.17.3-storage-digest-v1"
+    qa.check_state(m, data)
+    qa.tag(m, "before-stage", checks)
+
+
 @pytest.mark.parametrize("which", ["assembly_n", "assembly_n_plus_1"])
-@pytest.mark.parametrize("assembly", ["bootc-1.17.2-storage-digest-v1", "bootc-1.16.8-storage-digest-v2",
+@pytest.mark.parametrize("assembly", ["bootc-1.17.2-storage-digest-v1", "bootc-1.17.4-storage-digest-v1",
+                                      "bootc-1.17.3-storage-digest-v2", "bootc-1.16.8-storage-digest-v2",
                                       "bootc-1.17.1-storage-digest", "bootc-1.16.8-storage-digest-v1-extra"])
 def test_preflight_rejects_an_unlisted_assembly_label(qa, tmp_path, monkeypatch, which, assembly):
     # The allowlist is exact: no pattern, no neighbouring bootc version.
