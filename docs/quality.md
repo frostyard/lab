@@ -232,8 +232,11 @@ time, so `clean` is strong evidence of a fix).
 `/proc/sys/kernel/osrelease`) to its attested `SNOW_QA_V1` record, with the
 count read after the stage or rollback action so the whole boot is counted.
 `checks.txt` lines become
-`phase=<phase> boot_id=<id> kernel=<release> fsverity_errors=<N>`. The runner
-judges after all five boots were recorded, so a failure keeps every phase's
+`phase=<phase> boot_id=<id> kernel=<release> fsverity_errors=<N> lockdown=<mode> cmdline_lockdown=<value|absent>`.
+Each phase record also keeps the kernel lockdown mode and bounded `/proc/cmdline` evidence.
+`cmdline.txt` keeps `phase=<phase> cmdline=<tokens>` beside `checks.txt`.
+These fields and `cmdline.txt` are evidence only: they do not add a phase gate or
+change a PASS or FAIL result. The runner judges after all five boots were recorded, so a failure keeps every phase's
 evidence: it fails with reason `fsverity_errors` when any phase has errors on a
 kernel that is not on the known-defect list. Errors only on listed kernels pass
 with `fsverity_known_defect=<kernels>` in `checks.txt` and in the PASS reason.
@@ -312,6 +315,10 @@ Snowfield is accepted with offline contract tests and a
 [`dev-snow-bootc-lifecycle-v4cgb`](plans/2026-11-04-snowfield-bootc-lifecycle-run.md)
 fixed lockdown by snosi#1214, then ended `FAILED: fsverity_errors` on
 linux-surface ([snosi#1130](https://github.com/frostyard/snosi/issues/1130)).
+The [snosi#1214 lockdown proof](plans/2026-11-05-lockdown-1214-lifecycle-runs.md)
+updated an N from before #1214 to N+1 and back: Snow `rj697` PASS (bootc
+1.17.1 to 1.17.3), Snowfield `dm5bp` `FAILED: fsverity_errors` from a dev-only
+lane copy, with `lockdown=integrity` on every N+1 boot.
 Offline mocked tests cannot establish published ISO/OCI availability or
 Snowfield hardware qualification.
 Submission includes the JSON in the `argo` process argv; workflow/pod parameters
@@ -348,9 +355,9 @@ ISO index against the pinned fingerprint and records the ISO hash, key hashes,
 verified N/N+1 OCI digests, version mappings, the observed
 `io.snosi.bootc.secureboot-assembly` label of each image, and the extracted
 Firn binary's hash and provenance. The assembly label must be one of the listed
-`bootc-1.16.8-storage-digest-v1` or `bootc-1.17.1-storage-digest-v1`, so an N to
-N+1 run may cross a bootc version. The narrow Firn v2 recipe validator runs
-inside the disposable installer VM before `firn install`, after checking the
+`bootc-1.16.8-storage-digest-v1`, `bootc-1.17.1-storage-digest-v1`, or
+`bootc-1.17.3-storage-digest-v1`, so an N to N+1 run may cross a bootc
+version. The narrow Firn v2 recipe validator runs inside the disposable installer VM before `firn install`, after checking the
 guest Firn hash against preflight. This validator check alone does **not** prove
 full Firn installed compatibility. Before install, real-recipe validation reports
 an allowlisted Firn issue code or `unclassified`, never its diagnostic text. The ISO `SHA256SUMS.gpg`

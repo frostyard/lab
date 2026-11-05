@@ -562,8 +562,24 @@ def test_preflight_accepts_a_listed_assembly_per_image_and_records_both(qa, tmp_
     qa.tag(m, "before-stage", checks)
 
 
+def test_preflight_accepts_1_17_1_and_1_17_3_assemblies_and_records_both(qa, tmp_path, monkeypatch):
+    # An N to N+1 update may cross a bootc version, so the two labels differ.
+    m = preflight_manifest()
+    checks = tmp_path / "checks.json"
+    monkeypatch.setattr(qa.subprocess, "run", lambda args, **kwargs: fake_inspector(
+        args, m, None, assembly_n="bootc-1.17.1-storage-digest-v1",
+        assembly_n_plus_1="bootc-1.17.3-storage-digest-v1", **kwargs))
+    qa.preflight(m, checks)
+    data = json.loads(checks.read_text())
+    assert data["assembly_n"] == "bootc-1.17.1-storage-digest-v1"
+    assert data["assembly_n_plus_1"] == "bootc-1.17.3-storage-digest-v1"
+    qa.check_state(m, data)
+    qa.tag(m, "before-stage", checks)
+
+
 @pytest.mark.parametrize("which", ["assembly_n", "assembly_n_plus_1"])
-@pytest.mark.parametrize("assembly", ["bootc-1.17.2-storage-digest-v1", "bootc-1.16.8-storage-digest-v2",
+@pytest.mark.parametrize("assembly", ["bootc-1.17.2-storage-digest-v1", "bootc-1.17.4-storage-digest-v1",
+                                      "bootc-1.17.3-storage-digest-v2", "bootc-1.16.8-storage-digest-v2",
                                       "bootc-1.17.1-storage-digest", "bootc-1.16.8-storage-digest-v1-extra"])
 def test_preflight_rejects_an_unlisted_assembly_label(qa, tmp_path, monkeypatch, which, assembly):
     # The allowlist is exact: no pattern, no neighbouring bootc version.
@@ -734,8 +750,10 @@ def phase_record(phase):
                    rollback_digest=N if phase in ("boot-n-plus-1", "rollback") else NEXT if phase == "boot-n" else None,
                   policy_sha256="2" * 64, policy_ok=True, pull_ok=True,
                   pull_digest=NEXT, secure_boot=True, uki_type2=True, lockdown=True,
-                   root_luks=True, root_btrfs=True, tpm_pcr11_tokens=1,
-                   kernel=KERNEL, fsverity_errors=0, fsverity_lines=[], action=None, marker_digest=None)
+                  lockdown_mode="integrity", cmdline_lockdown="integrity",
+                  cmdline=["rw", "composefs=?<hex>", "lockdown=integrity", "console=tty0"],
+                  root_luks=True, root_btrfs=True, tpm_pcr11_tokens=1,
+                  kernel=KERNEL, fsverity_errors=0, fsverity_lines=[], action=None, marker_digest=None)
     if phase == "stage":
         record.update(action="staged", marker_digest=NEXT)
     if phase == "rollback":
@@ -773,7 +791,104 @@ def test_phase_accepts_one_attested_fresh_boot(qa, tmp_path, capsys, phase):
     assert qa.main(["phase", str(normalized), phase, NONCE,
                     "none", str(serial), str(checks)]) == 0
     assert capsys.readouterr().out.splitlines() == ["12345678-1234-4234-8234-123456789abc",
-                                                     "fsverity_errors=0", "kernel=" + KERNEL]
+                                                     "fsverity_errors=0", "kernel=" + KERNEL,
+                                                     "lockdown=integrity cmdline_lockdown=integrity",
+                                                     "cmdline=rw composefs=?<hex> lockdown=integrity console=tty0",
+                                                     ]
+
+
+def test_guest_cmdline_evidence_redacts_hex_and_accepts_old_command_line(qa, tmp_path, monkeypatch):
+    lockdown = tmp_path / "lockdown"
+    cmdline = tmp_path / "cmdline"
+    lockdown.write_text("none [integrity] confidentiality\n")
+    cmdline.write_text("rw composefs=?" + "a" * 64 + " lockdown=integrity console=tty0")
+    monkeypatch.setattr(qa, "GUEST_PATHS", {"lockdown": lockdown, "cmdline": cmdline})
+    assert qa.lockdown_field() == "integrity"
+    assert qa.cmdline_field() == ("integrity",
+                                  ["rw", "composefs=?<hex>", "lockdown=integrity", "console=tty0"])
+
+    cmdline.write_text("rw console=tty0")
+    assert qa.cmdline_field() == (None, ["rw", "console=tty0"])
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    ("rw lockdown=integrity lockdown=confidentiality console=tty0", "multiple"),
+    ("rw lockdown=UPPER console=tty0", "malformed"),
+])
+def test_guest_cmdline_records_duplicate_or_malformed_lockdown_tokens(qa, tmp_path, monkeypatch, text, expected):
+    cmdline = tmp_path / "cmdline"
+    cmdline.write_text(text)
+    monkeypatch.setattr(qa, "GUEST_PATHS", {"cmdline": cmdline})
+    value, _ = qa.cmdline_field()
+    assert value == expected
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    ("none integrity [confidentiality]\n", "confidentiality"),
+    ("none [integrity] confidentiality\n", "integrity"),
+    ("none integrity confidentiality\n", "unavailable"),
+    ("[none] integrity confidentiality\n", "unavailable"),
+    (None, "unavailable"),
+])
+def test_guest_lockdown_field_never_guesses_or_gates(qa, tmp_path, monkeypatch, text, expected):
+    # Evidence only: a mode the read cannot see is "unavailable", never another mode.
+    lockdown = tmp_path / "lockdown"
+    if text is not None:
+        lockdown.write_text(text)
+    monkeypatch.setattr(qa, "GUEST_PATHS", {"lockdown": lockdown})
+    assert qa.lockdown_field() == expected
+
+
+def test_guest_oversized_cmdline_keeps_no_secret_fragment(qa, tmp_path, monkeypatch):
+    # A 64-hex secret that straddles the read bound must not leave a short
+    # fragment below the redaction bound in the record.
+    secret = "0123456789abcdef" * 4
+    cmdline = tmp_path / "cmdline"
+    cmdline.write_text(" " * 4080 + "secret=" + secret)
+    monkeypatch.setattr(qa, "GUEST_PATHS", {"cmdline": cmdline})
+    value, tokens = qa.cmdline_field()
+    assert (value, tokens) == ("unavailable", ["<oversized>"])
+    assert not any(secret[:9] in token for token in tokens)
+    cmdline.write_text(" " * 4000 + "rw lockdown=integrity")
+    assert qa.cmdline_field() == ("integrity", ["rw", "lockdown=integrity"])
+
+
+def test_verdict_accepts_unavailable_lockdown_evidence(qa):
+    record = phase_record("stage")
+    record["lockdown_mode"] = "unavailable"
+    qa.verdict(manifest(), "stage", NONCE, "none", record)
+    record["lockdown_mode"] = "none"
+    with pytest.raises(qa.GateError, match="^lockdown_field$"):
+        qa.verdict(manifest(), "stage", NONCE, "none", record)
+
+
+def test_guest_missing_cmdline_returns_unavailable(qa, tmp_path, monkeypatch):
+    monkeypatch.setattr(qa, "GUEST_PATHS", {"cmdline": tmp_path / "missing-cmdline"})
+    assert qa.cmdline_field() == ("unavailable", ["<unavailable>"])
+
+
+def test_guest_long_cmdline_is_bounded_and_passes_verdict(qa, tmp_path, monkeypatch):
+    cmdline = tmp_path / "cmdline"
+    cmdline.write_text(" ".join(["token"] * 33))
+    monkeypatch.setattr(qa, "GUEST_PATHS", {"cmdline": cmdline})
+    lockdown, tokens = qa.cmdline_field()
+    assert lockdown is None and tokens[-1] == "<truncated>" and len(tokens) == 32
+    record = phase_record("stage")
+    record["cmdline"] = tokens
+    qa.verdict(manifest(), "stage", NONCE, "none", record)
+
+    cmdline.write_text("x" * 200)
+    _, tokens = qa.cmdline_field()
+    assert tokens == ["x" * 128]
+    record["cmdline"] = tokens
+    qa.verdict(manifest(), "stage", NONCE, "none", record)
+
+
+def test_verdict_rejects_unredacted_hex(qa):
+    record = phase_record("stage")
+    record["cmdline"] = ["rw", "composefs=?" + "a" * 64]
+    with pytest.raises(qa.GateError, match="^cmdline_field$"):
+        qa.verdict(manifest(), "stage", NONCE, "none", record)
 
 
 def test_phase_accepts_identical_copies_of_one_record(qa, tmp_path, capsys):
@@ -935,6 +1050,8 @@ def test_guest_stage_probes_and_emits_allowlisted_single_record(qa, tmp_path, mo
     (root / "tokens.json").write_text(json.dumps({"tokens": {"0": TPM_TOKEN}}))
     (root / "uptime").write_text("1000.00 500.00\n")
     (root / "osrelease").write_text(KERNEL + "\n")
+    (root / "lockdown").write_text("none [integrity] confidentiality\n")
+    (root / "cmdline").write_text("rw composefs=?" + "a" * 64 + " lockdown=integrity console=tty0")
     esp = root / "esp"
     (esp / "loader/entries").mkdir(parents=True)
     (esp / UKI_PATH.lstrip("/")).parent.mkdir(parents=True)
@@ -944,7 +1061,8 @@ def test_guest_stage_probes_and_emits_allowlisted_single_record(qa, tmp_path, mo
     monkeypatch.setattr(qa, "GUEST_PATHS", {"boot_id": root / "boot_id", "policy": root / "policy.json",
         "update_policy": root / "bootc-policy.json",
         "key": root / "key", "update_check": root / "update-check", "update_staged": root / "update-staged",
-        "esp": esp, "uptime": root / "uptime", "osrelease": root / "osrelease"})
+        "esp": esp, "uptime": root / "uptime", "osrelease": root / "osrelease",
+        "lockdown": root / "lockdown", "cmdline": root / "cmdline"})
     calls = []
     clock = [1000]
 
@@ -1009,6 +1127,9 @@ def test_guest_stage_probes_and_emits_allowlisted_single_record(qa, tmp_path, mo
     assert payload["fsverity_lines"] == (
         [["dm-0", 5, 0, -1], ["dm-0", 6, 4096, -1]] if journal is DEFECT_JOURNAL else [])
     assert payload["kernel"] == KERNEL   # attested from /proc/sys/kernel/osrelease
+    assert payload["lockdown_mode"] == "integrity"
+    assert payload["cmdline_lockdown"] == "integrity"
+    assert payload["cmdline"] == ["rw", "composefs=?<hex>", "lockdown=integrity", "console=tty0"]
     assert calls.index(["journalctl", "-q", "-k", "-b", "--no-pager"]) > calls.index(
         ["/usr/libexec/bootc-update-stage"] if phase == "stage" else ["bootc", "rollback"])
     assert "unattended" not in payload  # Host establishes freshness; guest cannot attest human absence.
@@ -2374,9 +2495,11 @@ def test_guest_never_emits_evidence_for_failed_probe_or_action(qa, tmp_path, mon
     (esp / UKI_PATH.lstrip("/")).parent.mkdir(parents=True)
     (esp / UKI_PATH.lstrip("/")).write_bytes(b"mock-uki")
     (esp / "loader/entries/snow.conf").write_text("uki " + (UKI_PATH.replace("d" * 128, "a" * 128) if damage == "bls_wrong" else UKI_PATH) + "\n" + ("linux /vmlinuz\n" if damage == "bls_linux" else ""))
+    (tmp_path / "lockdown").write_text("none [integrity] confidentiality\n")
+    (tmp_path / "cmdline").write_text("rw lockdown=integrity console=tty0")
     # update_policy is absent: this image predates snosi ADR-0025.
     monkeypatch.setattr(qa, "GUEST_PATHS", {**{key: tmp_path / key for key in
-        ("boot_id", "policy", "key", "update_check", "update_staged", "uptime", "osrelease")},
+        ("boot_id", "policy", "key", "update_check", "update_staged", "uptime", "osrelease", "lockdown", "cmdline")},
         "update_policy": tmp_path / "bootc-policy.json", "esp": esp})
     monkeypatch.setattr(qa, "guest_lockdown", lambda: True)
     booted = NEXT if phase == "rollback" else N
@@ -2567,6 +2690,9 @@ def _worst_case_fsverity_record(qa, phase="boot-n-plus-1"):
     record["fsverity_errors"] = qa.FSVERITY_LINES_MAX
     record["fsverity_lines"] = [["d" * 32, 2**64 - 1, 2**64 - 1, -1]
                                 for _ in range(qa.FSVERITY_LINES_MAX)]
+    record["kernel"] = "z" * 64
+    record["cmdline"] = ["z" * 31] * 31 + ["q" * 44]
+    record["cmdline_lockdown"] = None
     return record
 
 
@@ -2642,22 +2768,33 @@ def test_phase_prints_each_kept_line_after_the_kernel(qa, tmp_path, capsys):
     serial = tmp_path / "serial"
     serial.write_text(serial_record(record))
     assert qa.main(["phase", str(normalized), "boot-n-plus-1", NONCE, "none", str(serial), str(checks)]) == 0
-    # The first 3 lines are unchanged; the kept lines follow, numbered from 1, and
-    # a record with no kept line prints none of them.
+    # Lines 4 and 5 are lifecycle evidence; the kept lines follow from line 6,
+    # numbered from 1, and a record with no kept line prints none of them.
     assert capsys.readouterr().out.splitlines() == [
         record["boot_id"], "fsverity_errors=3", "kernel=" + KERNEL,
+        "lockdown=integrity cmdline_lockdown=integrity",
+        "cmdline=rw composefs=?<hex> lockdown=integrity console=tty0",
         "seq=1 device=dm-0 inode=174546 pos=25952256 level=-1",
         "seq=2 device=dm-0 inode=174547 pos=4128768 level=2"]
 
 
-def test_worst_case_kept_lines_still_fit_the_record_bound(qa):
-    # The marker bound in phase_attest grew from 4096 to 8192 bytes for this:
-    # 32 entries at the widest the grammar allows must still be one record.
+def test_worst_case_kept_lines_and_cmdline_still_fit_the_record_bound(qa, tmp_path):
+    # The marker bound in phase_attest stays 8192 base64 characters:
+    # 32 entries, the longest kernel, and the widest cmdline must fit.
     record = _worst_case_fsverity_record(qa)
+    assert len(record["cmdline"]) == 32
+    assert len(" ".join(record["cmdline"])) == 1036
     encoded = base64.urlsafe_b64encode(qa.canonical(record)).decode()
-    assert 4096 < len(encoded) <= 8192
-    # Same record through the real decoder: the shape gate accepts every entry.
+    assert len(encoded) <= 8192
     assert qa.verdict(manifest(), record["phase"], NONCE, "none", record) == record["boot_id"]
+
+    marker = "SNOW_QA_V1 " + encoded.rstrip("=")
+    assert len(marker.split()[1]) <= 8192
+
+    normalized, checks = phase_files(tmp_path, qa)
+    serial = tmp_path / "serial"
+    serial.write_text(marker + "\n")
+    assert qa.phase_attest(manifest(), record["phase"], NONCE, "none", serial, checks)["boot_id"] == record["boot_id"]
 
 
 @pytest.mark.parametrize("value", [None, "", "7.2 11", "a" * 65, 7, "7.2.11\n+x"])
@@ -2689,7 +2826,9 @@ def test_phase_keeps_attested_boot_when_fsverity_errors_are_nonzero(qa, tmp_path
     serial = tmp_path / "serial"
     serial.write_text(serial_record(record))
     assert qa.main(["phase", str(normalized), "stage", NONCE, "none", str(serial), str(checks)]) == 0
-    assert capsys.readouterr().out.splitlines() == [record["boot_id"], "fsverity_errors=3", "kernel=" + KERNEL]
+    assert capsys.readouterr().out.splitlines() == [record["boot_id"], "fsverity_errors=3", "kernel=" + KERNEL,
+                                                     "lockdown=integrity cmdline_lockdown=integrity",
+                                                     "cmdline=rw composefs=?<hex> lockdown=integrity console=tty0"]
 
 
 def test_five_phase_chain_rejects_reused_boot_identity(qa, tmp_path):
@@ -2721,7 +2860,7 @@ def test_manual_template_contract():
     outputs = entry["outputs"]["parameters"]
     assert {o["valueFrom"]["path"] for o in outputs} == {
         "/tmp/results/result-summary.txt", "/tmp/results/checks.txt", "/tmp/results/fsverity.txt",
-        "/tmp/results/first-login.txt"}
+        "/tmp/results/first-login.txt", "/tmp/results/cmdline.txt"}
     container = entry["container"]
     assert container["command"] == ["/bin/bash", "/opt/snow-qa/run.sh"]
     assert {v["name"] for v in container["volumeMounts"]} == {"scripts", "incus-bin", "incus-sock", "incus-pools", "iso-cache", "evidence", "results"}
@@ -2941,7 +3080,7 @@ def test_runner_failure_never_initializes_vm_and_does_not_expose_inputs(tmp_path
     assert (tmp_path / "results/result-summary.txt").read_text().strip() == expected
 
 
-@pytest.mark.parametrize("scenario", ["pass", "stage", "stage_keep", "iso_add_partial_keep", "iso_add_partial_detach_failed", "no_reboot", "tag_drift", "evidence_write", "output_write", "stage_teardown", "teardown", "serial_oversize", "serial_unreadable", "blocked_teardown", "phase_missing", "phase_malformed", "guest_error", "guest_error_crlf", "updater_error_crlf", "rollback_error_crlf", "duplicate_error_crlf", "conflicting_error_crlf", "install_missing", "install_failed", "install_firn_v2", "install_firn_hash", "install_fake_code", "install_disk_detect", "install_disk_byid", "install_progress", "install_bad_progress", "install_secret_code", "install_fallback", "install_empty_stream", "install_validate_secret", "install_validate_unknown", "install_validate_unclassified", "install_validate_fake", "cumulative_pass", "cumulative_stale", "cumulative_reset", "cumulative_prefix", "fsverity", "fsverity_known", "guest_shutdown", "nvram_escape", "console_reset_each_start", "reset_mid_boot", "reset_twice", "reset_then_truncate", "empty_then_reset", "installer_restart", "reset_then_stale", "reset_then_stale_error", "stopped_without_record", "final_read_record", "final_read_error", "final_read_conflict", "final_read_fresh_record"])
+@pytest.mark.parametrize("scenario", ["pass", "no_line5", "stage", "stage_keep", "iso_add_partial_keep", "iso_add_partial_detach_failed", "no_reboot", "tag_drift", "evidence_write", "output_write", "stage_teardown", "teardown", "serial_oversize", "serial_unreadable", "blocked_teardown", "phase_missing", "phase_malformed", "guest_error", "guest_error_crlf", "updater_error_crlf", "rollback_error_crlf", "duplicate_error_crlf", "conflicting_error_crlf", "install_missing", "install_failed", "install_firn_v2", "install_firn_hash", "install_fake_code", "install_disk_detect", "install_disk_byid", "install_progress", "install_bad_progress", "install_secret_code", "install_fallback", "install_empty_stream", "install_validate_secret", "install_validate_unknown", "install_validate_unclassified", "install_validate_fake", "cumulative_pass", "cumulative_stale", "cumulative_reset", "cumulative_prefix", "fsverity", "fsverity_known", "guest_shutdown", "nvram_escape", "console_reset_each_start", "reset_mid_boot", "reset_twice", "reset_then_truncate", "empty_then_reset", "installer_restart", "reset_then_stale", "reset_then_stale_error", "stopped_without_record", "final_read_record", "final_read_error", "final_read_conflict", "final_read_fresh_record"])
 def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario):
     script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
     for old, new in (("ROOT=/var/lib/snosi-lab/snow-bootc-evidence", f"ROOT={tmp_path}/evidence"),
@@ -2996,13 +3135,16 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
             number = int(match.group(3))
             expected = 'none' if number == 1 else f'{number - 1:08x}-1234-4234-8234-123456789abc'
             if prior != expected or os.environ['SCENARIO'] in ('stage', 'stage_keep', 'stage_teardown') and phase == 'stage': sys.exit(1)
-            if os.environ['SCENARIO'] == 'no_reboot' and phase == 'boot-n-plus-1': print(prior); print('fsverity_errors=0'); print('kernel=7.3.1+deb14-amd64'); sys.exit(0)
+            if os.environ['SCENARIO'] == 'no_reboot' and phase == 'boot-n-plus-1': print(prior); print('fsverity_errors=0'); print('kernel=7.3.1+deb14-amd64'); print('lockdown=integrity cmdline_lockdown=integrity'); print('cmdline=rw lockdown=integrity console=tty0'); sys.exit(0)
             print(f'{number:08x}-1234-4234-8234-123456789abc')
             errors = os.environ['SCENARIO'] in ('fsverity', 'fsverity_known') and phase == 'boot-n-plus-1'
             print('fsverity_errors=' + ('2' if errors else '0'))
             print('kernel=' + ('7.2.11+deb14-amd64' if os.environ['SCENARIO'] == 'fsverity_known' and phase == 'boot-n-plus-1' else '7.3.1+deb14-amd64'))
+            print('lockdown=integrity cmdline_lockdown=integrity')
+            if os.environ['SCENARIO'] != 'no_line5':
+                print('cmdline=rw lockdown=integrity console=tty0')
             if os.environ['SCENARIO'] == 'fsverity_known' and phase == 'boot-n-plus-1':
-                # lab#174: the kept lines follow the 3 fixed lines, one per line.
+                # lab#174: the kept lines follow the 5 fixed lines, one per line.
                 print('seq=1 device=dm-0 inode=174546 pos=25952256 level=-1')
                 print('seq=2 device=dm-0 inode=174546 pos=4128768 level=-1')
         elif cmd == 'kmsg-join':
@@ -3204,7 +3346,7 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
     summary = summary_path.read_text() if summary_path.exists() else (tmp_path / 'evidence/mock-run/result-summary.txt').read_text()
     assert not any('console' in p.name or p.name == 'serial-full'
                    for p in (tmp_path / 'evidence/mock-run').iterdir())
-    if scenario in ('pass', 'cumulative_pass', 'fsverity_known', 'cumulative_reset', 'console_reset_each_start',
+    if scenario in ('pass', 'no_line5', 'cumulative_pass', 'fsverity_known', 'cumulative_reset', 'console_reset_each_start',
                     'reset_mid_boot', 'reset_twice', 'reset_then_truncate', 'empty_then_reset', 'installer_restart',
                     'final_read_record', 'final_read_fresh_record'):
         assert not (tmp_path / 'evidence/mock-run/serial-redacted.log').exists()
@@ -3237,7 +3379,7 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
         assert not (tmp_path / 'snow-qa-mock-run.iso').exists()
         checks = (tmp_path / 'results/checks.txt').read_text().splitlines()
         assert len(checks) == 1 + 9 + 5 + (scenario == 'fsverity_known')  # manifest, tags, attested boots, note
-        assert all(re.fullmatch(r'(?:manifest_sha256=[0-9a-f]{64}|tag=[a-z0-9-]+ timestamp=[0-9T:+.\-]+|phase=[a-z0-9-]+ boot_id=[0-9a-f-]+ kernel=[0-9A-Za-z._+~-]+ fsverity_errors=[0-9]+|fsverity_known_defect=7\.2\.11\+deb14-amd64)', line) for line in checks)
+        assert all(re.fullmatch(r'(?:manifest_sha256=[0-9a-f]{64}|tag=[a-z0-9-]+ timestamp=[0-9T:+.\-]+|phase=[a-z0-9-]+ boot_id=[0-9a-f-]+ kernel=[0-9A-Za-z._+~-]+ fsverity_errors=[0-9]+ lockdown=(?:integrity|confidentiality) cmdline_lockdown=(?:absent|[a-z]{1,16})|fsverity_known_defect=7\.2\.11\+deb14-amd64)', line) for line in checks)
         assert ('fsverity_known_defect=7.2.11+deb14-amd64' in checks) is (scenario == 'fsverity_known')
         # lab#174: the kept lines live in their own file, next to checks.txt in
         # the results and in the evidence, and never in checks.txt.
@@ -3246,6 +3388,12 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
         for name in ('results', 'evidence/mock-run'):
             assert (tmp_path / name / 'fsverity.txt').read_text().splitlines() == (
                 kept if scenario == 'fsverity_known' else []), name
+            if scenario == 'no_line5':
+                assert (tmp_path / name / 'cmdline.txt').read_text().splitlines() == [], name
+            else:
+                expected_cmdline = [f"phase={phase} cmdline=rw lockdown=integrity console=tty0"
+                                    for phase in ("installed-n", "stage", "boot-n-plus-1", "rollback", "boot-n")]
+                assert (tmp_path / name / 'cmdline.txt').read_text().splitlines() == expected_cmdline, name
         assert not any('seq=' in line for line in checks)
     else:
         if scenario not in ('evidence_write',):
@@ -3266,7 +3414,7 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
                 # Judged only after all five fresh boots, so no phase's evidence is lost.
                 assert len([e for e in events if e.startswith('phase ')]) == 5
                 recorded = (tmp_path / 'results/checks.txt').read_text()
-                assert re.search(r'phase=boot-n-plus-1 boot_id=\S+ kernel=7\.3\.1\+deb14-amd64 fsverity_errors=2\n', recorded)
+                assert re.search(r'phase=boot-n-plus-1 boot_id=\S+ kernel=7\.3\.1\+deb14-amd64 fsverity_errors=2 lockdown=(?:integrity|confidentiality) cmdline_lockdown=(?:absent|[a-z]{1,16})\n', recorded)
                 assert 'fsverity_known_defect' not in recorded
                 assert recorded.count('fsverity_errors=') == 5
             if scenario == 'stage_keep':

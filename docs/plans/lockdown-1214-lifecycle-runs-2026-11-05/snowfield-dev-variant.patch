@@ -1,0 +1,88 @@
+From f2a662cd434e397c5b7c681d146d78cd083e24be Mon Sep 17 00:00:00 2001
+From: frostyard-machines
+ <346109377+frostyard-machines@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 21:34:31 -0500
+Subject: [PATCH] DEV VARIANT, NEVER MERGE: accept lockdown none on Snowfield N
+ boots (snosi#1213/#1214 dev run)
+
+---
+ .../snow-bootc-lifecycle-scripts.yaml         | 20 +++++++++++++-----
+ tests/test_dev_variant_1213.py                | 21 +++++++++++++++++++
+ 2 files changed, 36 insertions(+), 5 deletions(-)
+ create mode 100644 tests/test_dev_variant_1213.py
+
+diff --git a/argo/workflow-templates/snow-bootc-lifecycle-scripts.yaml b/argo/workflow-templates/snow-bootc-lifecycle-scripts.yaml
+index 8a28a06c..fcba385c 100644
+--- a/argo/workflow-templates/snow-bootc-lifecycle-scripts.yaml
++++ b/argo/workflow-templates/snow-bootc-lifecycle-scripts.yaml
+@@ -1137,8 +1137,8 @@ data:
+           [[ -n "$fsverity" ]] || fail phase_mismatch
+           kernel=$(sed -n '3s/^kernel=\([0-9A-Za-z._+~-]\{1,64\}\)$/\1/p' "$WORK/boot-id")
+           [[ -n "$kernel" ]] || fail phase_mismatch
+-          lockdown=$(sed -n '4s/^lockdown=\(integrity\|confidentiality\|unavailable\) cmdline_lockdown=\(absent\|[a-z]\{1,16\}\)$/\1/p' "$WORK/boot-id")
+-          cmdline_lockdown=$(sed -n '4s/^lockdown=\(integrity\|confidentiality\|unavailable\) cmdline_lockdown=\(absent\|[a-z]\{1,16\}\)$/\2/p' "$WORK/boot-id")
++          lockdown=$(sed -n '4s/^lockdown=\(none\|integrity\|confidentiality\|unavailable\) cmdline_lockdown=\(absent\|[a-z]\{1,16\}\)$/\1/p' "$WORK/boot-id")
++          cmdline_lockdown=$(sed -n '4s/^lockdown=\(none\|integrity\|confidentiality\|unavailable\) cmdline_lockdown=\(absent\|[a-z]\{1,16\}\)$/\2/p' "$WORK/boot-id")
+           [[ -n "$lockdown" && -n "$cmdline_lockdown" ]] || fail phase_mismatch
+           [[ "$seen_boot_ids" != *":$prior:"* ]] || fail reused_boot_id
+           seen_boot_ids+="$prior:"
+@@ -1912,7 +1912,9 @@ data:
+                     for entry in kept), "fsverity_lines")
+         require(full(r"[0-9A-Za-z._+~-]{1,64}", record["kernel"]), "kernel_field")
+         require(record["action"] == ("staged" if phase == "stage" else "rolled-back" if phase == "rollback" else None), "action")
+-        require(record["lockdown_mode"] in ("integrity", "confidentiality", "unavailable"), "lockdown_field")
++        # DEV VARIANT, NEVER MERGE: lockdown none is accepted only for a Snowfield N boot.
++        require(record["lockdown_mode"] in ("integrity", "confidentiality", "unavailable") or
++                (record["lockdown_mode"] == "none" and m["product"] == "snowfield" and not newer), "lockdown_field")
+         cmdline = record["cmdline"]
+         require(type(cmdline) is list and 1 <= len(cmdline) <= 32
+                 and all(type(token) is str and 1 <= len(token) <= 128
+@@ -2714,8 +2716,16 @@ data:
+         # artifact, reject rather than treating a different digest as proof.
+         require(pulled == "sha256:" + m["image_n_plus_1"].rsplit(":", 1)[-1], "pull_digest")
+         require(b"enabled" in guest_command(["mokutil", "--sb-state"], "secure_boot").lower(), "secure_boot")
+-        require(guest_lockdown(), "lockdown")
+-        lockdown_mode = lockdown_field()
++        # DEV VARIANT, NEVER MERGE (lab dev run for snosi#1213/#1214): Snowfield N
++        # predates #1214 and boots at lockdown [none]. Accept exactly that only on
++        # Snowfield while N is booted; every N+1 boot keeps the full gate.
++        if not guest_lockdown():
++            require(m["product"] == "snowfield"
++                    and status_fields(guest_status())[2] == m["image_n"].rsplit(":", 1)[-1]
++                    and GUEST_PATHS["lockdown"].read_bytes().strip() == b"[none] integrity confidentiality", "lockdown")
++            lockdown_mode = "none"
++        else:
++            lockdown_mode = lockdown_field()
+         cmdline_lockdown, cmdline = cmdline_field()
+         luks_status = guest_command(["cryptsetup", "status", "root"], "root_luks")
+         require(b"/dev/mapper/root is active" in luks_status, "root_luks")
+diff --git a/tests/test_dev_variant_1213.py b/tests/test_dev_variant_1213.py
+new file mode 100644
+index 00000000..357a2409
+--- /dev/null
++++ b/tests/test_dev_variant_1213.py
+@@ -0,0 +1,21 @@
++# DEV VARIANT, NEVER MERGE: the Snowfield N lockdown-none exemption stays narrow.
++import pytest
++from test_snow_bootc_lifecycle import qa, manifest, phase_record, NONCE  # noqa: F401
++
++
++@pytest.mark.parametrize("product,phase,ok", [
++    ("snowfield", "installed-n", True), ("snowfield", "stage", True), ("snowfield", "boot-n", True),
++    ("snowfield", "boot-n-plus-1", False), ("snowfield", "rollback", False),
++    ("snow", "installed-n", False), ("snow", "stage", False)])
++def test_variant_verdict_accepts_none_only_for_snowfield_n(qa, product, phase, ok):
++    m = manifest()
++    m["product"] = product
++    record = phase_record(phase)
++    record["lockdown_mode"] = "none"
++    record["cmdline_lockdown"] = None
++    record["cmdline"] = ["rw", "composefs=?<hex>", "console=tty0"]
++    if ok:
++        qa.verdict(m, phase, NONCE, "none", record)
++    else:
++        with pytest.raises(qa.GateError, match="^lockdown_field$"):
++            qa.verdict(m, phase, NONCE, "none", record)
+-- 
+2.47.3
+

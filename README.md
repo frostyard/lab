@@ -197,7 +197,9 @@ On a listed kernel a positive count is recorded with
 `kernel_btrfs_verity_canary=defect|clean|skipped` never fails a cell. The bootc
 install lane and the Snow lifecycle lane judge `fsverity_errors` and `kernel`
 the same way, and keep the matching kernel lines (never the hashes) in
-`fsverity.txt` next to `checks.txt` (see
+`fsverity.txt` next to `checks.txt`. The lifecycle lane also records its
+lockdown mode and command-line evidence in `checks.txt` and `cmdline.txt`.
+These fields are evidence only and do not add a lifecycle gate (see
 [kept kernel lines](docs/quality.md#kept-kernel-lines-fsveritytxt-lab174)).
 Details:
 [quality evidence](docs/quality.md#fs-verity-regression-checks-snosi1130).
@@ -355,6 +357,10 @@ holds the initial N and N+1 inputs and run `dev-snow-bootc-lifecycle-pnljz`
 [`dev-snow-bootc-lifecycle-v4cgb`](docs/plans/2026-11-04-snowfield-bootc-lifecycle-run.md)
 fixed lockdown by snosi#1214, then ended `FAILED: fsverity_errors` on
 linux-surface ([snosi#1130](https://github.com/frostyard/snosi/issues/1130)).
+The [snosi#1214 lockdown proof](docs/plans/2026-11-05-lockdown-1214-lifecycle-runs.md)
+updated an N from before #1214 to N+1 and back: Snow `rj697` PASS (bootc
+1.17.1 to 1.17.3), Snowfield `dm5bp` `FAILED: fsverity_errors` from a dev-only
+lane copy, with `lockdown=integrity` on every N+1 boot.
 Snowfield hardware qualification is outside this VM lane.
 The lane's first manual main-lane PASS (Snow,
 `run-snow-bootc-lifecycle-tbjnp`, 2026-10-26, bootc 1.16.8 N → N+1) is
@@ -445,9 +451,9 @@ VM pool. Do not enable this option without arranging cleanup.
 Preflight authenticates the ISO and embedded public keys, records Firn provenance
 and its hash, verifies signed OCI images with the pinned cosign key and checks
 version/tag mapping. Each image must carry one of the listed bootc
-secure-assembly labels, `bootc-1.16.8-storage-digest-v1` or
-`bootc-1.17.1-storage-digest-v1`, and preflight records the observed label for
-N and N+1, so an N to N+1 run may cross a bootc version. The disposable
+secure-assembly labels, `bootc-1.16.8-storage-digest-v1`,
+`bootc-1.17.1-storage-digest-v1`, or `bootc-1.17.3-storage-digest-v1`, and
+preflight records the observed label for N and N+1, so an N to N+1 run may cross a bootc version. The disposable
 installer VM then checks the Firn hash and narrow Firn v2 recipe validation
 before install (validator only, not full installed compatibility). Installed
 guest checks enforce the shipped signature policy (reject by default; every
