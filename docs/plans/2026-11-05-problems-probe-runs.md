@@ -133,8 +133,8 @@ and an account. No boot-time regression is visible against the T843 baseline.
   tag is operator-owned (Brian); a dev run never moves it.
 - **Done when:** each product has 1 update run with `problems=ok`, which also
   proves that `preset-reconcile` enables `snosi-health.timer` and that sysusers
-  creates `systemd-coredump` on an updated host. Not met on 2026-11-05: a snosi
-  defect (results below).
+  creates `systemd-coredump` on an updated host. Not met on 2026-11-05: the
+  timer is enabled but not active on the first N+1 boot (results below).
 
 Brian moved the 3 `qa-controlled` tags to the t5 images (T893); each target
 was read from the registry before the runs. The runs ran the merged lane
@@ -177,14 +177,19 @@ On the first boot of N+1, sysusers created `systemd-coredump`,
 `preset-reconcile` succeeded and enabled `snosi-health.timer`, and the collector
 recorded and listed all 4 injected problems. Only the timer is not active:
 `preset-reconcile` runs `systemctl preset`, which enables a unit but does not
-start it, so a timer that an update adds runs first on the next boot. That is a
-snosi defect, not a probe defect:
-[snosi#1229](https://github.com/frostyard/snosi/issues/1229). Phase 3 is done
-when the fix ships in an image and 1 update run per product says `problems=ok`.
+start it, so a timer that an update adds runs first on the next boot. snosi
+designed it so ("Newly enabled services take effect at the NEXT boot", in
+`/usr/libexec/preset-reconcile`); the probe expects the timer active on the
+first N+1 boot. Either snosi starts newly enabled timers, or the probe accepts
+next-boot activation on the update path (for example, with a second N+1 boot):
+[snosi#1229](https://github.com/frostyard/snosi/issues/1229) holds the
+question. Phase 3 is done when 1 update run per product says `problems=ok`
+under the chosen rule.
 
 The update runs have 4 records, not 5: no run recorded an `integrity_error`
 (the unexplained fs-verity record of the fresh runs). The boot timing of the
-first N+1 boot is in the range of the fresh samples above.
+first N+1 boot is at or below each product's fresh median above (Snow
+21338 ms, Floe 17591 ms, Sundog 21057 ms).
 
 ## Later / ideas
 
