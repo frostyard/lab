@@ -1755,8 +1755,8 @@ def test_judge_records_the_known_defect_note_in_the_checks_file(lane, tmp_path):
     assert result.returncode == 0, result.stderr
     assert "fsverity_known_defect=7.2.12+deb14-amd64" in checks.read_text().splitlines()
     assert "known-defect kernel 7.2.12+deb14-amd64" in result.stderr   # visible note
-    # One list per template, with the four kernels of snosi#1130.
-    assert source.count('known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64"') == 1
+    # One list per template, with the five kernels of snosi#1130.
+    assert source.count('known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64 7.2.15-1-surface"') == 1
 
 
 def test_probe_emits_the_kernel_before_the_canary_in_every_run(lane):
@@ -1767,6 +1767,44 @@ def test_probe_emits_the_kernel_before_the_canary_in_every_run(lane):
 
 
 KNOWN_A, KNOWN_B, OTHER_KERNEL = "7.2.11+deb14-amd64", "7.2.12+deb14-amd64", "7.3.1+deb14-amd64"
+SURFACE_KERNEL = "7.2.15-1-surface"
+
+
+@pytest.mark.parametrize("kernel,known_defect", [
+    (SURFACE_KERNEL, True),
+    ("7.2.15-2-surface", False),
+    ("7.2.16-1-surface", False),
+    ("7.2.14-1-surface", False),
+    (SURFACE_KERNEL + "-extra", False),
+    ("7.2.15-1", False),
+    ("7.2.15+deb14-amd64", False),
+    ("7.3.1+deb14-amd64", False),
+])
+def test_judge_surface_kernel_exact_match_and_lookalikes(lane, tmp_path, kernel, known_defect):
+    source = lane["script"]["source"]
+    fail = source[source.index("fail() {"):source.index("\n}", source.index("fail() {")) + 2]
+    judge = source[source.index("judge() {"):source.index("\n}", source.index("judge() {")) + 2]
+    values = dict(line.split("=", 1) for line in GOOD_CHECKS.splitlines())
+    values.update(fsverity_errors="2")
+    lines = [f"{key}={value}" for key, value in values.items() if key != "kernel"] + [f"kernel={kernel}"]
+    checks = tmp_path / "checks.txt"
+    checks.write_text("".join(line + "\n" for line in lines))
+    result = subprocess.run(
+        ["bash", "-c", "set -euo pipefail\nFIRN_VERSION=firn_0.6.0\nUNLOCK_NOTE=\n"
+         + fail.replace("/tmp/results", str(tmp_path))
+         + "\n" + judge.replace("/tmp/results", str(tmp_path)) + '\njudge "$CHECKS"'],
+        env={**os.environ, "CELL": "c", "IMAGE": "floe", "ENC": "none",
+             "IMAGE_DIGEST": EXPECTED_DIGEST, "CHECKS": str(checks)},
+        text=True, capture_output=True, check=False)
+    summary = (tmp_path / "result-summary.txt").read_text()
+    if known_defect:
+        assert result.returncode == 0, result.stderr
+        assert f" fsverity_known_defect={kernel} firn=" in summary
+        assert checks.read_text().splitlines().count(f"fsverity_known_defect={kernel}") == 1
+    else:
+        assert result.returncode == 1
+        assert summary.startswith("FAILED: boot:fsverity_errors_2")
+        assert "fsverity_known_defect" not in summary
 
 
 @pytest.mark.parametrize("kernels,errors,expected", [

@@ -154,10 +154,11 @@ is claimed by the submit file alone.
 
 ## fs-verity regression checks (snosi#1130)
 
-Debian kernels 7.2.11 to 7.2.14 have a btrfs defect: on fs-verity files,
-readahead verifies a whole large folio before all of it is read. The kernel
-logs `fs-verity (...): FILE CORRUPTED! ... level=-1`. A synchronous re-read
-then succeeds, so no bad bytes reach user space; it is log noise with a real
+Debian kernels 7.2.11 to 7.2.14 and the linux-surface kernel
+`7.2.15-1-surface` have a btrfs defect: on fs-verity files, readahead
+verifies a whole large folio before all of it is read. The kernel logs
+`fs-verity (...): FILE CORRUPTED! ... level=-1`. A synchronous re-read then
+succeeds, so no bad bytes reach user space; it is log noise with a real
 cause, not data corruption. The upstream fix is
 [kdave/linux `254e15591ee4`](https://git.kernel.org/pub/scm/linux/kernel/git/kdave/linux.git/commit/?id=254e15591ee4590064e0c55285cdcb4f4519133c)
 ("btrfs: fix the fsverity callback where unexpected range is verified") on
@@ -189,7 +190,17 @@ How often it hits depends on the extents:
 So `fsverity_errors` is judged against a **known-defect kernel list**, the same
 in every template that judges it (`known_defect_kernels` in the Firn judge, the
 bootc install judge and the lifecycle `run.sh`): `7.2.11+deb14-amd64`,
-`7.2.12+deb14-amd64`, `7.2.13+deb14-amd64` and `7.2.14+deb14-amd64`. A
+`7.2.12+deb14-amd64`, `7.2.13+deb14-amd64`, `7.2.14+deb14-amd64` and
+`7.2.15-1-surface` (linux-surface, Snowfield). The linux-surface entry has
+the same unfixed code: upstream v7.2.15 `fs/btrfs/extent_io.c` is
+byte-identical to v7.2.12 and still calls `fsverity_verify_folio()` in
+`btrfs_verify_folio()`, the upstream `ChangeLog-7.2.13` to `-7.2.15` have no
+btrfs commit, and the linux-surface `patches/7.2` set (base v7.2.15) touches no
+file under `fs/` or `mm/`. Snowfield run `dev-snow-bootc-lifecycle-v4cgb`
+([record](plans/2026-11-04-snowfield-bootc-lifecycle-run.md)) logged 2, 1, 0,
+1 and 2 errors in its five boots, all `level=-1` on `dm-0`; its kept serial
+log (the `boot-n` boot) has no btrfs checksum or I/O error. Only that exact name is listed: another linux-surface
+build fails until it is checked the same way. A
 missing or non-numeric count always fails. A count of 0
 passes. A count above 0 on a listed kernel is recorded with a visible note
 (`fsverity_known_defect=<kernel>` in the checks and in the summary line) and
