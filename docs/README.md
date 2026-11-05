@@ -61,6 +61,8 @@ Org-wide decisions binding this repo: [org-adrs.md](org-adrs.md).
   — `LoadState` and `NeedDaemonReload` in the record, control and reload dev runs
 - [2026-11-01 — Sundog lifecycle with a bootc 1.17.1 N (snosi#1130 prediction, lab#174)](plans/2026-11-01-sundog-bootc117-lifecycle-run.md)
   — first `fsverity.txt` evidence, 3 dev runs and the 9 s boot stop
+- [2026-11-04 — First-login probe on today's images (T843 t2)](plans/2026-11-04-first-login-probe-runs.md)
+  — first-setup once on Snow and Snowfield, Sundog and Floe dev runs
 
 ### Uncategorized (indexed where they stand)
 
