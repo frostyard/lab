@@ -577,6 +577,37 @@ because of which app started: a summary that starts with `unproven-` ends
 other summary ends `PASS` with `verified_first_login_probe;first_login=<summary>`
 ([ADR-0016](docs/adr/0016-first-login-probe-is-a-report-only-lane-mode.md)).
 
+The optional manifest key `problems_probe` replaces the five-boot plan with a
+report-only problems probe of the installed image's snosi-health collector
+(snosi ADR-0029) and systemd-coredump. It is an object with exactly
+`{"path": "fresh"}` or `{"path": "update"}`, never present with `sysext_probe`
+or `first_login_probe`. `fresh` boots the installed N once (phase `problems`)
+and uses the `version_distinct` rule, because nothing is staged; `update` makes
+the unchanged `installed-n` and `stage` boots and then `problems` as the first
+boot of N+1, so its rule stays `version_order`. The `problems` boot records the
+boot timing (the default target and the `Firmware`, `Loader`, `InitRD`,
+`Userspace` and active-enter timestamps, as `systemd-analyze` computes them,
+`null` when one cannot be read), the collector binary, the
+`snosi-health.timer` state, `preset-reconcile.service`'s `Result`, the
+`systemd-coredump` account, the persistent journal directory and the
+`core_pattern` pipe. It then injects 4 problems that are local to the throwaway
+VM: a oneshot unit in the installed `/etc` that fails (a local unit, so its name
+stays out of `problems.json` and its problems entry is not reportable),
+`bootc-update-stage` inside a network namespace with no route, a child killed
+with `SIGSEGV` for systemd-coredump, and one app problem datagram in the
+journal's native protocol. It starts the collector twice and reads
+`problems.json`, `details.json` and `snosi-health --list`. The host validates the
+record against a pinned copy of core's `problem-report/v1` schema and prints one
+`problems=<summary>` line in `checks.txt` and `problems.txt`: `ok`,
+`unproven-no-collector`, `unproven-too-large`, or `missing-` plus the failed
+checks (`file`, `schema`, `timer`, `coredump`, `journal`, `details`, `unit`,
+`stage`, `crash`, `app`, and `list` on Floe). A summary that starts with
+`unproven-` ends `BLOCKED` with `problems_<summary>`
+([ADR-0003](docs/adr/0003-unproven-is-distinct-from-failed.md)); every other
+summary ends `PASS` with `verified_problems_probe;problems=<summary>`. The probe
+never fails the run for a product finding
+([ADR-0017](docs/adr/0017-problems-probe-is-a-report-only-lane-mode.md)).
+
 On failure, private evidence may also include `install-diagnostic.txt` (a
 bounded, redacted installer diagnostic or `unavailable`/`unparsed`) and
 `serial-redacted.log` (best-effort, bounded redacted console snapshot; never
