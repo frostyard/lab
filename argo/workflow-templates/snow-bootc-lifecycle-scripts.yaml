@@ -1141,7 +1141,13 @@ data:
         # carries the bearer to this pod log.
         timeout 1200 incus exec "$INTAKE" --env INTAKE_COMMIT="$intake_commit" \
           --env NODE_VERSION="$node_version" --env NODE_SHA256="$node_sha256" \
-          -- bash -s < /opt/snow-qa/intake-setup.sh >/dev/null 2>&1 || blocked intake_setup
+          -- bash -s < /opt/snow-qa/intake-setup.sh > "$WORK/intake-setup.log" 2>&1 || {
+          # The setup prints no secret (no xtrace), so its last lines are safe
+          # evidence of where it stopped (dev-snow-bootc-lifecycle-fnn87 hid a 404).
+          tail -n 40 "$WORK/intake-setup.log" > "$WORK/intake-setup.txt" 2>/dev/null || true
+          persist "$WORK/intake-setup.txt" "$EVIDENCE/intake-setup.txt" || true
+          blocked intake_setup
+        }
       fi
     fi
     # Kernels with the known upstream btrfs fs-verity defect (frostyard/snosi#1130,
@@ -6020,7 +6026,7 @@ data:
     install -d -m 0755 /opt/node /opt/intake /opt/intake/tls /var/lib/intake
     tarball=/opt/node.tar.xz
     curl -fsSL --max-time 300 -o "$tarball" \
-      "https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION#v}-linux-x64.tar.xz"
+      "https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-linux-x64.tar.xz"
     printf '%s  %s\n' "$NODE_SHA256" "$tarball" | sha256sum -c - >/dev/null
     tar -xJf "$tarball" -C /opt/node --strip-components=1
     rm -f "$tarball"

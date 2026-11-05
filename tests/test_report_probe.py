@@ -1259,3 +1259,18 @@ def test_the_mock_never_logs_the_dsn_key_and_ignores_it_as_a_bearer(intake):
     entry = lines(intake["state"] / "glitchtip.jsonl")[-1]
     assert entry["bearer_ok"] is False
     assert "b" * 32 not in json.dumps(entry)
+
+
+def test_the_node_tarball_name_keeps_the_v_of_the_version():
+    # dev-snow-bootc-lifecycle-fnn87: nodejs.org names the tarball
+    # node-v24.22.1-linux-x64.tar.xz; a stripped "v" gives a 404.
+    setup = scripts()["intake-setup.sh"]
+    assert "/node-${NODE_VERSION}-linux-x64.tar.xz" in setup
+    assert "NODE_VERSION#v" not in setup
+
+
+def test_a_failed_intake_setup_keeps_its_last_lines_as_evidence():
+    run = scripts()["run.sh"]
+    assert '> "$WORK/intake-setup.log" 2>&1 || {' in run
+    assert 'persist "$WORK/intake-setup.txt" "$EVIDENCE/intake-setup.txt" || true' in run
+    assert "set -x" not in scripts()["intake-setup.sh"]
