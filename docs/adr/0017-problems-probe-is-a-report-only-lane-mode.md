@@ -36,6 +36,8 @@ installed N once (phase `problems`) and uses the `version_distinct` rule, becaus
 nothing is staged. `update` makes the unchanged `installed-n` and `stage` boots
 and then `problems` as the first boot of N+1, so its rule stays
 `version_order`. Its budget is `reboot`, and `installed_boot` on the fresh path.
+The update path then reboots N+1 once more (`problems-reboot`, see the amendment
+below).
 
 The `problems` boot runs the guest's `problems` mode as root, and its one guest
 record is the evidence:
@@ -85,6 +87,29 @@ The probe never fails the run for a product finding. A summary that starts with
 `PASS` with `verified_problems_probe;problems=<summary>`. The report lands in
 `problems.txt` in the results and in the private evidence directory, and the
 workflow publishes it as the `problems` output parameter.
+
+## Amendment 2026-11-05: the timer on the update path (T893d)
+
+The first update runs (`x9htr`, `mfg6x`, `w7l84`) passed every check except
+`timer`: `snosi-health.timer` was `enabled/inactive` on the first boot of N+1.
+`preset-reconcile` runs `systemctl preset`, which enables a timer that the
+update adds but does not start it, so the timer starts on the next boot. snosi
+designed it so ([snosi#1229](https://github.com/frostyard/snosi/issues/1229)).
+Brian decided (T893d) that the probe accepts that design and proves the next
+boot:
+
+- On the update path the lane makes one more boot of N+1, `problems-reboot`,
+  after `problems`. Its guest runs the same `problems` mode, records the same
+  static facts (timer, `preset-reconcile`, account, journal, `core_pattern`,
+  boot timing) and injects nothing: `injected`, `collector_runs`, `problems`,
+  `details` and `listing` are null, and the host refuses the record otherwise.
+  The host also requires a new boot id and the N+1 digest, and keeps the record
+  as `problems-reboot.json`.
+- The `timer` check passes on the update path only when the first N+1 boot shows
+  the timer `enabled` (`active` or `inactive`) and the second shows it
+  `enabled/active`. The report adds 1 detail line,
+  `reboot timer=<enabled>/<active> preset_reconcile=<result>`.
+- The fresh path does not change: 1 boot, and the timer `enabled/active` on it.
 
 ## Consequences
 

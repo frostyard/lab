@@ -1042,11 +1042,13 @@ data:
       fi
     elif [[ "$problems_mode" == 1 ]]; then
       # fresh probes the installed N only; update stages N+1 first, so its problems
-      # boot is the first boot of N+1.
+      # boot is the first boot of N+1. preset-reconcile starts a newly enabled timer
+      # only on the next boot (Brian, T893d; snosi#1229), so update reboots N+1 once
+      # more and problems-reboot must see snosi-health.timer active.
       if [[ "$problems_path" == fresh ]]; then
         phase_plan=(problems)
       else
-        phase_plan=(installed-n stage problems)
+        phase_plan=(installed-n stage problems problems-reboot)
       fi
     else
       phase_plan=(installed-n stage boot-n-plus-1 rollback boot-n)
@@ -1080,7 +1082,7 @@ data:
       case "$phase" in
         sysext-enable|sysext-reboot) guest_mode=sysext; guest_after=" multi-user.target";;
         login-1|login-2) guest_mode=login; guest_after=" multi-user.target";;
-        problems) guest_mode=problems; guest_after=" multi-user.target";;
+        problems|problems-reboot) guest_mode=problems; guest_after=" multi-user.target";;
         *) guest_mode=guest; guest_after="";;
       esac
       guestunit="[Unit]
@@ -1170,15 +1172,15 @@ data:
           printf 'phase=%s %s\n' "$phase" "$(cat "$WORK/serial-channel" 2>/dev/null)" >> "$OUT/serial-channel.txt" || true
           persist "$OUT/serial-channel.txt" "$EVIDENCE/serial-channel.txt" || true
           ;;
-        problems)
+        problems|problems-reboot)
           await SNOW_PROBLEMS_V1 "$((budget + 300))" SNOW_PROBLEMS_ERR
-          python3 /opt/snow-qa/problems.py phase "$WORK/normalized.json" "$phase" "$nonce" "$prior" "$WORK/serial" "$WORK/problems.json" > "$WORK/problems-id" 2>/dev/null || fail phase_mismatch
-          [[ -s "$WORK/problems.json" && -s "$WORK/problems-id" ]] || fail phase_mismatch
+          python3 /opt/snow-qa/problems.py phase "$WORK/normalized.json" "$phase" "$nonce" "$prior" "$WORK/serial" "$WORK/$phase.json" > "$WORK/problems-id" 2>/dev/null || fail phase_mismatch
+          [[ -s "$WORK/$phase.json" && -s "$WORK/problems-id" ]] || fail phase_mismatch
           prior=$(sed -n '1p' "$WORK/problems-id")
           [[ -n "$prior" ]] || fail phase_mismatch
           [[ "$seen_boot_ids" != *":$prior:"* ]] || fail reused_boot_id
           seen_boot_ids+="$prior:"
-          persist "$WORK/problems.json" "$EVIDENCE/problems.json" || fail evidence_write
+          persist "$WORK/$phase.json" "$EVIDENCE/$phase.json" || fail evidence_write
           printf 'phase=%s boot_id=%s\n' "$phase" "$prior" >> "$OUT/checks.txt"
           persist "$OUT/checks.txt" "$EVIDENCE/checks.txt" || fail evidence_write
           # lab#177: which channel carried the record. Best effort: this file
@@ -1372,7 +1374,10 @@ data:
     fi
     if [[ "$problems_mode" == 1 ]]; then
       # The problems-probe report: one summary line, then the fixed detail lines.
-      if ! python3 /opt/snow-qa/problems.py report "$WORK/normalized.json" "$WORK/problems.json" > "$WORK/problems-report" 2>/dev/null; then
+      # The update path also passes the record of its 2nd N+1 boot (T893d).
+      problems_records=("$WORK/problems.json")
+      [[ "$problems_path" == fresh ]] || problems_records+=("$WORK/problems-reboot.json")
+      if ! python3 /opt/snow-qa/problems.py report "$WORK/normalized.json" "${problems_records[@]}" > "$WORK/problems-report" 2>/dev/null; then
         fail problems_report
       fi
       problems_line=$(sed -n '1p' "$WORK/problems-report")
@@ -1504,7 +1509,9 @@ data:
     # Every guest file the probe reads is below this prefix; tests point it at a
     # temporary tree instead, like SYSEXT_ROOT.
     LOGIN_ROOT = Path("/")
-    PROBLEMS_PHASES = ("problems",)
+    # problems-reboot is the 2nd boot of N+1 on the update path (T893d): it only
+    # reads the static facts, the timer state above all, and injects nothing.
+    PROBLEMS_PHASES = ("problems", "problems-reboot")
     PROBLEMS_FIELDS = FIELDS | {"problems_probe"}
     PROBLEMS_RECORD_FIELDS = set("phase nonce boot_id booted_digest path boot collector timer preset_reconcile coredump_user journal_dir core_pattern injected collector_runs problems details listing".split())
     # The problems probe's record is larger than a marker line bound, so it carries
@@ -2483,14 +2490,12 @@ data:
 
 
     def fsverity_error_count(log):
-        """Count fs-verity corruption messages in a kernel log; never edits the log.
-
-        Kernels 7.2.11 to 7.2.14 log "FILE CORRUPTED" when btrfs readahead verifies
-        a large folio of an fs-verity file too early; the re-read succeeds
-        (frostyard/snosi#1130; upstream kdave/linux 254e15591ee4). Compressed
-        extents hit it almost always; uncompressed files rarely, at extent
-        boundaries. The runner judges the count against a known-defect kernel list.
-        """
+        """Count fs-verity corruption messages in a kernel log; never edits the log."""
+        # Kernels 7.2.11 to 7.2.14 log "FILE CORRUPTED" when btrfs readahead verifies
+        # a large folio of an fs-verity file too early; the re-read succeeds
+        # (frostyard/snosi#1130; upstream kdave/linux 254e15591ee4). Compressed
+        # extents hit it almost always; uncompressed files rarely, at extent
+        # boundaries. The runner judges the count against a known-defect kernel list.
         total = 0
         for line in log.splitlines():
             if b"FILE CORRUPTED" in line:
@@ -2512,13 +2517,11 @@ data:
 
 
     def fsverity_lines(log):
-        """[device, inode, pos, level] for each fs-verity corruption line, in log order.
-
-        Read-only, like fsverity_error_count: the log is never edited. A line that
-        does not match the message shape is ignored (its count still reaches
-        fsverity_errors), an entry whose inode or pos does not fit 64 bits is
-        skipped, and only the first FSVERITY_LINES_MAX entries are kept.
-        """
+        """[device, inode, pos, level] for each fs-verity corruption line, in log order."""
+        # Read-only, like fsverity_error_count: the log is never edited. A line that
+        # does not match the message shape is ignored (its count still reaches
+        # fsverity_errors), an entry whose inode or pos does not fit 64 bits is
+        # skipped, and only the first FSVERITY_LINES_MAX entries are kept.
         found = []
         for line in log.splitlines():
             match = FSVERITY_MESSAGE.search(line)
@@ -3333,13 +3336,11 @@ data:
 
 
     def login_section_keys(lines, name):
-        """key -> value of the active lines of one [section], whitespace stripped.
-
-        SDDM and GLib both strip whitespace around `=` and around a section
-        name, so `User = other` is as active as `User=other`, and ` [Autologin] `
-        names the same section. Keys stay case-sensitive. The last active line
-        of a key wins, as GLib's key file reader takes it.
-        """
+        """key -> value of the active lines of one [section], whitespace stripped."""
+        # SDDM and GLib both strip whitespace around `=` and around a section
+        # name, so `User = other` is as active as `User=other`, and ` [Autologin] `
+        # names the same section. Keys stay case-sensitive. The last active line
+        # of a key wins, as GLib's key file reader takes it.
         values, inside = {}, False
         for line in lines:
             stripped = line.strip()
@@ -3829,7 +3830,7 @@ data:
                  for name in ("enabled", "active")}
         preset = problems_show(["systemctl", "show", "-p", "Result", "preset-reconcile.service"])
         injected = runs = document = details = listing = None
-        if collector:
+        if collector and phase == "problems":
             # Two collector runs, one after the other: the timer can start one during
             # the injections, and the second start is always a full run after them.
             injected = problems_inject()
@@ -4196,7 +4197,8 @@ data:
     """Host-side gates and report for the report-only problems probe (plan T857 phase 1).
 
     This file never travels to the guest: the guest runs qa.py `problems`. It reads
-    the one `SNOW_PROBLEMS_V1` record of the probed boot, validates it against the
+    the one `SNOW_PROBLEMS_V1` record of each probed boot (the update path has a
+    2nd N+1 boot, `problems-reboot`), validates it against the
     frozen collector contract of snosi ADR-0029, and reports what the probe saw. The
     gates come from the one ConfigMap copy of qa.py beside it.
     """
@@ -4211,6 +4213,9 @@ data:
     from qa import (PROBLEMS_TOKEN_MAX, SERIAL_MAX, GateError, boot_id_valid, canonical,  # noqa: E402
                     full, load, marker_token, nonce_valid, pairs, require)
 
+    # The probed boots: problems on both paths, and on the update path also
+    # problems-reboot, the 2nd boot of N+1, which reads the static facts only (T893d).
+    PHASES = ("problems", "problems-reboot")
     # The record the guest publishes, and the bounds of every field in it.
     RECORD_FIELDS = set("phase nonce boot_id booted_digest path boot collector timer preset_reconcile coredump_user journal_dir core_pattern injected collector_runs problems details listing".split())
     BOOT_FIELDS = set("target firmware_ms loader_ms kernel_ms initrd_ms userspace_ms target_ms".split())
@@ -4312,8 +4317,13 @@ data:
     def record_shape(record):
         """Strict shape of one problems record: exact keys, types and bounds."""
         require(type(record) is dict and set(record) == RECORD_FIELDS, "record_fields")
-        require(record["phase"] == "problems" and nonce_valid(record["nonce"]), "record_identity")
+        require(record["phase"] in PHASES and nonce_valid(record["nonce"]), "record_identity")
         require(record["path"] in ("fresh", "update") and full(r"[0-9a-f]{64}", record["booted_digest"]), "record_fields")
+        if record["phase"] == "problems-reboot":
+            # The 2nd N+1 boot exists only on the update path, and it injects nothing.
+            require(record["path"] == "update", "record_identity")
+            require(all(record[key] is None for key in ("injected", "collector_runs", "problems", "details", "listing")),
+                    "record_fields")
         require(boot_id_valid(record["boot_id"]), "boot_identity")
         boot = record["boot"]
         if boot is not None:
@@ -4395,14 +4405,14 @@ data:
 
     def phase(m, name, nonce, prior, serial, destination):
         """The record of one probed boot: its identity, image and path, then evidence."""
-        require("problems_probe" in m and name == "problems" and nonce_valid(nonce)
+        require("problems_probe" in m and name in PHASES and nonce_valid(nonce)
                 and (prior == "none" or boot_id_valid(prior)), "phase_arguments")
         record = record_count(Path(serial).read_bytes())
         record_shape(record)
         require(record["phase"] == name and record["nonce"] == nonce, "record_identity")
         require(record["boot_id"] != prior, "boot_identity")
         require(record["path"] == m["problems_probe"]["path"], "probed_path")
-        # fresh proves the installed N; update proves the first boot of N+1.
+        # fresh proves the installed N; update proves the first 2 boots of N+1.
         image = m["image_n_plus_1"] if record["path"] == "update" else m["image_n"]
         require(record["booted_digest"] == image.rsplit(":", 1)[-1], "booted_image")
         with open(destination, "wb", opener=lambda path, flags: os.open(path, flags, 0o600)) as stream:
@@ -4462,9 +4472,28 @@ data:
         return "yes" if value else "no"
 
 
-    def report(m, path):
+    def timer_ok(record, reboot):
+        """snosi-health.timer: active on the probed boot, or on the 2nd N+1 boot of an update."""
+        timer = record["timer"]
+        if reboot is None:
+            return timer["enabled"] == "enabled" and timer["active"] == "active"
+        # Brian, T893d (snosi#1229): preset-reconcile enables a new timer on the 1st
+        # N+1 boot and it starts on the next boot. So the 1st boot may show it
+        # inactive, but only enabled; the 2nd boot must show it enabled and active.
+        return (timer["enabled"] == "enabled" and timer["active"] in ("active", "inactive")
+                and reboot["timer"] == {"enabled": "enabled", "active": "active"})
+
+
+    def report(m, path, reboot_path=None):
         """The one summary line, then the fixed detail lines; never a product failure."""
         record = record_file(path)
+        require(record["phase"] == "problems" and record["path"] == m["problems_probe"]["path"], "record_identity")
+        # The update path always has its 2nd N+1 boot; the fresh path never has one.
+        require((reboot_path is not None) == (record["path"] == "update"), "usage")
+        reboot = record_file(reboot_path) if reboot_path is not None else None
+        if reboot is not None:
+            require(reboot["phase"] == "problems-reboot" and reboot["boot_id"] != record["boot_id"]
+                    and reboot["booted_digest"] == record["booted_digest"], "record_identity")
         root = json.loads(SCHEMA.read_bytes())
         problems, details, listing = record["problems"], record["details"], record["listing"]
         document = problems["doc"] if problems is not None else None
@@ -4483,7 +4512,7 @@ data:
         checks = {
             "file": problems is not None and problems["mode"] == "0644" and problems["uid"] == 0 and problems["gid"] == 0,
             "schema": document is not None and document_ok(document, root),
-            "timer": record["timer"]["enabled"] == "enabled" and record["timer"]["active"] == "active",
+            "timer": timer_ok(record, reboot),
             "coredump": record["coredump_user"] and record["core_pattern"],
             "journal": record["journal_dir"],
             "details": details is not None and details["mode"] == "0640" and details["uid"] == 0 and details["group"] == "sudo",
@@ -4544,15 +4573,19 @@ data:
             print("boot target=%s firmware_ms=%d loader_ms=%d kernel_ms=%d initrd_ms=%d userspace_ms=%d target_ms=%d" % (
                 boot["target"], boot["firmware_ms"], boot["loader_ms"], boot["kernel_ms"],
                 boot["initrd_ms"], boot["userspace_ms"], boot["target_ms"]))
+        if reboot is not None:
+            # The update path only: the 2nd boot of N+1, where the timer must be active.
+            print("reboot timer=%s/%s preset_reconcile=%s" % (
+                reboot["timer"]["enabled"], reboot["timer"]["active"], reboot["preset_reconcile"]))
 
 
     def main(argv):
         try:
-            require(len(argv) in (3, 7), "usage")
+            require(len(argv) in (3, 4, 7), "usage")
             if argv[0] == "phase" and len(argv) == 7:
                 phase(load(argv[1], frozen=True), argv[2], argv[3], argv[4], argv[5], argv[6])
-            elif argv[0] == "report" and len(argv) == 3:
-                report(load(argv[1], frozen=True), argv[2])
+            elif argv[0] == "report" and len(argv) in (3, 4):
+                report(load(argv[1], frozen=True), *argv[2:])
             else:
                 raise GateError("usage")
             return 0

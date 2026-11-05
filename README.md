@@ -585,8 +585,9 @@ report-only problems probe of the installed image's snosi-health collector
 `{"path": "fresh"}` or `{"path": "update"}`, never present with `sysext_probe`
 or `first_login_probe`. `fresh` boots the installed N once (phase `problems`)
 and uses the `version_distinct` rule, because nothing is staged; `update` makes
-the unchanged `installed-n` and `stage` boots and then `problems` as the first
-boot of N+1, so its rule stays `version_order`. The `problems` boot records the
+the unchanged `installed-n` and `stage` boots, then `problems` as the first
+boot of N+1 and `problems-reboot` as the second, so its rule stays
+`version_order`. The `problems` boot records the
 boot timing (the default target and the `Firmware`, `Loader`, `InitRD`,
 `Userspace` and active-enter timestamps, as `systemd-analyze` computes them,
 `null` when one cannot be read), the collector binary, the
@@ -603,7 +604,13 @@ record against a pinned copy of core's `problem-report/v1` schema and prints one
 `problems=<summary>` line in `checks.txt` and `problems.txt`: `ok`,
 `unproven-no-collector`, `unproven-too-large`, or `missing-` plus the failed
 checks (`file`, `schema`, `timer`, `coredump`, `journal`, `details`, `unit`,
-`stage`, `crash`, `app`, and `list` on Floe). A summary that starts with
+`stage`, `crash`, `app`, and `list` on Floe). `preset-reconcile` starts a timer
+that an update adds only on the next boot
+([snosi#1229](https://github.com/frostyard/snosi/issues/1229)), so on the
+`update` path the `timer` check accepts `enabled/inactive` on the first N+1 boot
+and requires `enabled/active` on the `problems-reboot` boot, which only reads
+the static facts and injects nothing; the `fresh` path requires
+`enabled/active` on its one boot. A summary that starts with
 `unproven-` ends `BLOCKED` with `problems_<summary>`
 ([ADR-0003](docs/adr/0003-unproven-is-distinct-from-failed.md)); every other
 summary ends `PASS` with `verified_problems_probe;problems=<summary>`. The probe
