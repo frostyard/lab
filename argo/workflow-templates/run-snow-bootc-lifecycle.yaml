@@ -51,6 +51,11 @@ spec:
         valueFrom:
           path: /tmp/results/first-login.txt
           default: "evidence unavailable"
+      # The problems-probe report: one summary line, then the 6 fixed detail lines.
+      - name: problems
+        valueFrom:
+          path: /tmp/results/problems.txt
+          default: "evidence unavailable"
     container:
       image: docker.io/library/debian:trixie-slim
       command: [/bin/bash, /opt/snow-qa/run.sh]

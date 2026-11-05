@@ -2631,7 +2631,8 @@ def test_single_marker_rejects_noncanonical_pad_bits(qa, tmp_path, capsys):
 
 def test_guest_shell_requires_credentials_without_echoing_inputs(tmp_path):
     scripts = yaml.safe_load(SOURCE.read_text())["data"]
-    assert set(scripts) == {"guest.sh", "login-setup.sh", "qa.py", "run.sh"}
+    assert set(scripts) == {"guest.sh", "login-setup.sh", "problem-report-v1.json", "problems.py",
+                            "qa.py", "run.sh"}
     guest = tmp_path / "guest.sh"
     guest.write_text(scripts["guest.sh"])
     no_creds = subprocess.run(["sh", str(guest)], capture_output=True, env={"PATH": "/usr/bin"}, check=False)
@@ -2860,7 +2861,7 @@ def test_manual_template_contract():
     outputs = entry["outputs"]["parameters"]
     assert {o["valueFrom"]["path"] for o in outputs} == {
         "/tmp/results/result-summary.txt", "/tmp/results/checks.txt", "/tmp/results/fsverity.txt",
-        "/tmp/results/first-login.txt", "/tmp/results/cmdline.txt"}
+        "/tmp/results/first-login.txt", "/tmp/results/cmdline.txt", "/tmp/results/problems.txt"}
     container = entry["container"]
     assert container["command"] == ["/bin/bash", "/opt/snow-qa/run.sh"]
     assert {v["name"] for v in container["volumeMounts"]} == {"scripts", "incus-bin", "incus-sock", "incus-pools", "iso-cache", "evidence", "results"}
@@ -4608,8 +4609,12 @@ def test_run_script_wires_the_sysext_boots_into_the_shared_body():
 
 
 def test_qa_payload_stays_below_the_smbios_credential_bound():
+    # A proxy bound on qa.py with its comments: what travels is the stripped
+    # program, and test_guest_unit_stays_under_the_smbios_bound holds the real
+    # 54000 bound on the whole guest unit. The problems probe (T857 t7) took the
+    # proxy to about 49000 without changing the unit bound.
     payload = yaml.safe_load(SOURCE.read_text())["data"]["qa.py"]
-    assert len(base64.b64encode(zlib.compress(payload.encode(), 9))) < 45000
+    assert len(base64.b64encode(zlib.compress(payload.encode(), 9))) < 50000
 
 
 def test_sysext_reboot_host_codes_come_only_from_manifest_units_and_valid_names(qa, tmp_path, capsys):
@@ -5016,10 +5021,11 @@ def test_run_records_the_channel_of_every_accepted_phase_record():
     write = ('printf \'phase=%s %s\\n\' "$phase" "$(cat "$WORK/serial-channel" 2>/dev/null)"'
              ' >> "$OUT/serial-channel.txt" || true')
     persist = 'persist "$OUT/serial-channel.txt" "$EVIDENCE/serial-channel.txt" || true'
-    # Every branch of the phase case: the attestation, sysext and first-login boots.
-    assert loop.count(write) == 3 and loop.count(persist) == 3
+    # Every branch of the phase case: the attestation, sysext, first-login and
+    # problems boots.
+    assert loop.count(write) == 4 and loop.count(persist) == 4
     for marker in ("printf 'phase=%s boot_id=%s kernel=", "printf 'phase=%s boot_id=%s sysext_failures=",
-                   "printf 'phase=%s boot_id=%s session="):
+                   "printf 'phase=%s boot_id=%s session=", "printf 'phase=%s boot_id=%s\\n'"):
         start = loop.index(marker)
         assert loop.index('persist "$OUT/checks.txt"', start) < loop.index(write, start)
         assert loop.index(write, start) < loop.index(persist, start) < loop.index(";;", start)

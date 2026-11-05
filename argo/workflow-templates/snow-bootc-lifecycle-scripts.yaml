@@ -79,6 +79,11 @@ data:
         if [[ -f "$OUT/first-login.txt" ]]; then
           persist "$OUT/first-login.txt" "$EVIDENCE/first-login.txt" || true
         fi
+        # Best effort too: a missing problems-probe report never changes STATE,
+        # REASON or rc.
+        if [[ -f "$OUT/problems.txt" ]]; then
+          persist "$OUT/problems.txt" "$EVIDENCE/problems.txt" || true
+        fi
         # Best effort, like fsverity.txt: the per-boot command lines never change
         # STATE, REASON or rc.
         if [[ -f "$OUT/cmdline.txt" ]]; then
@@ -193,6 +198,8 @@ data:
     # The first-login probe report. It exists from the start, empty when this mode
     # did not run, like fsverity.txt, and it never shapes the reason either.
     : > "$OUT/first-login.txt" || true
+    # The problems-probe report, empty when this mode did not run, like fsverity.txt.
+    : > "$OUT/problems.txt" || true
     install -d -m 0700 "$ROOT" || fail evidence_directory
     [[ ! -L "$ROOT" && -d "$ROOT" ]] || fail evidence_directory
     chmod 0700 "$ROOT" || fail evidence_directory
@@ -441,6 +448,30 @@ data:
             ) || fail login_guest_error
             fail "login_guest_error:$code"
           fi
+          if [[ "$observed_failure" == SNOW_PROBLEMS_ERR ]]; then
+            # The problems probe reports what it saw inside its record; this marker
+            # is a fatal gate error (credentials, manifest, I/O), never a probe
+            # result.
+            code=$(python3 - "$WORK/serial" <<'PY'
+    import re, sys
+    from pathlib import Path
+    lines = Path(sys.argv[1]).read_bytes().split(b'\n')
+    def token(line):
+        line = line.rstrip(b'\r')
+        index = line.find(b'SNOW_PROBLEMS_ERR')
+        return line if index > 0 and not line[index - 1:index].isspace() else line[index:]
+    # A chunk carrier line is not a code line, and a cut fragment is not a code
+    # (lab#177, ADR-0014).
+    tokens = [token(line) for line in lines if b'SNOW_PROBLEMS_ERR' in line and b'SNOW_QA_KMSG1' not in line]
+    codes = {match[1] for match in (re.fullmatch(rb'SNOW_PROBLEMS_ERR ([a-z_]{1,40})\r?', item)
+                                    for item in tokens) if match}
+    if len(codes) != 1 or any(b'SNOW_PROBLEMS_V1' in line for line in lines):
+        sys.exit(1)
+    print(codes.pop().decode('ascii'))
+    PY
+            ) || fail problems_guest_error
+            fail "problems_guest_error:$code"
+          fi
           if [[ "$observed_failure" == SNOW_INSTALL_FAILED ]]; then
             code=$(python3 - "$WORK/serial" <<'PY'
     import re, sys
@@ -502,7 +533,7 @@ data:
         # with the same error and record checks, then stop now instead of
         # waiting out the whole phase window.
         if [[ "$final" == 1 ]]; then blocked guest_stopped_without_record; fi
-        if [[ "$needle" == SNOW_QA_V1 || "$needle" == SNOW_SYSEXT_V1 || "$needle" == SNOW_LOGIN_V1 ]] && vm_stopped; then final=1; continue; fi
+        if [[ "$needle" == SNOW_QA_V1 || "$needle" == SNOW_SYSEXT_V1 || "$needle" == SNOW_LOGIN_V1 || "$needle" == SNOW_PROBLEMS_V1 ]] && vm_stopped; then final=1; continue; fi
         sleep 5
       done
       blocked phase_timeout
@@ -991,8 +1022,11 @@ data:
     # lifecycle boots. With sysext_probe the lane installs N, attests it, then makes
     # the two sysext-probe boots: N+1 is never staged, it is only the controlled
     # tag's target. With first_login_probe it makes the test-only first-login boots.
+    # With problems_probe it makes the report-only problems boots.
     sysext_mode=$(python3 -c 'import json,sys; print(1 if "sysext_probe" in json.load(open(sys.argv[1])) else 0)' "$WORK/normalized.json") || fail manifest_read
     login_mode=$(python3 -c 'import json,sys; print(1 if "first_login_probe" in json.load(open(sys.argv[1])) else 0)' "$WORK/normalized.json") || fail manifest_read
+    problems_mode=$(python3 -c 'import json,sys; print(1 if "problems_probe" in json.load(open(sys.argv[1])) else 0)' "$WORK/normalized.json") || fail manifest_read
+    problems_path=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("problems_probe", {}).get("path", "none"))' "$WORK/normalized.json") || fail manifest_read
     if [[ "$sysext_mode" == 1 ]]; then
       phase_plan=(installed-n sysext-enable sysext-reboot)
     elif [[ "$login_mode" == 1 ]]; then
@@ -1005,6 +1039,14 @@ data:
         phase_plan=(login-1)
       else
         phase_plan=(login-1 login-2)
+      fi
+    elif [[ "$problems_mode" == 1 ]]; then
+      # fresh probes the installed N only; update stages N+1 first, so its problems
+      # boot is the first boot of N+1.
+      if [[ "$problems_path" == fresh ]]; then
+        phase_plan=(problems)
+      else
+        phase_plan=(installed-n stage problems)
       fi
     else
       phase_plan=(installed-n stage boot-n-plus-1 rollback boot-n)
@@ -1027,7 +1069,7 @@ data:
       cp -- "$WORK/serial-full" "$WORK/serial-last" || fail channel_baseline
       # Credentials supplied by SMBIOS as base64, not kernel arguments. Each
       # phase has a fresh unit and a fresh VM boot, never a re-used serial log.
-      case "$phase" in installed-n|login-1) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["installed_boot"])' "$WORK/normalized.json") || fail manifest_read;; stage) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["stage"])' "$WORK/normalized.json") || fail manifest_read;; *) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["reboot"])' "$WORK/normalized.json") || fail manifest_read;; esac
+      case "$phase" in installed-n|login-1) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["installed_boot"])' "$WORK/normalized.json") || fail manifest_read;; stage) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["stage"])' "$WORK/normalized.json") || fail manifest_read;; problems) key=reboot; [[ "$problems_path" != fresh ]] || key=installed_boot; budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"][sys.argv[2]])' "$WORK/normalized.json" "$key") || fail manifest_read;; *) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["reboot"])' "$WORK/normalized.json") || fail manifest_read;; esac
       # The sysext-probe boots run the sysext collector, the login boots run the
       # first-login probe, and every other boot attests. A target orders itself
       # After= every unit it Wants= (systemd.target(5)), so a probe pulled by
@@ -1037,6 +1079,7 @@ data:
       case "$phase" in
         sysext-enable|sysext-reboot) guest_mode=sysext; guest_after=" multi-user.target";;
         login-1|login-2) guest_mode=login; guest_after=" multi-user.target";;
+        problems) guest_mode=problems; guest_after=" multi-user.target";;
         *) guest_mode=guest; guest_after="";;
       esac
       guestunit="[Unit]
@@ -1120,6 +1163,22 @@ data:
           seen_boot_ids+="$prior:"
           persist "$WORK/$phase.json" "$EVIDENCE/$phase.json" || fail evidence_write
           printf 'phase=%s boot_id=%s session=%s started=%s\n' "$phase" "$prior" "$login_session" "$login_started" >> "$OUT/checks.txt"
+          persist "$OUT/checks.txt" "$EVIDENCE/checks.txt" || fail evidence_write
+          # lab#177: which channel carried the record. Best effort: this file
+          # never shapes checks.txt, the judge or the reason.
+          printf 'phase=%s %s\n' "$phase" "$(cat "$WORK/serial-channel" 2>/dev/null)" >> "$OUT/serial-channel.txt" || true
+          persist "$OUT/serial-channel.txt" "$EVIDENCE/serial-channel.txt" || true
+          ;;
+        problems)
+          await SNOW_PROBLEMS_V1 "$((budget + 300))" SNOW_PROBLEMS_ERR
+          python3 /opt/snow-qa/problems.py phase "$WORK/normalized.json" "$phase" "$nonce" "$prior" "$WORK/serial" "$WORK/problems.json" > "$WORK/problems-id" 2>/dev/null || fail phase_mismatch
+          [[ -s "$WORK/problems.json" && -s "$WORK/problems-id" ]] || fail phase_mismatch
+          prior=$(sed -n '1p' "$WORK/problems-id")
+          [[ -n "$prior" ]] || fail phase_mismatch
+          [[ "$seen_boot_ids" != *":$prior:"* ]] || fail reused_boot_id
+          seen_boot_ids+="$prior:"
+          persist "$WORK/problems.json" "$EVIDENCE/problems.json" || fail evidence_write
+          printf 'phase=%s boot_id=%s\n' "$phase" "$prior" >> "$OUT/checks.txt"
           persist "$OUT/checks.txt" "$EVIDENCE/checks.txt" || fail evidence_write
           # lab#177: which channel carried the record. Best effort: this file
           # never shapes checks.txt, the judge or the reason.
@@ -1310,11 +1369,31 @@ data:
         blocked "first_login_$login_summary"
       fi
     fi
+    if [[ "$problems_mode" == 1 ]]; then
+      # The problems-probe report: one summary line, then the fixed detail lines.
+      if ! python3 /opt/snow-qa/problems.py report "$WORK/normalized.json" "$WORK/problems.json" > "$WORK/problems-report" 2>/dev/null; then
+        fail problems_report
+      fi
+      problems_line=$(sed -n '1p' "$WORK/problems-report")
+      problems_summary=${problems_line#problems=}
+      [[ "$problems_line" == "problems=$problems_summary" && "$problems_summary" =~ ^[a-z0-9+-]{1,64}$ ]] || fail problems_report
+      cp -- "$WORK/problems-report" "$OUT/problems.txt" || fail problems_report
+      persist "$OUT/problems.txt" "$EVIDENCE/problems.txt" || fail evidence_write
+      printf 'problems=%s\n' "$problems_summary" >> "$OUT/checks.txt"
+      persist "$OUT/checks.txt" "$EVIDENCE/checks.txt" || fail evidence_write
+      if [[ "$problems_summary" == unproven-* ]]; then
+        # ADR-0003: the probe never fails for a product finding, and it never
+        # passes when it proved nothing.
+        blocked "problems_$problems_summary"
+      fi
+    fi
     STATE=PASS
     if [[ "$sysext_mode" == 1 ]]; then
       REASON=verified_sysext_probe${fsverity_known:+;fsverity_known_defect=${fsverity_known// /,}}
     elif [[ "$login_mode" == 1 ]]; then
       REASON="verified_first_login_probe;first_login=$login_summary${fsverity_known:+;fsverity_known_defect=${fsverity_known// /,}}"
+    elif [[ "$problems_mode" == 1 ]]; then
+      REASON="verified_problems_probe;problems=$problems_summary${fsverity_known:+;fsverity_known_defect=${fsverity_known// /,}}"
     else
       REASON=verified_five_fresh_boots${fsverity_known:+;fsverity_known_defect=${fsverity_known// /,}}
     fi
@@ -1334,12 +1413,15 @@ data:
     """
     import base64
     import datetime
+    import grp
     import hashlib
     import json
     import os
     import pwd
     import re
     import resource
+    import signal
+    import socket
     import struct
     import subprocess
     import sys
@@ -1421,6 +1503,30 @@ data:
     # Every guest file the probe reads is below this prefix; tests point it at a
     # temporary tree instead, like SYSEXT_ROOT.
     LOGIN_ROOT = Path("/")
+    PROBLEMS_PHASES = ("problems",)
+    PROBLEMS_FIELDS = FIELDS | {"problems_probe"}
+    PROBLEMS_RECORD_FIELDS = set("phase nonce boot_id booted_digest path boot collector timer preset_reconcile coredump_user journal_dir core_pattern injected collector_runs problems details listing".split())
+    # The problems probe's record is larger than a marker line bound, so it carries
+    # its own token bound; the host refuses anything above it.
+    PROBLEMS_TOKEN_MAX = 12000
+    PROBLEMS_OUTPUT_MAX = 65536
+    # Every guest file the probe writes or reads is below this prefix; tests point
+    # it at a temporary tree instead.
+    PROBLEMS_ROOT = Path("/")
+    # The one unit this probe writes, into the installed /etc and never an image.
+    PROBLEMS_UNIT = "snow-qa-problem-local.service"
+    PROBLEMS_UNIT_BODY = ("[Unit]\nDescription=snow-qa: injected local failure (T857 t7)\n"
+                          "[Service]\nType=oneshot\nExecStart=/bin/false\n")
+    # snosi-health (snosi ADR-0029) reads these 2 system journal message ids.
+    PROBLEMS_CRASH_ID = "fc2e22bc6ee647b6b90729ab34a250b1"
+    PROBLEMS_APP_ID = "8915bdd215c84cbab0c31c05a1a33e7e"
+    PROBLEMS_APP_FIELDS = {"FROSTYARD_SCHEMA": "frostyard.problem/1", "FROSTYARD_APP_ID": "org.frostyard.nsl",
+                           "FROSTYARD_APP_VERSION": "0.0.0-rc.857", "FROSTYARD_RUNTIME": "go",
+                           "FROSTYARD_COMPONENT": "cli", "FROSTYARD_CLASS": "error",
+                           "FROSTYARD_CODE": "lab.injected_t857"}
+    PROBLEMS_LISTINGS = {"unit": "a local unit failed (exit-code)", "stage": "not staged (network)",
+                         "crash": "sleep crashed (SIGSEGV)",
+                         "app": "org.frostyard.nsl 0.0.0-rc.857 error lab.injected_t857"}
     RECORD_FIELDS = set("phase nonce boot_id spec_image spec_transport booted_digest booted_version staged_digest rollback_digest policy_sha256 policy_ok pull_ok pull_digest secure_boot uki_type2 lockdown lockdown_mode cmdline_lockdown cmdline root_luks root_btrfs tpm_pcr11_tokens kernel fsverity_errors fsverity_lines action marker_digest".split())
     GUEST_MANIFEST = Path("/opt/snow-qa/normalized.json")
     GUEST_PATHS = {"boot_id": Path("/proc/sys/kernel/random/boot_id"),
@@ -1481,12 +1587,17 @@ data:
         return p
 
 
+    def problems_probe(p):
+        require(type(p) is dict and set(p) == {"path"} and p["path"] in ("fresh", "update"), "problems_fields")
+        return p["path"]
+
+
     def product_repo(m):
         return PRODUCTS[m["product"]]
 
 
     def normalize(m):
-        require(type(m) is dict and set(m) in (FIELDS, SYSEXT_FIELDS, LOGIN_FIELDS), "manifest_fields")
+        require(type(m) is dict and set(m) in (FIELDS, SYSEXT_FIELDS, LOGIN_FIELDS, PROBLEMS_FIELDS), "manifest_fields")
         # A repository of the other product must never pass: the family is the
         # product, and every reference below uses that product's repository.
         require(type(m["product"]) is str and m["product"] in PRODUCTS and m["family"] == m["product"], "product")
@@ -1507,6 +1618,13 @@ data:
                 sysext_probe(m["sysext_probe"])
             else:
                 first_login_probe(m["first_login_probe"])
+        elif "problems_probe" in m:
+            # The fresh path never stages N+1, so its versions only have to differ;
+            # the update path stages N+1, so N must be older.
+            if problems_probe(m["problems_probe"]) == "fresh":
+                require(m["version_n"] != m["version_n_plus_1"], "version_distinct")
+            else:
+                require(m["version_n"] < m["version_n_plus_1"], "version_order")
         else:
             require(m["version_n"] < m["version_n_plus_1"], "version_order")
         require(m["iso_url"] == ISO_BASE + "snosi-installer_" + m["iso_version"] + "_x86-64.iso", "iso_url")
@@ -1985,13 +2103,15 @@ data:
     # A joined line is one of the 4 marker lines. A slice line counts as a
     # complete record only when it also matches the bound its own parser uses,
     # so a copy the kernel cut into is never reported as a record.
-    MARKER_LINE = rb"(?:SNOW_QA_V1|SNOW_QA_ERR|SNOW_SYSEXT_V1|SNOW_SYSEXT_ERR|SNOW_LOGIN_V1|SNOW_LOGIN_ERR) [ -~]+"
+    MARKER_LINE = rb"(?:SNOW_QA_V1|SNOW_QA_ERR|SNOW_SYSEXT_V1|SNOW_SYSEXT_ERR|SNOW_LOGIN_V1|SNOW_LOGIN_ERR|SNOW_PROBLEMS_V1|SNOW_PROBLEMS_ERR) [ -~]+"
     COMPLETE_LINES = ((b"SNOW_QA_V1", rb"[A-Za-z0-9_-]{1,8192}"),
                       (b"SNOW_QA_ERR", rb"[a-z_]{1,40}"),
                       (b"SNOW_SYSEXT_V1", rb"[A-Za-z0-9_-]{1,%d}" % (SYSEXT_TOKEN_MAX + 64)),
                       (b"SNOW_SYSEXT_ERR", rb"[a-z_]{1,40}"),
                       (b"SNOW_LOGIN_V1", rb"[A-Za-z0-9_-]{1,8192}"),
-                      (b"SNOW_LOGIN_ERR", rb"[a-z_]{1,40}"))
+                      (b"SNOW_LOGIN_ERR", rb"[a-z_]{1,40}"),
+                      (b"SNOW_PROBLEMS_V1", rb"[A-Za-z0-9_-]{1,%d}" % (PROBLEMS_TOKEN_MAX + 64)),
+                      (b"SNOW_PROBLEMS_ERR", rb"[a-z_]{1,40}"))
     SERIAL_MAX = 1024 * 1024
 
 
@@ -3490,6 +3610,240 @@ data:
         return "SNOW_LOGIN_V1 " + encoded
 
 
+    # The problems probe (plan T857 phase 1): it proves on a real installed VM that
+    # the snosi-health collector (snosi ADR-0029) records 4 local problems and that
+    # systemd-coredump feeds it a crash. It writes 1 test-only unit into the
+    # installed /etc, blocks the network for 1 stager run, kills 1 child and sends 1
+    # journal datagram. Every value is evidence only: no field fails the run.
+    def problems_path(path):
+        return PROBLEMS_ROOT / str(path).lstrip("/")
+
+
+    def problems_read(path, limit=65536):
+        try:
+            target = problems_path(path)
+            require(not target.is_symlink(), "problems_read")
+            with target.open("rb") as stream:
+                return stream.read(limit)
+        except (OSError, GateError):
+            return None
+
+
+    def problems_run(args, timeout=120):
+        try:
+            result = subprocess.run(args, capture_output=True, timeout=timeout, check=False)
+        except (OSError, subprocess.SubprocessError):
+            return -1, b""
+        return result.returncode, (result.stdout or b"")[:PROBLEMS_OUTPUT_MAX]
+
+
+    def problems_show(args, timeout=60):
+        return problems_run(args, timeout)[1].decode("utf-8", "replace")
+
+
+    def problems_token(text):
+        text = text.strip()
+        return text if full(r"[a-z0-9_.-]{1,32}", text) else "other"
+
+
+    def problems_ms(out):
+        values = {}
+        for line in out.splitlines()[:32]:
+            key, separator, value = line.partition("=")
+            if separator and value.isdigit():
+                values[key] = int(value)
+        return values
+
+
+    def problems_boot():
+        target = problems_show(["systemctl", "get-default"]).strip()
+        if not full(r"[A-Za-z0-9@._-]{1,64}", target):
+            return None
+        end = time.monotonic() + 180
+        while problems_show(["systemctl", "is-active", target]).strip() != "active":
+            if time.monotonic() >= end:
+                return None
+            time.sleep(5)
+        try:
+            # The 4 manager stamps and the target's own active-enter stamp are 2
+            # different objects: `systemctl show <unit>` reports the unit's.
+            values = problems_ms(problems_show(
+                ["systemctl", "show", "-p", "FirmwareTimestampMonotonic", "-p", "LoaderTimestampMonotonic",
+                 "-p", "InitRDTimestampMonotonic", "-p", "UserspaceTimestampMonotonic"]))
+            t = problems_ms(problems_show(
+                ["systemctl", "show", "-p", "ActiveEnterTimestampMonotonic", target]))["ActiveEnterTimestampMonotonic"]
+            n, i, u = (values["LoaderTimestampMonotonic"], values.get("InitRDTimestampMonotonic", 0),
+                       values["UserspaceTimestampMonotonic"])
+            boot = {"target": target, "firmware_ms": max(0, values.get("FirmwareTimestampMonotonic", 0) - n) // 1000,
+                    "loader_ms": n // 1000, "kernel_ms": (i or u) // 1000,
+                    "initrd_ms": (u - i) // 1000 if i else 0, "userspace_ms": (t - u) // 1000,
+                    "target_ms": t // 1000}
+        except (KeyError, ValueError, TypeError):
+            return None
+        return boot if all(0 <= boot[key] <= 3600000 for key in boot if key != "target") else None
+
+
+    def problems_journal(query, end):
+        while True:
+            rc, out = problems_run(["journalctl", "--system", "-q", "-o", "json"] + query, 120)
+            if rc == 0 and out.strip():
+                return True
+            if time.monotonic() >= end:
+                return False
+            time.sleep(3)
+
+
+    def problems_crash():
+        try:
+            child = subprocess.Popen(["/usr/bin/sleep", "600"],
+                                     preexec_fn=lambda: resource.setrlimit(resource.RLIMIT_CORE, (-1, -1)))
+            time.sleep(1)
+            os.kill(child.pid, signal.SIGSEGV)
+            child.wait(timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            return False
+        return problems_journal(["MESSAGE_ID=" + PROBLEMS_CRASH_ID, "COREDUMP_PID=%d" % child.pid],
+                                time.monotonic() + 90)
+
+
+    def problems_app():
+        fields = dict(PROBLEMS_APP_FIELDS, MESSAGE="snow-qa: injected app problem (T857 t7)",
+                      PRIORITY="3", MESSAGE_ID=PROBLEMS_APP_ID)
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as stream:
+                stream.connect("/run/systemd/journal/socket")
+                stream.send("".join("%s=%s\n" % item for item in fields.items()).encode())
+        except OSError:
+            return False
+        return problems_journal(["MESSAGE_ID=" + PROBLEMS_APP_ID,
+                                 "FROSTYARD_CODE=" + PROBLEMS_APP_FIELDS["FROSTYARD_CODE"]], time.monotonic() + 30)
+
+
+    def problems_inject():
+        """The 4 local injections: a unit, a blocked stager run, a crash, an app problem."""
+        unit = problems_path("etc/systemd/system/" + PROBLEMS_UNIT)
+        try:
+            unit.parent.mkdir(parents=True, exist_ok=True)
+            unit.write_text(PROBLEMS_UNIT_BODY)
+            unit.chmod(0o644)
+        except OSError:
+            pass
+        problems_run(["systemctl", "daemon-reload"], 120)
+        # A failed start is this unit's expected result.
+        problems_run(["systemctl", "start", PROBLEMS_UNIT], 120)
+        injected = {"unit": problems_show(["systemctl", "is-failed", PROBLEMS_UNIT]).strip() == "failed"}
+        # A new network namespace with no route blocks the network for this command only.
+        problems_run(["unshare", "--net", "--", "/usr/libexec/bootc-update-stage"], 300)
+        check = (problems_read("run/snosi/update-check", 4096) or b"").decode("utf-8", "replace")
+        found = dict(line.partition("=")[::2] for line in check.splitlines()[:16])
+        injected["stage"] = {"outcome": problems_token(found.get("outcome", "")),
+                             "error_class": problems_token(found["error_class"]) if "error_class" in found else None}
+        injected["crash"] = problems_crash()
+        injected["app"] = problems_app()
+        return injected
+
+
+    def problems_doc(raw):
+        try:
+            data = json.loads(raw, object_pairs_hook=pairs,
+                              parse_constant=lambda _: (_ for _ in ()).throw(GateError("json_value")))
+            return data if len(canonical(data)) <= 6500 else None
+        except (ValueError, UnicodeError, GateError):
+            return None
+
+
+    def problems_local(raw):
+        try:
+            records = json.loads(raw, object_pairs_hook=pairs)["problems"]
+            for ident in sorted(records)[:200]:
+                entry = records[ident]
+                extra = entry.get("extra") if type(entry) is dict else None
+                units = extra.get("units") if type(extra) is dict else None
+                if type(units) is list and PROBLEMS_UNIT in units and full(r"[0-9a-f]{16}", ident):
+                    return ident
+        except (ValueError, UnicodeError, KeyError, TypeError, AttributeError):
+            return None
+        return None
+
+
+    def problems_files():
+        found = [None, None]
+        for index, name in enumerate(("problems", "details")):
+            target = problems_path("var/lib/snosi-health/" + name + ".json")
+            if not (target.is_file() and not target.is_symlink()):
+                continue
+            try:
+                info = target.stat()
+                with target.open("rb") as stream:
+                    raw = stream.read(65536)
+            except OSError:
+                continue
+            entry = {"mode": format(info.st_mode & 0o7777, "04o"), "uid": info.st_uid}
+            if name == "problems":
+                entry.update(gid=info.st_gid, size=info.st_size, doc=problems_doc(raw),
+                             leak=b"snow-qa-problem-local" in raw)
+            else:
+                try:
+                    entry["group"] = problems_token(grp.getgrgid(info.st_gid).gr_name)
+                except KeyError:
+                    entry["group"] = "other"
+                entry["local_unit_id"] = problems_local(raw)
+            found[index] = entry
+        return found[0], found[1]
+
+
+    def problems(credentials):
+        """One problems-probe record: the injected problems and what the collector kept."""
+        creds = Path(credentials)
+
+        def credential(name):
+            value = (creds / name).read_text().strip()
+            require(len(value) <= 256, "credential")
+            return value
+
+        phase, nonce = credential("phase"), credential("nonce")
+        require(phase in PROBLEMS_PHASES and nonce_valid(nonce), "credential")
+        m = load(GUEST_MANIFEST, frozen=True)
+        require("problems_probe" in m, "problems_manifest")
+        for key in ("image_n", "image_n_plus_1", "target_ref"):
+            require(credential(key) == m[key], "credential")
+        boot_id = GUEST_PATHS["boot_id"].read_text().strip()
+        require(boot_id_valid(boot_id), "boot_identity")
+        # status_fields validates the bootc status shape; the host compares the booted
+        # digest with the image of the probed path.
+        _, _, booted_digest, _, _, _ = status_fields(guest_status())
+        boot = problems_boot()
+        collector = problems_read("usr/bin/snosi-health", 1) is not None
+        journal = problems_path("var/log/journal")
+        pattern = problems_read("proc/sys/kernel/core_pattern", 256)
+        coredump = any(entry.pw_name == "systemd-coredump" for entry in pwd.getpwall())
+        timer = {name: problems_token(problems_show(["systemctl", "is-" + name, "snosi-health.timer"]))
+                 for name in ("enabled", "active")}
+        preset = problems_show(["systemctl", "show", "-p", "Result", "preset-reconcile.service"])
+        injected = runs = document = details = listing = None
+        if collector:
+            # Two collector runs, one after the other: the timer can start one during
+            # the injections, and the second start is always a full run after them.
+            injected = problems_inject()
+            runs = [problems_run(["systemctl", "start", "snosi-health.service"], 400)[0] for _ in (1, 2)]
+            document, details = problems_files()
+            # `--list` as an unprivileged user: each expected summary line is evidence.
+            rc, out = problems_run(["runuser", "-u", "nobody", "--", "/usr/bin/snosi-health", "--list"], 60)
+            text = out.decode("utf-8", "replace")
+            listing = dict({"rc": rc}, **{name: line in text for name, line in PROBLEMS_LISTINGS.items()})
+        record = dict(phase=phase, nonce=nonce, boot_id=boot_id, booted_digest=booted_digest,
+                      path=m["problems_probe"]["path"], boot=boot, collector=collector, timer=timer,
+                      preset_reconcile=problems_token(preset.partition("=")[2]),
+                      coredump_user=coredump, journal_dir=journal.is_dir() and not journal.is_symlink(),
+                      core_pattern=pattern is not None and pattern.startswith(b"|/usr/lib/systemd/systemd-coredump"),
+                      injected=injected, collector_runs=runs, problems=document, details=details,
+                      listing=listing)
+        require(set(record) == PROBLEMS_RECORD_FIELDS, "record_fields")
+        encoded = base64.urlsafe_b64encode(canonical(record).strip()).decode().rstrip("=")
+        require(len(encoded) <= PROBLEMS_TOKEN_MAX, "record_size")
+        return "SNOW_PROBLEMS_V1 " + encoded
+
+
     # On Snow, Snowfield and Sundog, /dev/console is tty0 (graphical); Snowfield
     # uses the GNOME desktop with the linux-surface kernel. On Floe (headless, no graphical
     # stack) it can be ttyS0 itself, so the guest then writes the same line twice
@@ -3665,6 +4019,10 @@ data:
                                    argv[5], argv[6])
             elif argv[0] == "login-report" and len(argv) in (3, 4):
                 login_report(load(argv[1], frozen=True), argv[2], argv[3] if len(argv) == 4 else None)
+            elif argv[0] == "problems" and len(argv) == 2:
+                # Failures travel inside the record; only a fatal gate error uses the
+                # problems error marker.
+                publish(problems(argv[1]))
             elif argv[0] == "kmsg-join" and len(argv) == 2:
                 # lab#177: after the serial slice is written, before any parser.
                 kmsg_join(argv[1])
@@ -3673,8 +4031,9 @@ data:
             return 0
         except (GateError, OSError, TypeError, KeyError, ValueError) as exc:
             code = str(exc) if isinstance(exc, GateError) and full(r"[a-z_]{1,40}", str(exc)) else "io_error"
-            error_markers = {"guest": "SNOW_QA_ERR ", "sysext": "SNOW_SYSEXT_ERR ", "login": "SNOW_LOGIN_ERR "}
-            if argv[:1] in (["guest"], ["sysext"], ["login"]) and isinstance(exc, GateError) and code != "io_error":
+            error_markers = {"guest": "SNOW_QA_ERR ", "sysext": "SNOW_SYSEXT_ERR ", "login": "SNOW_LOGIN_ERR ",
+                             "problems": "SNOW_PROBLEMS_ERR "}
+            if argv[:1] in (["guest"], ["sysext"], ["login"], ["problems"]) and isinstance(exc, GateError) and code != "io_error":
                 # An observed fixed-code failure is distinct from an absent
                 # channel. Never print arbitrary tool stderr or credentials.
                 publish(error_markers[argv[0]] + code)
@@ -3825,3 +4184,630 @@ data:
       printf 'user=%s\n' "$user"
       printf 'session=%s\n' "$session"
     } > "$state"
+  problems.py: |
+    """Host-side gates and report for the report-only problems probe (plan T857 phase 1).
+
+    This file never travels to the guest: the guest runs qa.py `problems`. It reads
+    the one `SNOW_PROBLEMS_V1` record of the probed boot, validates it against the
+    frozen collector contract of snosi ADR-0029, and reports what the probe saw. The
+    gates come from the one ConfigMap copy of qa.py beside it.
+    """
+    import base64
+    import json
+    import os
+    import re
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from qa import (PROBLEMS_TOKEN_MAX, SERIAL_MAX, GateError, boot_id_valid, canonical,  # noqa: E402
+                    full, load, marker_token, nonce_valid, pairs, require)
+
+    # The record the guest publishes, and the bounds of every field in it.
+    RECORD_FIELDS = set("phase nonce boot_id booted_digest path boot collector timer preset_reconcile coredump_user journal_dir core_pattern injected collector_runs problems details listing".split())
+    BOOT_FIELDS = set("target firmware_ms loader_ms kernel_ms initrd_ms userspace_ms target_ms".split())
+    BOOT_MS = BOOT_FIELDS - {"target"}
+    DOC_KEYS = set("format schema generated image secure client problems".split())
+    PROBLEM_KEYS = set("id kind detail week first_seen last_seen occurrences reportable".split())
+    TOKEN = r"[a-z0-9_.-]{1,32}"
+    NAME = r"[A-Za-z0-9@._-]{1,64}"
+    MODE = r"0[0-7]{3}"
+    UTC = r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z"
+    HEX16 = r"[0-9a-f]{16}"
+    SUMMARY = re.compile(r"[a-z0-9+-]{1,64}")
+    # The frozen copy of core's problem-report schema v1 (sha256 pinned in the tests).
+    SCHEMA = Path(__file__).with_name("problem-report-v1.json")
+    # The keyword subset of the v1 schema: anything else is refused, never guessed.
+    KEYWORDS = set("$schema $id title description $defs type const enum pattern required properties additionalProperties "
+                   "$ref allOf if then items minItems maxItems maxLength minimum maximum".split())
+    TYPES = {"object": lambda v: type(v) is dict, "array": lambda v: type(v) is list,
+             "string": lambda v: type(v) is str, "boolean": lambda v: type(v) is bool,
+             "integer": lambda v: type(v) is int,
+             "number": lambda v: type(v) is int or type(v) is float}
+
+
+    # --------------------------------------------------------------- the validator
+
+    def ecma(pattern):
+        """ECMA-262 `$` matches only at the very end; Python's also matches before a newline."""
+        out, index, inside = [], 0, False
+        while index < len(pattern):
+            char = pattern[index]
+            if char == "\\" and index + 1 < len(pattern):
+                out.append(pattern[index:index + 2])
+                index += 2
+                continue
+            if char == "[":
+                inside = True
+            elif char == "]":
+                inside = False
+            elif char == "$" and not inside:
+                char = "\\Z"
+            out.append(char)
+            index += 1
+        return "".join(out)
+
+
+    def validate(schema, value, root):
+        """Validate a value against the v1 keyword subset; refuse an unknown keyword."""
+        if schema is True:
+            return
+        require(schema is not False and type(schema) is dict, "schema_invalid")
+        require(not set(schema) - KEYWORDS, "schema_keyword")
+        if "$ref" in schema:
+            name = schema["$ref"]
+            require(type(name) is str and name.startswith("#/$defs/") and name[8:] in root["$defs"], "schema_ref")
+            validate(root["$defs"][name[8:]], value, root)
+        if "type" in schema:
+            require(schema["type"] in TYPES and TYPES[schema["type"]](value), "schema_type")
+        if "const" in schema:
+            require(value == schema["const"] and type(value) is type(schema["const"]), "schema_const")
+        if "enum" in schema:
+            require(any(value == item and type(value) is type(item) for item in schema["enum"]), "schema_enum")
+        if "pattern" in schema:
+            require(type(value) is str and re.search(ecma(schema["pattern"]), value) is not None, "schema_pattern")
+        if "maxLength" in schema:
+            require(type(value) is str and len(value) <= schema["maxLength"], "schema_length")
+        if "minimum" in schema:
+            require(type(value) is int and value >= schema["minimum"], "schema_minimum")
+        if "maximum" in schema:
+            require(type(value) is int and value <= schema["maximum"], "schema_maximum")
+        if type(value) is dict:
+            for name in schema.get("required", []):
+                require(name in value, "schema_required")
+            properties = schema.get("properties", {})
+            for name, item in value.items():
+                if name in properties:
+                    validate(properties[name], item, root)
+                else:
+                    validate(schema.get("additionalProperties", True), item, root)
+        if type(value) is list:
+            require(len(value) >= schema.get("minItems", 0), "schema_items")
+            require(len(value) <= schema.get("maxItems", len(value)), "schema_items")
+            if "items" in schema:
+                for item in value:
+                    validate(schema["items"], item, root)
+        for part in schema.get("allOf", []):
+            validate(part, value, root)
+        if "if" in schema:
+            try:
+                validate(schema["if"], value, root)
+            except GateError:
+                return
+            if "then" in schema:
+                validate(schema["then"], value, root)
+
+
+    # ------------------------------------------------------------- the record
+
+    def record_shape(record):
+        """Strict shape of one problems record: exact keys, types and bounds."""
+        require(type(record) is dict and set(record) == RECORD_FIELDS, "record_fields")
+        require(record["phase"] == "problems" and nonce_valid(record["nonce"]), "record_identity")
+        require(record["path"] in ("fresh", "update") and full(r"[0-9a-f]{64}", record["booted_digest"]), "record_fields")
+        require(boot_id_valid(record["boot_id"]), "boot_identity")
+        boot = record["boot"]
+        if boot is not None:
+            require(type(boot) is dict and set(boot) == BOOT_FIELDS and full(NAME, boot["target"]), "record_boot")
+            require(all(type(boot[key]) is int and 0 <= boot[key] <= 3600000 for key in BOOT_MS), "record_boot")
+        require(type(record["collector"]) is bool, "record_fields")
+        timer = record["timer"]
+        require(type(timer) is dict and set(timer) == {"enabled", "active"}, "record_timer")
+        require(all(full(TOKEN, value) for value in timer.values()), "record_timer")
+        require(full(TOKEN, record["preset_reconcile"]), "record_fields")
+        require(all(type(record[key]) is bool for key in ("coredump_user", "journal_dir", "core_pattern")), "record_fields")
+        injected = record["injected"]
+        if injected is not None:
+            require(type(injected) is dict and set(injected) == {"unit", "stage", "crash", "app"}, "record_injected")
+            require(all(type(injected[key]) is bool for key in ("unit", "crash", "app")), "record_injected")
+            stage = injected["stage"]
+            require(type(stage) is dict and set(stage) == {"outcome", "error_class"}, "record_injected")
+            require(full(TOKEN, stage["outcome"]), "record_injected")
+            require(stage["error_class"] is None or full(TOKEN, stage["error_class"]), "record_injected")
+        runs = record["collector_runs"]
+        if runs is not None:
+            require(type(runs) is list and len(runs) == 2, "record_runs")
+            require(all(type(code) is int and -1 <= code <= 255 for code in runs), "record_runs")
+        document = record["problems"]
+        if document is not None:
+            require(type(document) is dict and set(document) == {"mode", "uid", "gid", "size", "doc", "leak"}, "record_problems")
+            require(full(MODE, document["mode"]) and type(document["leak"]) is bool, "record_problems")
+            require(all(type(document[key]) is int and 0 <= document[key] <= 2 ** 31 for key in ("uid", "gid", "size")), "record_problems")
+            require(document["doc"] is None or type(document["doc"]) is dict, "record_problems")
+        details = record["details"]
+        if details is not None:
+            require(type(details) is dict and set(details) == {"mode", "uid", "group", "local_unit_id"}, "record_details")
+            require(full(MODE, details["mode"]) and 0 <= details["uid"] <= 2 ** 31, "record_details")
+            require(full(TOKEN, details["group"]), "record_details")
+            require(details["local_unit_id"] is None or full(HEX16, details["local_unit_id"]), "record_details")
+        listing = record["listing"]
+        if listing is not None:
+            require(type(listing) is dict and set(listing) == {"rc", "unit", "stage", "crash", "app"}, "record_listing")
+            require(type(listing["rc"]) is int and -1 <= listing["rc"] <= 255, "record_listing")
+            require(all(type(listing[key]) is bool for key in ("unit", "stage", "crash", "app")), "record_listing")
+
+
+    def record_count(raw):
+        """The one problems record the serial slice carries, by the SNOW_QA_V1 rules."""
+        require(len(raw) <= SERIAL_MAX, "serial_size")
+        lines = [line for line in raw.split(b"\n") if b"SNOW_QA_KMSG1" not in line]
+        tail = rb"([A-Za-z0-9_-]{1,%d})" % (PROBLEMS_TOKEN_MAX + 64)
+        # Identical copies collapse into one token; only a complete one is a record.
+        tokens = {marker_token(line, b"SNOW_PROBLEMS_V1") for line in lines if b"SNOW_PROBLEMS_V1" in line}
+        markers = {token for token in tokens if re.fullmatch(b"SNOW_PROBLEMS_V1 " + tail, token) is not None}
+        require(markers or not tokens, "record_encoding")
+        require(len(markers) == 1, "record_count")
+        match = re.fullmatch(b"SNOW_PROBLEMS_V1 " + tail, sorted(markers)[0])
+        require(match is not None, "record_encoding")
+        encoded = match[1]
+        try:
+            decoded = base64.b64decode(encoded + b"=" * (-len(encoded) % 4), altchars=b"-_", validate=True)
+            require(base64.urlsafe_b64encode(decoded).rstrip(b"=") == encoded, "record_encoding")
+            require(len(decoded) <= PROBLEMS_TOKEN_MAX, "record_size")
+            record = json.loads(decoded, object_pairs_hook=pairs,
+                                parse_constant=lambda _: (_ for _ in ()).throw(GateError("record_encoding")))
+        except (ValueError, UnicodeError) as exc:
+            raise GateError("record_encoding") from exc
+        return record
+
+
+    def record_file(path):
+        """One written problems record, read back and shape-checked."""
+        try:
+            raw = Path(path).read_bytes()
+            require(len(raw) <= 65536, "record_size")
+            data = json.loads(raw, object_pairs_hook=pairs)
+        except (ValueError, UnicodeError) as exc:
+            raise GateError("record_fields") from exc
+        record_shape(data)
+        return data
+
+
+    def phase(m, name, nonce, prior, serial, destination):
+        """The record of one probed boot: its identity, image and path, then evidence."""
+        require("problems_probe" in m and name == "problems" and nonce_valid(nonce)
+                and (prior == "none" or boot_id_valid(prior)), "phase_arguments")
+        record = record_count(Path(serial).read_bytes())
+        record_shape(record)
+        require(record["phase"] == name and record["nonce"] == nonce, "record_identity")
+        require(record["boot_id"] != prior, "boot_identity")
+        require(record["path"] == m["problems_probe"]["path"], "probed_path")
+        # fresh proves the installed N; update proves the first boot of N+1.
+        image = m["image_n_plus_1"] if record["path"] == "update" else m["image_n"]
+        require(record["booted_digest"] == image.rsplit(":", 1)[-1], "booted_image")
+        with open(destination, "wb", opener=lambda path, flags: os.open(path, flags, 0o600)) as stream:
+            stream.write(canonical(record))
+        print(record["boot_id"])
+
+
+    # --------------------------------------------------------------- the report
+
+    def problem_ok(entry, root, document):
+        """One problems.json record: its keys, its week, and its v1 envelope."""
+        require(type(entry) is dict and set(entry) == PROBLEM_KEYS, "record_fields")
+        require(full(HEX16, entry["id"]), "record_id")
+        validate(root["properties"]["week"], entry["week"], root)
+        require(all(full(UTC, entry[name]) for name in ("first_seen", "last_seen")), "record_time")
+        require(type(entry["occurrences"]) is int and 1 <= entry["occurrences"] <= 2 ** 31, "record_occurrences")
+        require(type(entry["reportable"]) is bool, "record_reportable")
+        kind = entry["kind"]
+        require(kind != "count", "record_kind")
+        validate(root["properties"]["kind"], kind, root)
+        # A detail holds only the properties of its kind, each valid in v1.
+        known = root["$defs"][kind]["properties"]
+        require(type(entry["detail"]) is dict and not set(entry["detail"]) - set(known), "record_detail")
+        for name, value in entry["detail"].items():
+            validate(known[name], value, root)
+        if entry["reportable"]:
+            # What snosi would send: the record in the report envelope of snosi ADR-0029.
+            validate(root, {"schema": "frostyard.problem/1", "report_id": "00000000-0000-4000-8000-000000000000",
+                            "week": entry["week"], "image": document["image"], "secure": document["secure"],
+                            "client": document["client"], "kind": kind, "detail": entry["detail"]}, root)
+
+
+    def document_ok(document, root):
+        """The collector's problems.json against the frozen v1 contract."""
+        try:
+            require(type(document) is dict and set(document) == DOC_KEYS, "doc_fields")
+            require(type(document["format"]) is int and document["format"] == 1, "doc_fields")
+            require(document["schema"] == root["properties"]["schema"]["const"], "doc_fields")
+            require(full(UTC, document["generated"]) and type(document["secure"]) is bool, "doc_fields")
+            image = document["image"]
+            require(type(image) is dict and set(image) == {"id", "version"}, "doc_image")
+            if image["id"] is not None:
+                validate(root["properties"]["image"]["properties"]["id"], image["id"], root)
+            if image["version"] is not None:
+                validate(root["$defs"]["image_version"], image["version"], root)
+            if document["client"] is not None:
+                validate(root["properties"]["client"], document["client"], root)
+            require(type(document["problems"]) is list and len(document["problems"]) <= 200, "doc_problems")
+            for entry in document["problems"]:
+                problem_ok(entry, root, document)
+        except GateError:
+            return False
+        return True
+
+
+    def yes(value):
+        return "yes" if value else "no"
+
+
+    def report(m, path):
+        """The one summary line, then the fixed detail lines; never a product failure."""
+        record = record_file(path)
+        root = json.loads(SCHEMA.read_bytes())
+        problems, details, listing = record["problems"], record["details"], record["listing"]
+        document = problems["doc"] if problems is not None else None
+        listed = document.get("problems") if document is not None else None
+        entries = [entry for entry in listed if type(entry) is dict] if type(listed) is list else []
+        injected = record["injected"]
+
+        def recorded(kind, **fields):
+            """True when 1 record has this kind and these detail values."""
+            return any(entry.get("kind") == kind and type(entry.get("detail")) is dict
+                       and all(entry["detail"].get(key) == value for key, value in fields.items())
+                       for entry in entries)
+
+        local = next((entry for entry in entries
+                      if details is not None and entry.get("id") == details["local_unit_id"]), None)
+        checks = {
+            "file": problems is not None and problems["mode"] == "0644" and problems["uid"] == 0 and problems["gid"] == 0,
+            "schema": document is not None and document_ok(document, root),
+            "timer": record["timer"]["enabled"] == "enabled" and record["timer"]["active"] == "active",
+            "coredump": record["coredump_user"] and record["core_pattern"],
+            "journal": record["journal_dir"],
+            "details": details is not None and details["mode"] == "0640" and details["uid"] == 0 and details["group"] == "sudo",
+            # A local unit is never reportable, and its name is only in details.json.
+            "unit": local is not None and local.get("kind") == "unit_failed"
+                    and local.get("detail") == {"result": "exit-code"} and local.get("reportable") is False
+                    and problems is not None and not problems["leak"],
+            "stage": recorded("update_stage_failed", error_class="network"),
+            "crash": recorded("crash", exe="sleep", signal="SIGSEGV"),
+            "app": any(entry.get("kind") == "app_problem" and entry.get("reportable") is True
+                       and type(entry.get("detail")) is dict
+                       and (entry["detail"].get("app_id"), entry["detail"].get("app_version"), entry["detail"].get("code"))
+                       == ("org.frostyard.nsl", "0.0.0-rc.857", "lab.injected_t857") for entry in entries),
+        }
+        if m["product"] == "floe":
+            # Floe is the headless product; its listing is part of the proof there.
+            checks["list"] = listing is not None and listing["rc"] == 0 and all(
+                listing[key] for key in ("unit", "stage", "crash", "app"))
+        if not record["collector"]:
+            summary = "unproven-no-collector"
+        elif problems is not None and document is None:
+            summary = "unproven-too-large"
+        else:
+            failed = [name for name, passed in checks.items() if not passed]
+            summary = "ok" if not failed else "missing-" + "+".join(failed)
+        # The summary reaches checks.txt and the run reason: one grammar, one bound.
+        require(SUMMARY.fullmatch(summary) is not None, "record_fields")
+        print("problems=" + summary)
+        print("path=%s collector=%s timer=%s/%s preset_reconcile=%s coredump_user=%s core_pattern=%s journal_dir=%s" % (
+            record["path"], yes(record["collector"]), record["timer"]["enabled"], record["timer"]["active"],
+            record["preset_reconcile"], yes(record["coredump_user"]), yes(record["core_pattern"]),
+            yes(record["journal_dir"])))
+        print("file=%s owner=%s schema=%s records=%d reportable=%d details=%s group=%s" % (
+            problems["mode"] if problems is not None else "none",
+            "%d:%d" % (problems["uid"], problems["gid"]) if problems is not None else "none",
+            "none" if document is None else ("valid" if checks["schema"] else "invalid"),
+            len(entries), sum(1 for entry in entries if entry.get("reportable") is True),
+            details["mode"] if details is not None else "none",
+            details["group"] if details is not None else "none"))
+        print("injected unit=%s stage=%s crash=%s app=%s collector_runs=%s" % (
+            yes(record["collector"] and injected["unit"]) if injected is not None else "no",
+            "%s/%s" % (injected["stage"]["outcome"], injected["stage"]["error_class"] or "none")
+            if injected is not None else "none/none",
+            yes(injected["crash"]) if injected is not None else "no",
+            yes(injected["app"]) if injected is not None else "no",
+            ",".join(str(code) for code in record["collector_runs"])
+            if record["collector_runs"] is not None else "none"))
+        print("recorded unit=%s stage=%s crash=%s app=%s leak=%s" % (
+            yes(checks["unit"]), yes(checks["stage"]), yes(checks["crash"]), yes(checks["app"]),
+            yes(problems["leak"] if problems is not None else False)))
+        print("list rc=%s unit=%s stage=%s crash=%s app=%s" % (
+            listing["rc"] if listing is not None else "none",
+            *(yes(listing[key]) if listing is not None else "no" for key in ("unit", "stage", "crash", "app"))))
+        boot = record["boot"]
+        if boot is None:
+            print("boot target=none")
+        else:
+            print("boot target=%s firmware_ms=%d loader_ms=%d kernel_ms=%d initrd_ms=%d userspace_ms=%d target_ms=%d" % (
+                boot["target"], boot["firmware_ms"], boot["loader_ms"], boot["kernel_ms"],
+                boot["initrd_ms"], boot["userspace_ms"], boot["target_ms"]))
+
+
+    def main(argv):
+        try:
+            require(len(argv) in (3, 7), "usage")
+            if argv[0] == "phase" and len(argv) == 7:
+                phase(load(argv[1], frozen=True), argv[2], argv[3], argv[4], argv[5], argv[6])
+            elif argv[0] == "report" and len(argv) == 3:
+                report(load(argv[1], frozen=True), argv[2])
+            else:
+                raise GateError("usage")
+            return 0
+        except (GateError, OSError, TypeError, KeyError, ValueError) as exc:
+            code = str(exc) if isinstance(exc, GateError) and full(r"[a-z_]{1,40}", str(exc)) else "io_error"
+            print("qa_failed:" + code, file=sys.stderr)
+            return 1
+
+
+    if __name__ == "__main__":
+        sys.exit(main(sys.argv[1:]))
+  problem-report-v1.json: |
+    {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://frostyard.org/schemas/problem-report/v1.json",
+      "title": "frostyard.problem/1",
+      "description": "One problem report sent by an opted-in snosi host. Contract: frostyard/core docs/specs/problem-report.md. Immutable: a new field or enum value is a new schema version in a new file.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "report_id", "week", "image", "secure", "client", "kind", "detail"],
+      "properties": {
+        "schema": { "const": "frostyard.problem/1" },
+        "report_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "week": {
+          "type": "string",
+          "pattern": "^20[2-9][0-9]-W(0[1-9]|[1-4][0-9]|5[0-3])$"
+        },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "version"],
+          "properties": {
+            "id": { "enum": ["snow", "snowfield", "sundog", "floe"] },
+            "version": { "$ref": "#/$defs/image_version" }
+          }
+        },
+        "secure": { "type": "boolean" },
+        "client": {
+          "type": "string",
+          "pattern": "^(chairlift/(0|[1-9][0-9]{0,5})\\.(0|[1-9][0-9]{0,5})\\.(0|[1-9][0-9]{0,5})(-(alpha|beta|rc)\\.(0|[1-9][0-9]{0,3}))?|snosi-health/[0-9]{14})$"
+        },
+        "kind": {
+          "enum": [
+            "unit_failed",
+            "update_stage_failed",
+            "booted_older_image",
+            "sysext_update_failed",
+            "tpm_unlock",
+            "integrity_error",
+            "crash",
+            "app_problem",
+            "count"
+          ]
+        },
+        "detail": { "type": "object" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "unit_failed" } } },
+          "then": { "properties": { "detail": { "$ref": "#/$defs/unit_failed" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "update_stage_failed" } } },
+          "then": { "properties": { "detail": { "$ref": "#/$defs/update_stage_failed" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "booted_older_image" } } },
+          "then": { "properties": { "detail": { "$ref": "#/$defs/booted_older_image" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "sysext_update_failed" } } },
+          "then": { "properties": { "detail": { "$ref": "#/$defs/sysext_update_failed" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "tpm_unlock" } } },
+          "then": { "properties": { "detail": { "$ref": "#/$defs/tpm_unlock" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "integrity_error" } } },
+          "then": { "properties": { "detail": { "$ref": "#/$defs/integrity_error" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "crash" } } },
+          "then": { "properties": { "detail": { "$ref": "#/$defs/crash" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "app_problem" } } },
+          "then": { "properties": { "detail": { "$ref": "#/$defs/app_problem" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "count" } } },
+          "then": { "properties": { "detail": { "$ref": "#/$defs/count" } } }
+        }
+      ],
+      "$defs": {
+        "image_version": {
+          "type": "string",
+          "pattern": "^[0-9]{14}$"
+        },
+        "semver": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,5})\\.(0|[1-9][0-9]{0,5})\\.(0|[1-9][0-9]{0,5})(-(alpha|beta|rc)\\.(0|[1-9][0-9]{0,3}))?$"
+        },
+        "unit_failed": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["unit", "result", "shipped"],
+          "properties": {
+            "unit": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9:_.-]{0,95}@?\\.(service|socket|timer|mount|automount|swap|path|target|slice|scope)$"
+            },
+            "result": { "enum": ["exit-code", "signal", "timeout", "core-dump", "start-limit-hit", "other"] },
+            "shipped": { "const": true }
+          }
+        },
+        "update_stage_failed": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["target_version", "error_class", "bootc_version"],
+          "properties": {
+            "target_version": { "$ref": "#/$defs/image_version" },
+            "error_class": { "enum": ["network", "registry", "signature", "disk_space", "lock", "other"] },
+            "bootc_version": { "$ref": "#/$defs/semver" }
+          }
+        },
+        "booted_older_image": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["newer_version", "how"],
+          "properties": {
+            "newer_version": { "$ref": "#/$defs/image_version" },
+            "how": { "enum": ["manual_rollback", "boot_menu", "unknown", "other"] }
+          }
+        },
+        "sysext_update_failed": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["feature", "version", "outcome"],
+          "properties": {
+            "feature": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+            },
+            "version": {
+              "type": "string",
+              "pattern": "^[0-9A-Za-z][0-9A-Za-z.+~_-]{0,63}$"
+            },
+            "outcome": {
+              "enum": ["failed", "held_by_rollback", "needs_image", "skipped_unreachable", "skipped_busy", "other"]
+            },
+            "error_class": {
+              "enum": ["network", "http_status", "signature", "checksum", "disk_space", "link", "config", "other"]
+            }
+          }
+        },
+        "tpm_unlock": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["outcome", "tpm_rc", "retries"],
+          "properties": {
+            "outcome": { "enum": ["ok_after_retry", "recovery_key", "passphrase", "other"] },
+            "tpm_rc": { "enum": ["PCR_CHANGED", "POLICY_FAIL", "LOCKOUT", "other"] },
+            "retries": { "type": "integer", "minimum": 0, "maximum": 10 }
+          }
+        },
+        "integrity_error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["subsystem", "count"],
+          "properties": {
+            "subsystem": { "enum": ["composefs", "fs-verity", "dm-verity", "other"] },
+            "count": { "enum": ["1", "2-10", ">10"] }
+          }
+        },
+        "crash": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["exe", "signal"],
+          "properties": {
+            "exe": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$"
+            },
+            "package": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9+.-]{1,99}$"
+            },
+            "package_version": {
+              "type": "string",
+              "pattern": "^([0-9]{1,4}:)?[0-9][A-Za-z0-9.+~-]{0,63}$"
+            },
+            "signal": { "enum": ["SIGSEGV", "SIGABRT", "SIGBUS", "SIGILL", "SIGFPE", "SIGTRAP", "SIGSYS", "other"] }
+          }
+        },
+        "app_problem": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["app_id", "app_version", "runtime", "component", "class"],
+          "properties": {
+            "app_id": {
+              "enum": [
+                "org.frostyard.ChairLift",
+                "org.frostyard.nsl",
+                "org.frostyard.intuneme",
+                "org.frostyard.pilothouse",
+                "org.frostyard.Frostmail",
+                "org.frostyard.Frostnotes",
+                "org.frostyard.Frostread"
+              ]
+            },
+            "app_version": { "$ref": "#/$defs/semver" },
+            "runtime": { "enum": ["go", "rust"] },
+            "component": { "enum": ["daemon", "cli", "gui", "shell", "other"] },
+            "class": { "enum": ["panic", "error"] },
+            "code": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_.]{0,63}$"
+            },
+            "frames": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "items": {
+                "type": "string",
+                "maxLength": 160,
+                "pattern": "^(other|(github\\.com/frostyard(/[A-Za-z0-9_-]+){1,6}|(github\\.com/emersion/go-imap/v2|archive|bufio|bytes|cmp|compress|container|context|crypto|database|debug|embed|encoding|errors|expvar|flag|fmt|go|hash|html|image|index|internal|io|iter|log|main|maps|math|mime|net|os|path|plugin|reflect|regexp|runtime|slices|sort|strconv|strings|structs|sync|syscall|testing|text|time|unicode|unique|unsafe|vendor|weak)(/[a-z0-9_]+){0,4})\\.[A-Za-z0-9_.()*\\[\\]-]+)$"
+              }
+            },
+            "location": {
+              "type": "string",
+              "maxLength": 128,
+              "pattern": "^src/([a-z0-9_]+/){0,8}[a-z0-9_]+\\.rs:[1-9][0-9]{0,5}$"
+            }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "class": { "const": "error" } } },
+              "then": { "required": ["code"], "properties": { "code": true, "frames": false, "location": false } }
+            },
+            {
+              "if": { "properties": { "class": { "const": "panic" } } },
+              "then": { "properties": { "code": false } }
+            },
+            {
+              "if": { "properties": { "runtime": { "const": "go" } } },
+              "then": { "properties": { "location": false } }
+            },
+            {
+              "if": { "properties": { "runtime": { "const": "rust" } } },
+              "then": { "properties": { "frames": false } }
+            }
+          ]
+        },
+        "count": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["install_age", "channel"],
+          "properties": {
+            "install_age": { "enum": ["<1w", "<1m", "<6m", ">=6m"] },
+            "channel": { "enum": ["latest", "other"] }
+          }
+        }
+      }
+    }

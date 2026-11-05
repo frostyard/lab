@@ -1225,7 +1225,7 @@ def guest_unit_length(tmp_path, phase):
     return len(base64.b64encode(unit.stdout.encode()).decode())
 
 
-@pytest.mark.parametrize("phase", ["login-1", "installed-n"])
+@pytest.mark.parametrize("phase", ["login-1", "installed-n", "problems"])
 def test_guest_unit_stays_under_the_smbios_bound(tmp_path, phase):
     # The guest unit holds the base64 of qa.z, which is itself base64, and the
     # SMBIOS credential is bounded at 64 KiB; dev-snow-bootc-lifecycle-9hvgj
