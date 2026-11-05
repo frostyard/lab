@@ -792,3 +792,89 @@ def test_guest_problems_finds_the_systemd_coredump_account(qa, tmp_path, monkeyp
     account = pwd.struct_passwd(("systemd-coredump", "x", 997, 997, "", "/", "/usr/sbin/nologin"))
     _, credentials, _, _ = guest_environment(qa, tmp_path, monkeypatch, accounts=(account,))
     assert payload(qa.problems(credentials))["coredump_user"] is True
+
+
+# ------------------------------------------------ cross-review guards (PR #187)
+
+def test_report_of_every_failed_check_fits_the_summary_bound(problems, qa, tmp_path, capsys):
+    # All 11 checks false on Floe give the longest summary (76 characters); it is a
+    # product finding, so it must pass the summary grammar and end PASS.
+    record = full_record(problems=None, details=None, journal_dir=False, coredump_user=False,
+                         timer={"enabled": "disabled", "active": "inactive"},
+                         listing={"rc": 1, "unit": False, "stage": False, "crash": False, "app": False})
+    summary, _ = run_report(problems, qa, tmp_path, record, product="floe", capsys=capsys)
+    assert summary == ("problems=missing-file+schema+timer+coredump+journal+details+unit+stage+crash"
+                       "+app+list")
+
+
+def test_run_script_accepts_the_longest_summary(tmp_path):
+    longest = "missing-file+schema+timer+coredump+journal+details+unit+stage+crash+app+list"
+    result, _, out, _ = run_report_block(tmp_path, 'print("problems=%s")\n' % longest)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ""
+    assert (out / "checks.txt").read_text().splitlines()[-1] == "problems=" + longest
+
+
+@pytest.mark.parametrize("content,doc", [
+    (b"[]", []),
+    (b"7", 7),
+    (b"{not json", "invalid"),
+])
+def test_guest_problems_records_a_collector_document_of_the_wrong_type(qa, tmp_path, monkeypatch,
+                                                                       content, doc):
+    _, credentials, root, _ = guest_environment(qa, tmp_path, monkeypatch)
+    (root / "var/lib/snosi-health/problems.json").write_bytes(content)
+    record = payload(qa.problems(credentials))
+    assert record["problems"]["doc"] == doc
+
+
+@pytest.mark.parametrize("doc", [[], 7, "invalid"])
+def test_phase_and_report_treat_a_wrong_document_as_a_schema_finding(problems, qa, tmp_path, capsys, doc):
+    record = full_record(problems={"mode": "0644", "uid": 0, "gid": 0, "size": 9, "doc": doc, "leak": False})
+    serial = tmp_path / "serial"
+    serial.write_text(serial_with(problems, record))
+    problems.phase(probe_manifest(), "problems", NONCE, "none", str(serial), str(tmp_path / "out.json"))
+    capsys.readouterr()
+    summary, detail = run_report(problems, qa, tmp_path, record, capsys=capsys)
+    assert summary.startswith("problems=missing-schema+") and "unproven" not in summary
+    assert "schema=invalid" in detail[1]
+
+
+def test_guest_problems_survives_duplicate_keys_in_details(qa, tmp_path, monkeypatch):
+    _, credentials, root, _ = guest_environment(qa, tmp_path, monkeypatch)
+    (root / "var/lib/snosi-health/details.json").write_bytes(b'{"format": 1, "format": 1, "problems": {}}')
+    record = payload(qa.problems(credentials))
+    assert record["details"]["local_unit_id"] is None
+
+
+@pytest.mark.parametrize("field", ["collector_runs", "listing"])
+def test_phase_accepts_a_command_killed_by_a_signal(problems, tmp_path, field):
+    record = full_record()
+    if field == "collector_runs":
+        record["collector_runs"] = [-15, 0]
+    else:
+        record["listing"]["rc"] = -15
+    serial = tmp_path / "serial"
+    serial.write_text(serial_with(problems, record))
+    problems.phase(probe_manifest(), "problems", NONCE, "none", str(serial), str(tmp_path / "out.json"))
+
+
+def test_guest_problems_never_judges_a_cut_read(qa, tmp_path, monkeypatch):
+    # A valid document, padding to the read bound, then invalid data and the
+    # local unit name: the prefix alone must never pass as the whole file.
+    _, credentials, root, _ = guest_environment(qa, tmp_path, monkeypatch)
+    body = json.dumps(collector_document()).encode()
+    content = body + b" " * (65536 - len(body)) + b"," + UNIT.encode()
+    (root / "var/lib/snosi-health/problems.json").write_bytes(content)
+    record = payload(qa.problems(credentials))
+    assert record["problems"]["doc"] is None and record["problems"]["size"] == len(content)
+
+
+@pytest.mark.parametrize("uid", [False, 0.0])
+def test_phase_refuses_a_details_owner_that_is_not_an_integer(problems, tmp_path, uid):
+    record = full_record()
+    record["details"]["uid"] = uid
+    serial = tmp_path / "serial"
+    serial.write_text(serial_with(problems, record))
+    with pytest.raises(problems.GateError, match="^record_details$"):
+        problems.phase(probe_manifest(), "problems", NONCE, "none", str(serial), str(tmp_path / "out.json"))

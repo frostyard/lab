@@ -1376,7 +1376,7 @@ data:
       fi
       problems_line=$(sed -n '1p' "$WORK/problems-report")
       problems_summary=${problems_line#problems=}
-      [[ "$problems_line" == "problems=$problems_summary" && "$problems_summary" =~ ^[a-z0-9+-]{1,64}$ ]] || fail problems_report
+      [[ "$problems_line" == "problems=$problems_summary" && "$problems_summary" =~ ^[a-z0-9+-]{1,96}$ ]] || fail problems_report
       cp -- "$WORK/problems-report" "$OUT/problems.txt" || fail problems_report
       persist "$OUT/problems.txt" "$EVIDENCE/problems.txt" || fail evidence_write
       printf 'problems=%s\n' "$problems_summary" >> "$OUT/checks.txt"
@@ -3747,12 +3747,15 @@ data:
 
 
     def problems_doc(raw):
+        # None: too large to judge (a cut read included); "invalid": not JSON.
+        if len(raw) > 65536:
+            return None
         try:
             data = json.loads(raw, object_pairs_hook=pairs,
                               parse_constant=lambda _: (_ for _ in ()).throw(GateError("json_value")))
             return data if len(canonical(data)) <= 6500 else None
         except (ValueError, UnicodeError, GateError):
-            return None
+            return "invalid"
 
 
     def problems_local(raw):
@@ -3764,7 +3767,7 @@ data:
                 units = extra.get("units") if type(extra) is dict else None
                 if type(units) is list and PROBLEMS_UNIT in units and full(r"[0-9a-f]{16}", ident):
                     return ident
-        except (ValueError, UnicodeError, KeyError, TypeError, AttributeError):
+        except (ValueError, UnicodeError, KeyError, TypeError, AttributeError, GateError):
             return None
         return None
 
@@ -3778,7 +3781,7 @@ data:
             try:
                 info = target.stat()
                 with target.open("rb") as stream:
-                    raw = stream.read(65536)
+                    raw = stream.read(65537)
             except OSError:
                 continue
             entry = {"mode": format(info.st_mode & 0o7777, "04o"), "uid": info.st_uid}
@@ -4217,7 +4220,8 @@ data:
     MODE = r"0[0-7]{3}"
     UTC = r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z"
     HEX16 = r"[0-9a-f]{16}"
-    SUMMARY = re.compile(r"[a-z0-9+-]{1,64}")
+    # missing- plus all 11 check names is 76 characters: the bound leaves room.
+    SUMMARY = re.compile(r"[a-z0-9+-]{1,96}")
     # The frozen copy of core's problem-report schema v1 (sha256 pinned in the tests).
     SCHEMA = Path(__file__).with_name("problem-report-v1.json")
     # The keyword subset of the v1 schema: anything else is refused, never guessed.
@@ -4330,23 +4334,24 @@ data:
         runs = record["collector_runs"]
         if runs is not None:
             require(type(runs) is list and len(runs) == 2, "record_runs")
-            require(all(type(code) is int and -1 <= code <= 255 for code in runs), "record_runs")
+            require(all(type(code) is int and -128 <= code <= 255 for code in runs), "record_runs")
         document = record["problems"]
         if document is not None:
             require(type(document) is dict and set(document) == {"mode", "uid", "gid", "size", "doc", "leak"}, "record_problems")
             require(full(MODE, document["mode"]) and type(document["leak"]) is bool, "record_problems")
             require(all(type(document[key]) is int and 0 <= document[key] <= 2 ** 31 for key in ("uid", "gid", "size")), "record_problems")
-            require(document["doc"] is None or type(document["doc"]) is dict, "record_problems")
+            # Any JSON value: a collector document of the wrong type is a schema
+            # finding of the report, never a refused record.
         details = record["details"]
         if details is not None:
             require(type(details) is dict and set(details) == {"mode", "uid", "group", "local_unit_id"}, "record_details")
-            require(full(MODE, details["mode"]) and 0 <= details["uid"] <= 2 ** 31, "record_details")
+            require(full(MODE, details["mode"]) and type(details["uid"]) is int and 0 <= details["uid"] <= 2 ** 31, "record_details")
             require(full(TOKEN, details["group"]), "record_details")
             require(details["local_unit_id"] is None or full(HEX16, details["local_unit_id"]), "record_details")
         listing = record["listing"]
         if listing is not None:
             require(type(listing) is dict and set(listing) == {"rc", "unit", "stage", "crash", "app"}, "record_listing")
-            require(type(listing["rc"]) is int and -1 <= listing["rc"] <= 255, "record_listing")
+            require(type(listing["rc"]) is int and -128 <= listing["rc"] <= 255, "record_listing")
             require(all(type(listing[key]) is bool for key in ("unit", "stage", "crash", "app")), "record_listing")
 
 
@@ -4461,7 +4466,7 @@ data:
         root = json.loads(SCHEMA.read_bytes())
         problems, details, listing = record["problems"], record["details"], record["listing"]
         document = problems["doc"] if problems is not None else None
-        listed = document.get("problems") if document is not None else None
+        listed = document.get("problems") if type(document) is dict else None
         entries = [entry for entry in listed if type(entry) is dict] if type(listed) is list else []
         injected = record["injected"]
 
