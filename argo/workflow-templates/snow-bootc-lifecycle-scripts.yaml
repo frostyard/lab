@@ -3753,7 +3753,8 @@ data:
         try:
             data = json.loads(raw, object_pairs_hook=pairs,
                               parse_constant=lambda _: (_ for _ in ()).throw(GateError("json_value")))
-            return data if len(canonical(data)) <= 6500 else None
+            # A JSON null is content, not a size verdict.
+            return "invalid" if data is None else data if len(canonical(data)) <= 6500 else None
         except (ValueError, UnicodeError, GateError):
             return "invalid"
 

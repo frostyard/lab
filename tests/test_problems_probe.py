@@ -819,6 +819,8 @@ def test_run_script_accepts_the_longest_summary(tmp_path):
     (b"[]", []),
     (b"7", 7),
     (b"{not json", "invalid"),
+    # A JSON null is a wrong document, never the too-large verdict.
+    (b"null", "invalid"),
 ])
 def test_guest_problems_records_a_collector_document_of_the_wrong_type(qa, tmp_path, monkeypatch,
                                                                        content, doc):
@@ -878,3 +880,15 @@ def test_phase_refuses_a_details_owner_that_is_not_an_integer(problems, tmp_path
     serial.write_text(serial_with(problems, record))
     with pytest.raises(problems.GateError, match="^record_details$"):
         problems.phase(probe_manifest(), "problems", NONCE, "none", str(serial), str(tmp_path / "out.json"))
+
+
+def test_report_of_a_null_collector_document_is_a_schema_finding(problems, qa, tmp_path, monkeypatch, capsys):
+    # End to end: the guest turns a JSON null into the invalid sentinel, and the
+    # report names a schema finding instead of unproven-too-large.
+    _, credentials, root, _ = guest_environment(qa, tmp_path, monkeypatch)
+    (root / "var/lib/snosi-health/problems.json").write_bytes(b"null")
+    record = payload(qa.problems(credentials))
+    summary, detail = run_report(problems, qa, tmp_path, record, capsys=capsys)
+    # The test tree is not owned by root, so file and details fail here too.
+    assert summary.startswith("problems=missing-") and "schema" in summary.split("-", 1)[1].split("+")
+    assert "unproven" not in summary and "schema=invalid" in detail[1]
