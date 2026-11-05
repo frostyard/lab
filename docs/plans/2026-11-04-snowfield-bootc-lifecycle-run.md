@@ -75,13 +75,13 @@ FAILED: fsverity_errors
 Canonical `manifest_sha256`:
 `04e38af01ad38b4ad8e5c3cadadd39f1f75b6115938f55c78924a6ed4d3163b3`.
 
-| Phase | Boot ID | Kernel | fs-verity errors | Kept lines |
-| --- | --- | --- | --- | --- |
-| `installed-n` | `dc0211bd-cc6a-42a6-8014-92376f25dbfb` | `7.2.15-1-surface` | 2 | 2 |
-| `stage` | `aba41c81-e8ae-42da-82d6-64a32a1890bc` | `7.2.15-1-surface` | 1 | 1 |
-| `boot-n-plus-1` | `24c2872c-8fa7-4e8e-8cc6-ea33ffd02a2e` | `7.2.15-1-surface` | 0 | 0 |
-| `rollback` | `c402f53f-39ff-453b-885a-2ea4eeaf7fe9` | `7.2.15-1-surface` | 1 | 1 |
-| `boot-n` | `756a05d1-f1f7-44e8-9bcb-4ce9bce43dd4` | `7.2.15-1-surface` | 2 | 2 |
+| Phase | Booted | Boot ID | Kernel | fs-verity errors | Kept lines |
+| --- | --- | --- | --- | --- | --- |
+| `installed-n` | N | `dc0211bd-cc6a-42a6-8014-92376f25dbfb` | `7.2.15-1-surface` | 2 | 2 |
+| `stage` | N | `aba41c81-e8ae-42da-82d6-64a32a1890bc` | `7.2.15-1-surface` | 1 | 1 |
+| `boot-n-plus-1` | N+1 | `24c2872c-8fa7-4e8e-8cc6-ea33ffd02a2e` | `7.2.15-1-surface` | 0 | 0 |
+| `rollback` | N+1 | `c402f53f-39ff-453b-885a-2ea4eeaf7fe9` | `7.2.15-1-surface` | 1 | 1 |
+| `boot-n` | N | `756a05d1-f1f7-44e8-9bcb-4ce9bce43dd4` | `7.2.15-1-surface` | 2 | 2 |
 
 ### `checks.txt`
 
@@ -138,8 +138,11 @@ kmsg (`serial-channel.txt`).
 - The snosi#1214 lockdown fix is effective. The UKI command line contains
   `lockdown=integrity`, and the kernel reaches the integrity lockdown state.
 - All 5 lifecycle boots ran. The serial and kmsg record exists for every phase.
-- The fs-verity errors are in the four boots of N (`installed-n`, `stage`,
-  `rollback`, `boot-n`). The one boot of N+1 has 0 `FILE CORRUPTED` lines.
+- Both images log fs-verity errors. The three boots of N have 2 (`installed-n`),
+  1 (`stage`) and 2 (`boot-n`). The two boots of N+1 have 0 (`boot-n-plus-1`)
+  and 1 (`rollback`: the lane's `rollback` record is taken in N+1, before the
+  rollback to N takes effect). Inode 228871 at `pos=8372224` appears in boots
+  of both images.
 - The linux-surface kernel is not on `known_defect_kernels`. The lane correctly
   reports `FAILED: fsverity_errors`.
 

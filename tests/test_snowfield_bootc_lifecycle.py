@@ -155,6 +155,29 @@ def test_committed_snowfield_rerun_manifest_validates(qa):
     assert qa.normalize(dict(manifest)) == manifest
 
 
+RERUN_PLAN = ROOT / "docs/plans/2026-11-04-snowfield-bootc-lifecycle-run.md"
+
+
+def test_rerun_plan_attributes_each_phase_to_the_image_the_lane_boots():
+    # The lane checks booted_digest == N+1 in the phases of its `newer` tuple
+    # (rollback is recorded in N+1, before the rollback takes effect). The run
+    # record must not attribute a phase's fs-verity errors to the wrong image.
+    newer = re.search(r'newer = phase in \(([^)]*)\)', SOURCE.read_text())
+    assert newer
+    newer_phases = set(re.findall(r'"([a-z0-9-]+)"', newer.group(1)))
+    assert newer_phases == {"boot-n-plus-1", "rollback"}
+    text = RERUN_PLAN.read_text()
+    rows = re.findall(r"^\| `([a-z0-9-]+)` \| (N|N\+1) \| `[0-9a-f-]{36}` \| `[^`]+` \| (\d+) \| (\d+) \|$",
+                      text, re.M)
+    phases = ["installed-n", "stage", "boot-n-plus-1", "rollback", "boot-n"]
+    assert [row[0] for row in rows] == phases
+    counts = dict(re.findall(r"^phase=([a-z0-9-]+) boot_id=\S+ kernel=\S+ fsverity_errors=(\d+)$", text, re.M))
+    assert set(counts) == set(phases)
+    for phase, booted, errors, kept in rows:
+        assert booted == ("N+1" if phase in newer_phases else "N"), phase
+        assert errors == kept == counts[phase], phase
+
+
 @pytest.mark.skipif(subprocess.run(["which", "jq"], capture_output=True).returncode != 0, reason="jq not installed")
 def test_preflight_checks_select_the_snowfield_catalog_entry(tmp_path):
     line = next(l for l in CHECKS_SH.read_text().splitlines() if "--arg p" in l)
