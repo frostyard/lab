@@ -5609,7 +5609,13 @@ data:
 
     def ip_clean(requests, envelopes):
         """No client IP reaches GlitchTip: not in a header, not in an event."""
-        peers = [entry.get("peer") for entry in requests if type(entry.get("peer")) is str and entry["peer"]]
+        # The guest's address is the one to look for. A loopback peer is the
+        # container's own readiness check, and the mock's Host header always holds
+        # 127.0.0.1 (dev-snow-bootc-lifecycle-5pcgp: a false missing-ip).
+        peers = [entry.get("peer") for entry in requests if type(entry.get("peer")) is str
+                 and entry["peer"] and not entry["peer"].startswith("127.")]
+        if not peers:
+            return False
         for entry in envelopes:
             blob = json.dumps(entry, sort_keys=True)
             if any(peer in blob for peer in peers):

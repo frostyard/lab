@@ -1274,3 +1274,25 @@ def test_a_failed_intake_setup_keeps_its_last_lines_as_evidence():
     assert '> "$WORK/intake-setup.log" 2>&1 || {' in run
     assert 'persist "$WORK/intake-setup.txt" "$EVIDENCE/intake-setup.txt" || true' in run
     assert "set -x" not in scripts()["intake-setup.sh"]
+
+
+def test_report_ignores_the_loopback_readiness_check_and_the_mock_host(report, qa, tmp_path, capsys):
+    # dev-snow-bootc-lifecycle-5pcgp: the setup's own GET /v1/health comes from
+    # 127.0.0.1, and the mock's Host header is 127.0.0.1:8443. Neither is a client
+    # IP, so a clean run must not end missing-ip.
+    document_app = guest_document("app_problem", APP_ID)
+    document_count = guest_document("count", COUNT_ID)
+    requests = [{"type": "request", "method": "GET", "path": "/v1/health", "peer": "127.0.0.1",
+                 "status": 200, "name": None, "body": "", "seq": 0}]
+    requests += requests_log(after_posts=(document_app, document_count))
+    headers = {"Content-Type": "application/x-sentry-envelope", "Authorization": "bearer_ok: true",
+               "Host": "127.0.0.1:8443"}
+    summary, _ = run_report(report, qa, tmp_path, full_record(),
+                            logs=lab_logs(tmp_path, requests, [envelope(APP_ID, headers=headers)]),
+                            capsys=capsys)
+    assert summary == "report=ok"
+
+
+def test_report_without_a_guest_peer_is_not_ip_clean(report):
+    # Only loopback peers: nothing proves the guest's address stayed out.
+    assert report.ip_clean([{"peer": "127.0.0.1"}], []) is False
