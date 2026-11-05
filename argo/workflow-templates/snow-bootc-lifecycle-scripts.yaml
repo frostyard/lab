@@ -74,6 +74,11 @@ data:
         if [[ -f "$OUT/fsverity.txt" ]]; then
           persist "$OUT/fsverity.txt" "$EVIDENCE/fsverity.txt" || true
         fi
+        # Best effort, like fsverity.txt: a missing first-login report never
+        # changes STATE, REASON or rc.
+        if [[ -f "$OUT/first-login.txt" ]]; then
+          persist "$OUT/first-login.txt" "$EVIDENCE/first-login.txt" || true
+        fi
         if [[ -n "$summary_source" ]]; then
           printf '%s: %s\n' "$STATE" "$REASON" > "$summary_source" || true
           persist "$summary_source" "$EVIDENCE/result-summary.txt" || { rc=1; STATE=FAILED; REASON=evidence_write; }
@@ -177,6 +182,9 @@ data:
     # lab#174: the kept fs-verity kernel lines. It always exists after collection,
     # empty when no line was kept, and it never shapes checks.txt or the reason.
     : > "$OUT/fsverity.txt" || true
+    # The first-login probe report. It exists from the start, empty when this mode
+    # did not run, like fsverity.txt, and it never shapes the reason either.
+    : > "$OUT/first-login.txt" || true
     install -d -m 0700 "$ROOT" || fail evidence_directory
     [[ ! -L "$ROOT" && -d "$ROOT" ]] || fail evidence_directory
     chmod 0700 "$ROOT" || fail evidence_directory
@@ -401,6 +409,30 @@ data:
             ) || fail sysext_guest_error
             fail "sysext_guest_error:$code"
           fi
+          if [[ "$observed_failure" == SNOW_LOGIN_ERR ]]; then
+            # The first-login probe reports what it saw inside its record; this
+            # marker is a fatal gate error (credentials, manifest, I/O), never a
+            # probe result.
+            code=$(python3 - "$WORK/serial" <<'PY'
+    import re, sys
+    from pathlib import Path
+    lines = Path(sys.argv[1]).read_bytes().split(b'\n')
+    def token(line):
+        line = line.rstrip(b'\r')
+        index = line.find(b'SNOW_LOGIN_ERR')
+        return line if index > 0 and not line[index - 1:index].isspace() else line[index:]
+    # A chunk carrier line is not a code line, and a cut fragment is not a code
+    # (lab#177, ADR-0014).
+    tokens = [token(line) for line in lines if b'SNOW_LOGIN_ERR' in line and b'SNOW_QA_KMSG1' not in line]
+    codes = {match[1] for match in (re.fullmatch(rb'SNOW_LOGIN_ERR ([a-z_]{1,40})\r?', item)
+                                    for item in tokens) if match}
+    if len(codes) != 1 or any(b'SNOW_LOGIN_V1' in line for line in lines):
+        sys.exit(1)
+    print(codes.pop().decode('ascii'))
+    PY
+            ) || fail login_guest_error
+            fail "login_guest_error:$code"
+          fi
           if [[ "$observed_failure" == SNOW_INSTALL_FAILED ]]; then
             code=$(python3 - "$WORK/serial" <<'PY'
     import re, sys
@@ -462,7 +494,7 @@ data:
         # with the same error and record checks, then stop now instead of
         # waiting out the whole phase window.
         if [[ "$final" == 1 ]]; then blocked guest_stopped_without_record; fi
-        if [[ "$needle" == SNOW_QA_V1 || "$needle" == SNOW_SYSEXT_V1 ]] && vm_stopped; then final=1; continue; fi
+        if [[ "$needle" == SNOW_QA_V1 || "$needle" == SNOW_SYSEXT_V1 || "$needle" == SNOW_LOGIN_V1 ]] && vm_stopped; then final=1; continue; fi
         sleep 5
       done
       blocked phase_timeout
@@ -475,7 +507,16 @@ data:
     manifest_b64=$(base64 -w0 "$WORK/normalized.json") || fail manifest_read
     # Compress the trusted ConfigMap payload to keep the SMBIOS value below
     # firmware's 64 KiB string bound; the guest decompresses using Python.
-    python3 -c 'import pathlib,zlib,sys; pathlib.Path(sys.argv[2]).write_bytes(zlib.compress(pathlib.Path(sys.argv[1]).read_bytes(),9))' /opt/snow-qa/qa.py "$WORK/qa.z" || fail qa_payload
+    # qa.py travels in a SMBIOS credential that firmware bounds at 64 KiB, and the
+    # guest unit holding it is base64-encoded a second time, so the payload is
+    # compressed without comments: ast.unparse keeps the program, drops the prose,
+    # and an unchanged AST proves the stripped source is the same program.
+    python3 -c 'import ast,pathlib,sys,zlib
+    source = pathlib.Path(sys.argv[1]).read_text()
+    stripped = ast.unparse(ast.parse(source))
+    if ast.dump(ast.parse(stripped)) != ast.dump(ast.parse(source)):
+        sys.exit(1)
+    pathlib.Path(sys.argv[2]).write_bytes(zlib.compress(stripped.encode(), 9))' /opt/snow-qa/qa.py "$WORK/qa.z" || fail qa_payload
     qa_b64=$(base64 -w0 "$WORK/qa.z") || fail qa_payload
     # The ISO boot runs only after validation, authenticated preflight and a
     # persistent manifest hash. A single root disk and a read-only ISO.
@@ -938,12 +979,25 @@ data:
     INSTALLER_ATTACHED=0
     prior=none
     seen_boot_ids=':'
-    # The manifest decides the boots. Without sysext_probe the lane makes the five
-    # lifecycle boots. With it the lane installs N, attests it, then makes the two
-    # sysext-probe boots: N+1 is never staged, it is only the controlled tag's target.
+    # The manifest decides the boots. Without a probe key the lane makes the five
+    # lifecycle boots. With sysext_probe the lane installs N, attests it, then makes
+    # the two sysext-probe boots: N+1 is never staged, it is only the controlled
+    # tag's target. With first_login_probe it makes the test-only first-login boots.
     sysext_mode=$(python3 -c 'import json,sys; print(1 if "sysext_probe" in json.load(open(sys.argv[1])) else 0)' "$WORK/normalized.json") || fail manifest_read
+    login_mode=$(python3 -c 'import json,sys; print(1 if "first_login_probe" in json.load(open(sys.argv[1])) else 0)' "$WORK/normalized.json") || fail manifest_read
     if [[ "$sysext_mode" == 1 ]]; then
       phase_plan=(installed-n sysext-enable sysext-reboot)
+    elif [[ "$login_mode" == 1 ]]; then
+      # No installed-n attestation boot in this mode: it proves first login only,
+      # and Snowfield's installed-n boot is BLOCKED on kernel lockdown
+      # (frostyard/snosi#1213), which is not a first-login fact. Floe is the
+      # headless product: one login boot, and there is no second login to make.
+      login_product=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["product"])' "$WORK/normalized.json") || fail manifest_read
+      if [[ "$login_product" == floe ]]; then
+        phase_plan=(login-1)
+      else
+        phase_plan=(login-1 login-2)
+      fi
     else
       phase_plan=(installed-n stage boot-n-plus-1 rollback boot-n)
     fi
@@ -965,14 +1019,16 @@ data:
       cp -- "$WORK/serial-full" "$WORK/serial-last" || fail channel_baseline
       # Credentials supplied by SMBIOS as base64, not kernel arguments. Each
       # phase has a fresh unit and a fresh VM boot, never a re-used serial log.
-      case "$phase" in installed-n) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["installed_boot"])' "$WORK/normalized.json") || fail manifest_read;; stage) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["stage"])' "$WORK/normalized.json") || fail manifest_read;; *) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["reboot"])' "$WORK/normalized.json") || fail manifest_read;; esac
-      # The sysext-probe boots run the sysext collector; every other boot attests.
-      # A target orders itself After= every unit it Wants= (systemd.target(5)), so a
-      # probe pulled by multi-user.target would hold the target inactive, and
-      # Upholds= on it never starts a unit (dev-snow-bootc-lifecycle-mjhb4). The
-      # explicit After= removes that implicit order for the sysext probe only.
+      case "$phase" in installed-n|login-1) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["installed_boot"])' "$WORK/normalized.json") || fail manifest_read;; stage) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["stage"])' "$WORK/normalized.json") || fail manifest_read;; *) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["reboot"])' "$WORK/normalized.json") || fail manifest_read;; esac
+      # The sysext-probe boots run the sysext collector, the login boots run the
+      # first-login probe, and every other boot attests. A target orders itself
+      # After= every unit it Wants= (systemd.target(5)), so a probe pulled by
+      # multi-user.target would hold the target inactive, and Upholds= on it never
+      # starts a unit (dev-snow-bootc-lifecycle-mjhb4). The explicit After= removes
+      # that implicit order for the two probe modes only.
       case "$phase" in
         sysext-enable|sysext-reboot) guest_mode=sysext; guest_after=" multi-user.target";;
+        login-1|login-2) guest_mode=login; guest_after=" multi-user.target";;
         *) guest_mode=guest; guest_after="";;
       esac
       guestunit="[Unit]
@@ -986,13 +1042,34 @@ data:
     ExecStart=/bin/bash -ec 'install -d -m 0700 /run/snow-credentials; cut -d\" \" -f1 /proc/uptime > /run/snow-credentials/unit_started; install -d -m 0700 /opt/snow-qa; echo $qa_b64 | base64 -d > /run/snow-qa.z; python3 -c \"import zlib,sys;sys.stdout.buffer.write(zlib.decompress(sys.stdin.buffer.read()))\" < /run/snow-qa.z > /opt/snow-qa/qa.py; echo $manifest_b64 | base64 -d > /opt/snow-qa/normalized.json; printf %%s $phase > /run/snow-credentials/phase; printf %%s $nonce > /run/snow-credentials/nonce; printf %%s $n > /run/snow-credentials/image_n; printf %%s $next > /run/snow-credentials/image_n_plus_1; printf %%s $target > /run/snow-credentials/target_ref; python3 /opt/snow-qa/qa.py ${guest_mode:-guest} /run/snow-credentials || true; systemctl --no-block poweroff'"
       gb=$(printf '%s' "$guestunit" | base64 -w0) || fail unit_encoding
       [[ ${#gb} -lt 60000 ]] || fail unit_size
-      gd=$(printf '[Unit]\nWants=snow-guest.service' | base64 -w0) || fail unit_encoding
+      gd=
+      login_credential=""
+      if [[ "$phase" == login-1 ]]; then
+        # login-1 also pulls the test-only autologin setup unit, from the same
+        # multi-user.target drop-in and the same single raw.qemu of the phase.
+        login_b64=$(base64 -w0 /opt/snow-qa/login-setup.sh) || fail unit_encoding
+        gd=$(printf '[Unit]\nWants=snow-guest.service snow-login-setup.service' | base64 -w0) || fail unit_encoding
+        loginunit="[Unit]
+    Before=display-manager.service gdm.service gdm3.service sddm.service systemd-user-sessions.service
+    [Service]
+    Type=oneshot
+    RemainAfterExit=yes
+    TimeoutStartSec=120
+    StandardOutput=null
+    StandardError=null
+    ExecStart=/bin/bash -c 'echo $login_b64 | base64 -d > /run/snow-login-setup.sh; chmod 700 /run/snow-login-setup.sh; /run/snow-login-setup.sh'"
+        lb=$(printf '%s' "$loginunit" | base64 -w0) || fail unit_encoding
+        [[ ${#lb} -lt 60000 ]] || fail unit_size
+        login_credential=" -smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.snow-login-setup.service=$lb"
+      else
+        gd=$(printf '[Unit]\nWants=snow-guest.service' | base64 -w0) || fail unit_encoding
+      fi
       # The image's hourly bootc-update-stage.timer must not stage N+1 early. A drop-in
       # condition on a path nothing creates skips the timer's run; the stage phase
       # calls /usr/libexec/bootc-update-stage directly and is not affected.
       td=$(printf '[Unit]\nConditionPathExists=/run/snow-qa-timer-disabled' | base64 -w0) || fail unit_encoding
       [[ ${#gd} -lt 60000 && ${#td} -lt 60000 ]] || fail unit_size
-      timeout 60 incus config set "$VM" raw.qemu="-smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.snow-guest.service=$gb -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.multi-user.target=$gd -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.bootc-update-stage.service=$td" >/dev/null 2>&1 || fail phase_injection
+      timeout 60 incus config set "$VM" raw.qemu="-smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.snow-guest.service=$gb -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.multi-user.target=$gd -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.bootc-update-stage.service=$td$login_credential" >/dev/null 2>&1 || fail phase_injection
       timeout 120 incus start "$VM" >/dev/null 2>&1 || fail guest_start
       case "$phase" in
         sysext-enable|sysext-reboot)
@@ -1020,6 +1097,26 @@ data:
           if [[ "$sysext_state" != none ]]; then
             sysext_failures+="${sysext_failures:+,}$sysext_state"
           fi
+          ;;
+        login-1|login-2)
+          await SNOW_LOGIN_V1 "$((budget + 300))" SNOW_LOGIN_ERR
+          python3 /opt/snow-qa/qa.py login-phase "$WORK/normalized.json" "$phase" "$nonce" "$prior" "$WORK/serial" "$WORK/$phase.json" > "$WORK/login-id" 2>/dev/null || fail phase_mismatch
+          [[ -s "$WORK/$phase.json" && -s "$WORK/login-id" ]] || fail phase_mismatch
+          prior=$(sed -n '1p' "$WORK/login-id")
+          # Lines 2 and 3 are the apps that started and the session type, for
+          # checks.txt; the record itself keeps every field of the probe.
+          login_started=$(sed -n '2s/^started=//p' "$WORK/login-id")
+          login_session=$(sed -n '3s/^session=//p' "$WORK/login-id")
+          [[ -n "$prior" && -n "$login_started" && -n "$login_session" ]] || fail phase_mismatch
+          [[ "$seen_boot_ids" != *":$prior:"* ]] || fail reused_boot_id
+          seen_boot_ids+="$prior:"
+          persist "$WORK/$phase.json" "$EVIDENCE/$phase.json" || fail evidence_write
+          printf 'phase=%s boot_id=%s session=%s started=%s\n' "$phase" "$prior" "$login_session" "$login_started" >> "$OUT/checks.txt"
+          persist "$OUT/checks.txt" "$EVIDENCE/checks.txt" || fail evidence_write
+          # lab#177: which channel carried the record. Best effort: this file
+          # never shapes checks.txt, the judge or the reason.
+          printf 'phase=%s %s\n' "$phase" "$(cat "$WORK/serial-channel" 2>/dev/null)" >> "$OUT/serial-channel.txt" || true
+          persist "$OUT/serial-channel.txt" "$EVIDENCE/serial-channel.txt" || true
           ;;
         *)
           await SNOW_QA_V1 "$((budget + 300))"
@@ -1171,9 +1268,31 @@ data:
       reason="sysext_failed:$sysext_failures"
       fail "${reason:0:400}"
     fi
+    if [[ "$login_mode" == 1 ]]; then
+      # The first-login report: one summary line, then one detail line per boot.
+      login_records=("$WORK/login-1.json")
+      if [[ -s "$WORK/login-2.json" ]]; then login_records+=("$WORK/login-2.json"); fi
+      if ! python3 /opt/snow-qa/qa.py login-report "$WORK/normalized.json" "${login_records[@]}" > "$WORK/first-login" 2>/dev/null; then
+        fail login_report
+      fi
+      login_line=$(sed -n '1p' "$WORK/first-login")
+      login_summary=${login_line#first_login=}
+      [[ "$login_line" == "first_login=$login_summary" && "$login_summary" =~ ^[a-z0-9+-]{1,64}$ ]] || fail login_report
+      cp -- "$WORK/first-login" "$OUT/first-login.txt" || fail login_report
+      persist "$OUT/first-login.txt" "$EVIDENCE/first-login.txt" || fail evidence_write
+      printf 'first_login=%s\n' "$login_summary" >> "$OUT/checks.txt"
+      persist "$OUT/checks.txt" "$EVIDENCE/checks.txt" || fail evidence_write
+      if [[ "$login_summary" == unproven-* ]]; then
+        # ADR-0003: unproven is not failed. The probe never fails because of
+        # which app started, and it never passes when it proved nothing.
+        blocked "first_login_$login_summary"
+      fi
+    fi
     STATE=PASS
     if [[ "$sysext_mode" == 1 ]]; then
       REASON=verified_sysext_probe${fsverity_known:+;fsverity_known_defect=${fsverity_known// /,}}
+    elif [[ "$login_mode" == 1 ]]; then
+      REASON="verified_first_login_probe;first_login=$login_summary${fsverity_known:+;fsverity_known_defect=${fsverity_known// /,}}"
     else
       REASON=verified_five_fresh_boots${fsverity_known:+;fsverity_known_defect=${fsverity_known// /,}}
     fi
@@ -1196,6 +1315,7 @@ data:
     import hashlib
     import json
     import os
+    import pwd
     import re
     import resource
     import struct
@@ -1246,6 +1366,39 @@ data:
     # The guest reads absolute manifest paths from its own root; tests point this
     # at a temporary tree instead.
     SYSEXT_ROOT = Path("/")
+    LOGIN_PHASES = ("login-1", "login-2")
+    LOGIN_RECORD_FIELDS = set("phase nonce boot_id booted_digest display_manager autologin session entries apps started mark_done markers waited".split())
+    LOGIN_FIELDS = FIELDS | {"first_login_probe"}
+    # The known first-login apps, their autostart entry, their binary, the done
+    # marker each one writes and the command that marks it done as the QA user.
+    LOGIN_APPS = ("first-setup", "chairlift")
+    LOGIN_ENTRIES = {"first-setup": "etc/xdg/autostart/org.frostyard.FirstSetup.autostart.desktop",
+                     "chairlift": "etc/xdg/autostart/org.frostyard.ChairLift.FirstRun.desktop"}
+    LOGIN_BINARIES = {"first-setup": "usr/bin/snow-first-setup",
+                      "chairlift": "usr/bin/chairlift-first-run"}
+    LOGIN_MARKERS = {"first-setup": "/.config/snow-first-setup.done",
+                     "chairlift": "/.config/chairlift/first-run.done"}
+    LOGIN_MARK_DONE = {"first-setup": ["/bin/bash", "/usr/share/org.frostyard.FirstSetup/snow_first_setup/scripts/complete-setup"],
+                       "chairlift": ["/usr/bin/chairlift-first-run", "--mark-done"]}
+    LOGIN_AUTOSTART_DIRS = ("etc/xdg/autostart", "usr/etc/xdg/autostart", "usr/share/gnome/autostart")
+    # An active key of this set in /etc/sddm.conf [Autologin] wins over the drop-in.
+    LOGIN_SDDM_AUTOLOGIN_KEYS = ("User", "Session", "Relogin")
+    # A first-run autostart file by name only; a full path would also match.
+    LOGIN_ENTRY_NAME = re.compile(r"(?i)first.?(setup|run)|initial.?setup")
+    LOGIN_USER = "snowqa"
+    LOGIN_POLL = 5
+    # chairlift is evidence only through its own journal line: it logs the line
+    # when it presents its first-run window, and a bare `--first-run` process
+    # never proves that window was shown.
+    LOGIN_PRESENTED = b"first-run: window presented"
+    LOGIN_OUTPUT_MAX = 1024 * 1024
+    # 8 KiB, the same bound SNOW_QA_V1 uses in the serial line and the kernel-log
+    # join; a record above it is never published.
+    LOGIN_TOKEN_MAX = 8192
+    LOGIN_SUMMARY = re.compile(r"[a-z0-9+-]{1,64}")
+    # Every guest file the probe reads is below this prefix; tests point it at a
+    # temporary tree instead, like SYSEXT_ROOT.
+    LOGIN_ROOT = Path("/")
     RECORD_FIELDS = set("phase nonce boot_id spec_image spec_transport booted_digest booted_version staged_digest rollback_digest policy_sha256 policy_ok pull_ok pull_digest secure_boot uki_type2 lockdown root_luks root_btrfs tpm_pcr11_tokens kernel fsverity_errors fsverity_lines action marker_digest".split())
     GUEST_MANIFEST = Path("/opt/snow-qa/normalized.json")
     GUEST_PATHS = {"boot_id": Path("/proc/sys/kernel/random/boot_id"),
@@ -1296,12 +1449,21 @@ data:
         return p
 
 
+    def first_login_probe(p):
+        """The optional first_login_probe block: the two bounded wait windows."""
+        require(type(p) is dict and set(p) == {"session_wait", "app_wait"}, "first_login_fields")
+        # type() is int, so a bool can never pass as a wait window.
+        require(type(p["session_wait"]) is int and 60 <= p["session_wait"] <= 900, "first_login_fields")
+        require(type(p["app_wait"]) is int and 30 <= p["app_wait"] <= 600, "first_login_fields")
+        return p
+
+
     def product_repo(m):
         return PRODUCTS[m["product"]]
 
 
     def normalize(m):
-        require(type(m) is dict and set(m) in (FIELDS, SYSEXT_FIELDS), "manifest_fields")
+        require(type(m) is dict and set(m) in (FIELDS, SYSEXT_FIELDS, LOGIN_FIELDS), "manifest_fields")
         # A repository of the other product must never pass: the family is the
         # product, and every reference below uses that product's repository.
         require(type(m["product"]) is str and m["product"] in PRODUCTS and m["family"] == m["product"], "product")
@@ -1314,11 +1476,14 @@ data:
         require(m["trust_fingerprint"] == FINGERPRINT, "fingerprint")
         for name in ("iso_version", "version_n", "version_n_plus_1"):
             require(full(r"[0-9]{14}", m[name]), "version_format")
-        if "sysext_probe" in m:
-            # The sysext probe never stages N+1: N+1 is only the controlled
-            # tag's current target, so the two versions only have to differ.
+        if "sysext_probe" in m or "first_login_probe" in m:
+            # The sysext and first-login probes never stage N+1: N+1 is only the
+            # controlled tag's current target, so the two versions only have to differ.
             require(m["version_n"] != m["version_n_plus_1"], "version_distinct")
-            sysext_probe(m["sysext_probe"])
+            if "sysext_probe" in m:
+                sysext_probe(m["sysext_probe"])
+            else:
+                first_login_probe(m["first_login_probe"])
         else:
             require(m["version_n"] < m["version_n_plus_1"], "version_order")
         require(m["iso_url"] == ISO_BASE + "snosi-installer_" + m["iso_version"] + "_x86-64.iso", "iso_url")
@@ -1332,6 +1497,14 @@ data:
         require(type(m["timeouts"]) is dict and set(m["timeouts"]) == set(LIMITS), "timeout_fields")
         for key, limit in LIMITS.items():
             require(type(m["timeouts"][key]) is int and 300 <= m["timeouts"][key] <= limit, "timeout_value")
+        if "first_login_probe" in m:
+            # Both login boots carry the same guest unit window, so the two waits
+            # plus the 180 s the guest unit and the session need must fit the
+            # smaller of the two phase budgets; a manifest that cannot fit is
+            # refused here rather than cut short in the VM.
+            probe = m["first_login_probe"]
+            require(probe["session_wait"] + probe["app_wait"] + 180
+                    <= min(m["timeouts"]["installed_boot"], m["timeouts"]["reboot"]), "first_login_window")
         return m
 
 
@@ -1779,11 +1952,13 @@ data:
     # A joined line is one of the 4 marker lines. A slice line counts as a
     # complete record only when it also matches the bound its own parser uses,
     # so a copy the kernel cut into is never reported as a record.
-    MARKER_LINE = rb"(?:SNOW_QA_V1|SNOW_QA_ERR|SNOW_SYSEXT_V1|SNOW_SYSEXT_ERR) [ -~]+"
+    MARKER_LINE = rb"(?:SNOW_QA_V1|SNOW_QA_ERR|SNOW_SYSEXT_V1|SNOW_SYSEXT_ERR|SNOW_LOGIN_V1|SNOW_LOGIN_ERR) [ -~]+"
     COMPLETE_LINES = ((b"SNOW_QA_V1", rb"[A-Za-z0-9_-]{1,8192}"),
                       (b"SNOW_QA_ERR", rb"[a-z_]{1,40}"),
                       (b"SNOW_SYSEXT_V1", rb"[A-Za-z0-9_-]{1,%d}" % (SYSEXT_TOKEN_MAX + 64)),
-                      (b"SNOW_SYSEXT_ERR", rb"[a-z_]{1,40}"))
+                      (b"SNOW_SYSEXT_ERR", rb"[a-z_]{1,40}"),
+                      (b"SNOW_LOGIN_V1", rb"[A-Za-z0-9_-]{1,8192}"),
+                      (b"SNOW_LOGIN_ERR", rb"[a-z_]{1,40}"))
     SERIAL_MAX = 1024 * 1024
 
 
@@ -1990,6 +2165,164 @@ data:
         print(record["boot_id"])
         print("failures=" + (",".join(failures) if failures else "none"))
         return record["boot_id"]
+
+
+    # The first-login records are report-only evidence. The host still validates
+    # every field, the identity and the booted image, so a malformed or foreign
+    # record can never become a first-login statement.
+    def login_record_shape(record):
+        """Strict shape of one login record: exact keys, types and bounds."""
+        require(type(record) is dict and set(record) == LOGIN_RECORD_FIELDS, "record_fields")
+        require(record["phase"] in LOGIN_PHASES and nonce_valid(record["nonce"]), "record_identity")
+        require(full(r"[0-9a-f]{64}", record["booted_digest"]), "record_fields")
+        require(record["display_manager"] in (None, "gdm", "sddm")
+                and type(record["autologin"]) is bool, "record_fields")
+        session = record["session"]
+        if session is not None:
+            # Only a real user session is evidence: a tty, a greeter or a closing
+            # session says nothing about the first login, and every value must be
+            # free of control characters and spaces.
+            require(type(session) is dict and set(session) == {"type", "class", "state", "desktop"}
+                    and session["type"] in ("wayland", "x11") and session["class"] == "user"
+                    and session["state"] in ("active", "online")
+                    and full(r"[A-Za-z0-9:._+-]{0,64}", session["desktop"]), "record_session")
+        require(type(record["entries"]) is list and len(record["entries"]) <= 16
+                and all(type(path) is str and path.startswith("/")
+                        and full(r"[A-Za-z0-9._/@+-]{1,160}", path) for path in record["entries"]),
+                "record_entries")
+        apps = record["apps"]
+        require(type(apps) is dict and set(apps) == set(LOGIN_APPS) and
+                all(type(item) is dict and set(item) == {"entry", "binary"}
+                    and type(item["entry"]) is bool and type(item["binary"]) is bool
+                    for item in apps.values()), "record_apps")
+        require(type(record["started"]) is list and record["started"] == sorted(set(record["started"]))
+                and all(app in LOGIN_APPS for app in record["started"]), "record_started")
+        require(type(record["mark_done"]) is list and len(record["mark_done"]) <= len(LOGIN_APPS)
+                and all(type(item) is dict and set(item) == {"app", "rc"} and item["app"] in LOGIN_APPS
+                        and type(item["rc"]) is int and -1 <= item["rc"] <= 255
+                        for item in record["mark_done"]), "record_mark_done")
+        require(type(record["markers"]) is dict and set(record["markers"]) == set(LOGIN_APPS)
+                and all(type(value) is bool for value in record["markers"].values()), "record_markers")
+        require(type(record["waited"]) is int and 0 <= record["waited"] <= 3600, "record_waited")
+
+
+    def login_record_count(raw):
+        """The one record the serial slice carries, by the SNOW_QA_V1 rules."""
+        require(len(raw) <= SERIAL_MAX, "serial_size")
+        lines = [line for line in raw.split(b"\n") if b"SNOW_QA_KMSG1" not in line]
+        # Identical copies (ttyS0 and the getty rewrite) collapse into one token;
+        # a getty prompt before the marker is not part of it.
+        tokens = {marker_token(line, b"SNOW_LOGIN_V1") for line in lines if b"SNOW_LOGIN_V1" in line}
+        # A stalled ttyS0 can cut the line and the kernel text follows on it, so
+        # only a complete token is a record; an incomplete marker is a cut record.
+        markers = {token for token in tokens
+                   if re.fullmatch(rb"SNOW_LOGIN_V1 ([A-Za-z0-9_-]{1,8192})", token) is not None}
+        require(markers or not tokens, "record_encoding")
+        require(len(markers) == 1, "record_count")
+        match = re.fullmatch(rb"SNOW_LOGIN_V1 ([A-Za-z0-9_-]{1,8192})", sorted(markers)[0])
+        require(match is not None, "record_encoding")
+        encoded = match[1]
+        try:
+            decoded = base64.b64decode(encoded + b"=" * (-len(encoded) % 4), altchars=b"-_", validate=True)
+            require(base64.urlsafe_b64encode(decoded).rstrip(b"=") == encoded, "record_encoding")
+            require(len(decoded) <= LOGIN_TOKEN_MAX, "record_size")
+            record = json.loads(decoded, object_pairs_hook=pairs,
+                                parse_constant=lambda _: (_ for _ in ()).throw(GateError("record_encoding")))
+        except (ValueError, UnicodeError) as exc:
+            raise GateError("record_encoding") from exc
+        return record
+
+
+    def login_phase_attest(m, phase, nonce, prior, serial, destination):
+        require("first_login_probe" in m and phase in LOGIN_PHASES and nonce_valid(nonce) and
+                (prior == "none" or boot_id_valid(prior)), "phase_arguments")
+        record = login_record_count(Path(serial).read_bytes())
+        login_record_shape(record)
+        require(record["phase"] == phase and record["nonce"] == nonce, "record_identity")
+        require(boot_id_valid(record["boot_id"]) and record["boot_id"] != prior, "boot_identity")
+        # Both login boots run the installed N image; the probe never stages N+1.
+        require(record["booted_digest"] == m["image_n"].rsplit(":", 1)[-1], "booted_image")
+        with open(destination, "wb", opener=lambda path, flags: os.open(path, flags, 0o600)) as stream:
+            stream.write(canonical(record))
+        print(record["boot_id"])
+        print("started=" + ("+".join(record["started"]) if record["started"] else "none"))
+        print("session=" + (record["session"]["type"] if record["session"] else "none"))
+        return record["boot_id"]
+
+
+    def login_record(path):
+        """One written login record, read back and shape-checked."""
+        try:
+            raw = Path(path).read_bytes()
+            require(len(raw) <= 65536, "record_size")
+            data = json.loads(raw, object_pairs_hook=pairs)
+        except (ValueError, UnicodeError) as exc:
+            raise GateError("record_fields") from exc
+        login_record_shape(data)
+        return data
+
+
+    def login_detail(record):
+        """One fixed detail line per login boot; every value is bounded evidence."""
+        def listed(values):
+            return ",".join(values) if values else "none"
+
+        return ("phase=%s dm=%s autologin=%s session=%s started=%s entries=%s mark_done=%s "
+                "markers=%s waited=%d" % (
+                    record["phase"], record["display_manager"] or "none",
+                    "yes" if record["autologin"] else "no",
+                    record["session"]["type"] if record["session"] else "none",
+                    "+".join(record["started"]) if record["started"] else "none",
+                    listed([os.path.basename(path) for path in record["entries"]]),
+                    listed(["%s:%d" % (item["app"], item["rc"]) for item in record["mark_done"]]),
+                    listed([app for app in LOGIN_APPS if record["markers"][app]]),
+                    record["waited"]))
+
+
+    def login_summary(m, records):
+        """The one-word first-login verdict; report only, never a failure."""
+        first = records[0]
+        if m["product"] == "floe" or first["display_manager"] is None:
+            if m["product"] != "floe":
+                # A desktop product whose display manager the probe never named:
+                # nothing about a first login is proven, and nothing failed.
+                return "unproven-no-display-manager"
+            # Floe is a headless server: there is no first-run autostart entry.
+            known = any(record["entries"] or record["apps"][app]["entry"] or record["apps"][app]["binary"]
+                        for record in records for app in LOGIN_APPS)
+            return "headless-entry" if known else "headless-no-entry"
+        if any(record["autologin"] is False for record in records):
+            return "unproven-no-autologin"
+        if any(record["session"] is None for record in records):
+            return "unproven-no-session"
+        if len(records) < 2:
+            return "unproven-no-second-login"
+        once, second = records[0], records[1]
+        if second["started"]:
+            # The app ran again on the second fresh login: its marker did not
+            # stop it, which is what a first-run gate must do.
+            return ("repeated-" if once["started"] else "late-") + "+".join(
+                sorted(set(once["started"]) | set(second["started"])))
+        if not once["started"]:
+            return "none"
+        if len(once["started"]) > 1:
+            return "both-once"
+        app = once["started"][0]
+        done = [item for item in once["mark_done"] if item["app"] == app]
+        if not done or done[0]["rc"] != 0 or once["markers"][app] is not True:
+            return app + "-once-mark-done-failed"
+        return app + "-once"
+
+
+    def login_report(m, first, second=None):
+        records = [login_record(Path(path)) for path in (first, second) if path is not None]
+        require(records, "record_fields")
+        summary = login_summary(m, records)
+        # The summary reaches checks.txt and the run reason: one grammar, one bound.
+        require(LOGIN_SUMMARY.fullmatch(summary) is not None, "record_fields")
+        print("first_login=" + summary)
+        for record in records:
+            print(login_detail(record))
 
 
     def fsverity_error_count(log):
@@ -2728,6 +3061,341 @@ data:
         return "SNOW_SYSEXT_V1 " + sysext_truncate(record)
 
 
+    # The first-login probe: after a fresh install a test-only autologin
+    # configuration in the installed /etc logs a user in, and the probe records
+    # which first-login app started. It is report-only: no display manager, no
+    # session or a failed first run is evidence, never a failure of the run.
+    def login_path(path):
+        """One absolute guest path below LOGIN_ROOT."""
+        return LOGIN_ROOT / str(path).lstrip("/")
+
+
+    def login_read(path, limit=65536):
+        """Bounded bytes of one guest file, or None when it cannot be read."""
+        try:
+            require(not path.is_symlink(), "login_read")
+            with path.open("rb") as stream:
+                return stream.read(limit)
+        except (OSError, GateError):
+            return None
+
+
+    def login_run(args, timeout=120):
+        """One probe command: (rc, stdout at most 1 MiB); rc -1 on timeout or OSError."""
+        try:
+            result = subprocess.run(args, capture_output=True, timeout=timeout, check=False)
+        except (OSError, subprocess.SubprocessError):
+            return -1, b""
+        return result.returncode, (result.stdout or b"")[:LOGIN_OUTPUT_MAX]
+
+
+    def login_display_manager():
+        """Which display manager is active: gdm, sddm, or None."""
+        rc, out = login_run(["systemctl", "show", "--value", "-p", "Id", "display-manager.service"], 60)
+        if rc != 0:
+            return None
+        name = out.strip()
+        if name in (b"gdm.service", b"gdm3.service"):
+            return "gdm"
+        return "sddm" if name == b"sddm.service" else None
+
+
+    def login_config_lines(path):
+        """The active (non-comment) lines of a config file, or None when unreadable."""
+        raw = login_read(path)
+        if raw is None:
+            return None
+        return [line.strip() for line in raw.decode("utf-8", "replace").splitlines()
+                if line.strip() and not line.lstrip().startswith("#")]
+
+
+    def login_active_lines(path):
+        """The active (non-comment) lines of a config file; read only, never edited."""
+        return login_config_lines(path) or []
+
+
+    def login_section_keys(lines, name):
+        """key -> value of the active lines of one [section], whitespace stripped.
+
+        SDDM and GLib both strip whitespace around `=` and around a section
+        name, so `User = other` is as active as `User=other`, and ` [Autologin] `
+        names the same section. Keys stay case-sensitive. The last active line
+        of a key wins, as GLib's key file reader takes it.
+        """
+        values, inside = {}, False
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("[") and stripped.endswith("]"):
+                inside = stripped[1:-1].strip() == name
+                continue
+            if not inside:
+                continue
+            key, separator, value = stripped.partition("=")
+            if separator:
+                values[key.strip()] = value.strip()
+        return values
+
+
+    def login_autologin(display_manager):
+        """True when the autologin configuration the setup wrote still applies."""
+        if display_manager == "gdm":
+            values = login_section_keys(login_active_lines(login_path("etc/gdm3/daemon.conf")), "daemon")
+            return (values.get("AutomaticLoginEnable") == "true"
+                    and values.get("AutomaticLogin") == LOGIN_USER)
+        if display_manager != "sddm":
+            return False
+        # The same parse for the drop-in: an effective `User = snowqa` is the
+        # one the setup wrote, whatever whitespace it carries.
+        dropin = login_section_keys(login_active_lines(
+            login_path("etc/sddm.conf.d/zz-snow-qa-autologin.conf")), "Autologin")
+        if dropin.get("User") != LOGIN_USER:
+            return False
+        main = login_path("etc/sddm.conf")
+        if not (main.exists() or main.is_symlink()):
+            return True
+        # SDDM reads /etc/sddm.conf after /etc/sddm.conf.d, so an active
+        # [Autologin] User, Session or Relogin key there wins over the drop-in:
+        # autologin is then not the configuration this probe wrote. A file that
+        # cannot be read may hold such a key: fail closed.
+        lines = login_config_lines(main)
+        if lines is None:
+            return False
+        return not any(key in login_section_keys(lines, "Autologin")
+                       for key in LOGIN_SDDM_AUTOLOGIN_KEYS)
+
+
+    def login_account():
+        """The QA account's passwd entry, or None when no account exists."""
+        try:
+            return pwd.getpwnam(LOGIN_USER)
+        except KeyError:
+            return None
+
+
+    def login_home(account):
+        """The account's home directory, bounded and absolute, or None.
+
+        An unusable home is treated as no account home: the probe then reads no
+        user folder and records both markers false.
+        """
+        home = getattr(account, "pw_dir", None) if account is not None else None
+        if type(home) is not str or ".." in home.split("/"):
+            return None
+        return home if full(r"/[A-Za-z0-9._/-]{1,128}", home) else None
+
+
+    def login_exists(path):
+        """True for a regular file below LOGIN_ROOT, never for a link."""
+        target = login_path(path)
+        return target.is_file() and not target.is_symlink()
+
+
+    def login_entries(home):
+        """Sorted absolute autostart entries whose file name names a first run."""
+        folders = [login_path(name) for name in LOGIN_AUTOSTART_DIRS]
+        if home is not None:
+            folders.append(login_path(home.rstrip("/") + "/.config/autostart"))
+        found = set()
+        for folder in folders:
+            names = []
+            try:
+                for entry in folder.iterdir():
+                    # A bounded scan: an autostart directory holds a few dozen
+                    # files, and the record keeps at most 16 entries.
+                    require(len(names) < 1024, "login_entries")
+                    names.append(entry.name)
+            except OSError:
+                continue
+            for name in names:
+                path = folder / name
+                if not name.endswith(".desktop") or LOGIN_ENTRY_NAME.search(name) is None:
+                    continue
+                # One odd file name is skipped, never a GateError: a name the
+                # record cannot carry must not turn the whole probe into an error.
+                if not (path.is_absolute() and full(r"[A-Za-z0-9._/@+-]{1,160}", str(path))):
+                    continue
+                found.add(str(path))
+        require(len(found) <= 16, "login_entries")
+        return sorted(found)
+
+
+    def login_apps():
+        """Which known first-login apps have their autostart entry and their binary."""
+        return {app: {"entry": login_exists(LOGIN_ENTRIES[app]), "binary": login_exists(LOGIN_BINARIES[app])}
+                for app in LOGIN_APPS}
+
+
+    def login_session_state(identifier):
+        """The session's type, class, state and desktop, or None while it is not ready."""
+        rc, out = login_run(["loginctl", "show-session", identifier,
+                             "-p", "Type", "-p", "Class", "-p", "State", "-p", "Desktop"], 60)
+        if rc != 0:
+            return None
+        values = {}
+        for line in out.decode("utf-8", "replace").splitlines()[:64]:
+            key, separator, value = line.partition("=")
+            if separator and key in ("Type", "Class", "State", "Desktop") and key not in values:
+                values[key] = sanitize(value, 64)
+        session = {"type": values.get("Type", ""), "class": values.get("Class", ""),
+                   "state": values.get("State", ""), "desktop": values.get("Desktop", "")}
+        # A session that is not yet the user's graphical session is not evidence
+        # that nobody logged in: keep waiting for the rest of the window.
+        ready = (session["type"] in ("wayland", "x11") and session["class"] == "user"
+                 and session["state"] in ("active", "online"))
+        return session if ready else None
+
+
+    def login_session(session_wait):
+        """Wait, bounded, for the QA user's active desktop session."""
+        end = time.monotonic() + session_wait
+        while True:
+            rc, out = login_run(["loginctl", "show-user", LOGIN_USER, "-p", "Display", "--value"], 60)
+            identifier = out.strip().decode("utf-8", "replace") if rc == 0 else ""
+            if full(r"[A-Za-z0-9._-]{1,64}", identifier):
+                session = login_session_state(identifier)
+                if session is not None:
+                    return session
+            if time.monotonic() >= end:
+                return None
+            time.sleep(LOGIN_POLL)
+
+
+    def login_processes(uid):
+        """Every running process of one real uid: pid -> argument parts."""
+        found = {}
+        entries = []
+        try:
+            for entry in (LOGIN_ROOT / "proc").iterdir():
+                # Bounded: a process table larger than this is not read at all.
+                require(len(entries) < 65536, "login_processes")
+                entries.append(entry)
+        except OSError:
+            return found
+        for entry in entries:
+            if not entry.name.isdigit():
+                continue
+            status = login_read(entry / "status")
+            if status is None:
+                continue
+            real = None
+            for line in status.splitlines():
+                if line.startswith(b"Uid:"):
+                    fields = line.split()
+                    if len(fields) > 1 and fields[1].isdigit():
+                        real = int(fields[1])
+                    break
+            if real != uid:
+                continue
+            raw = login_read(entry / "cmdline")
+            if raw is None:
+                continue
+            found[entry.name] = [part.decode("utf-8", "replace") for part in raw.split(b"\0") if part]
+        return found
+
+
+    def login_app_names(argv):
+        """The first-setup process evidence one argument list carries.
+
+        chairlift is never counted from a process: only its own journal line is
+        evidence that it presented a window (see login_observe).
+        """
+        names = set()
+        base = [os.path.basename(part) for part in argv]
+        if "snow-first-setup" in base:
+            names.add("first-setup")
+        return names
+
+
+    def login_presented(uid):
+        """True when this boot's user journal shows a chairlift first-run window."""
+        rc, out = login_run(["journalctl", "-b", "-q", "--no-pager", "-o", "cat",
+                             "_UID=" + str(uid), "-n", "2000"], 120)
+        return rc == 0 and LOGIN_PRESENTED in out
+
+
+    def login_observe(uid, app_wait):
+        """Which known apps ran during the full window, and how long it watched."""
+        start = time.monotonic()
+        end = start + app_wait
+        started, previous = set(), set()
+        while True:
+            current = {(pid, app) for pid, argv in login_processes(uid).items()
+                       for app in login_app_names(argv)}
+            # A first-run gate that starts and exits at once must not count as a
+            # started app: the same pid has to show it in two consecutive polls.
+            started.update({app for _, app in current & previous})
+            previous = current
+            # Both login boots watch the whole window: a second app can start
+            # long after the first, and mark-done runs only after the window.
+            if time.monotonic() >= end:
+                break
+            time.sleep(LOGIN_POLL)
+        if login_presented(uid):
+            started.add("chairlift")
+        return sorted(started), int(time.monotonic() - start)
+
+
+    def login_mark_done(app, uid, home):
+        """Mark one started app done as the QA user; its status is evidence only."""
+        environment = ["env", "-i", "HOME=" + home, "USER=" + LOGIN_USER,
+                       "LOGNAME=" + LOGIN_USER, "PATH=/usr/bin:/bin",
+                       "XDG_RUNTIME_DIR=/run/user/" + str(uid)]
+        rc, _ = login_run(["runuser", "-u", LOGIN_USER, "--"] + environment + LOGIN_MARK_DONE[app], 60)
+        return rc
+
+
+    def login(credentials):
+        """One first-login record: display manager, session, apps, markers."""
+        creds = Path(credentials)
+
+        def credential(name):
+            value = (creds / name).read_text().strip()
+            require(len(value) <= 256, "credential")
+            return value
+
+        phase, nonce = credential("phase"), credential("nonce")
+        require(phase in LOGIN_PHASES and nonce_valid(nonce), "credential")
+        m = load(GUEST_MANIFEST, frozen=True)
+        require("first_login_probe" in m, "login_manifest")
+        probe = m["first_login_probe"]
+        for key in ("image_n", "image_n_plus_1", "target_ref"):
+            require(credential(key) == m[key], "credential")
+        boot_id = GUEST_PATHS["boot_id"].read_text().strip()
+        require(boot_id_valid(boot_id), "boot_identity")
+        # status_fields validates the bootc status shape; only the booted digest is
+        # recorded here, and the host compares it with image_n.
+        _, _, booted_digest, _, _, _ = status_fields(guest_status())
+        display_manager = login_display_manager()
+        account = login_account()
+        # The account's own home: an unusable one is no account home, and then no
+        # user folder is scanned and both markers are false.
+        home = login_home(account)
+        session, started, waited, mark_done = None, [], 0, []
+        if display_manager is not None and account is not None:
+            session = login_session(probe["session_wait"])
+            if session is not None:
+                started, waited = login_observe(account.pw_uid, probe["app_wait"])
+                if phase == "login-1" and home is not None:
+                    # Only login-1 marks an app done: login-2 must see the app's
+                    # own second first-run behavior, not a marker this probe wrote.
+                    mark_done = [{"app": app, "rc": login_mark_done(app, account.pw_uid, home)}
+                                 for app in started]
+        # The markers are read after the mark-done commands, so a false marker is
+        # the app's own state and not a missing write of this probe.
+        record = dict(phase=phase, nonce=nonce, boot_id=boot_id, booted_digest=booted_digest,
+                      display_manager=display_manager,
+                      autologin=login_autologin(display_manager) if display_manager else False,
+                      session=session, entries=login_entries(home), apps=login_apps(),
+                      started=started, mark_done=mark_done,
+                      markers={app: home is not None and login_exists(home.rstrip("/") + LOGIN_MARKERS[app])
+                               for app in LOGIN_APPS},
+                      waited=waited)
+        require(set(record) == LOGIN_RECORD_FIELDS, "record_fields")
+        encoded = base64.urlsafe_b64encode(canonical(record).strip()).decode().rstrip("=")
+        require(len(encoded) <= LOGIN_TOKEN_MAX, "record_size")
+        return "SNOW_LOGIN_V1 " + encoded
+
+
     # On Snow, Snowfield and Sundog, /dev/console is tty0 (graphical); Snowfield
     # uses the GNOME desktop with the linux-surface kernel. On Floe (headless, no graphical
     # stack) it can be ttyS0 itself, so the guest then writes the same line twice
@@ -2890,6 +3558,15 @@ data:
             elif argv[0] == "sysext-phase" and len(argv) in (7, 8):
                 sysext_phase_attest(load(argv[1], frozen=True), argv[2], argv[3], argv[4],
                                     argv[5], argv[6], argv[7] if len(argv) == 8 else None)
+            elif argv[0] == "login" and len(argv) == 2:
+                # Failures travel inside the record; only a fatal gate error uses
+                # the login error marker.
+                publish(login(argv[1]))
+            elif argv[0] == "login-phase" and len(argv) == 7:
+                login_phase_attest(load(argv[1], frozen=True), argv[2], argv[3], argv[4],
+                                   argv[5], argv[6])
+            elif argv[0] == "login-report" and len(argv) in (3, 4):
+                login_report(load(argv[1], frozen=True), argv[2], argv[3] if len(argv) == 4 else None)
             elif argv[0] == "kmsg-join" and len(argv) == 2:
                 # lab#177: after the serial slice is written, before any parser.
                 kmsg_join(argv[1])
@@ -2898,13 +3575,155 @@ data:
             return 0
         except (GateError, OSError, TypeError, KeyError, ValueError) as exc:
             code = str(exc) if isinstance(exc, GateError) and full(r"[a-z_]{1,40}", str(exc)) else "io_error"
-            if argv[:1] in (["guest"], ["sysext"]) and isinstance(exc, GateError) and code != "io_error":
+            error_markers = {"guest": "SNOW_QA_ERR ", "sysext": "SNOW_SYSEXT_ERR ", "login": "SNOW_LOGIN_ERR "}
+            if argv[:1] in (["guest"], ["sysext"], ["login"]) and isinstance(exc, GateError) and code != "io_error":
                 # An observed fixed-code failure is distinct from an absent
                 # channel. Never print arbitrary tool stderr or credentials.
-                publish(("SNOW_QA_ERR " if argv[:1] == ["guest"] else "SNOW_SYSEXT_ERR ") + code)
+                publish(error_markers[argv[0]] + code)
             print("qa_failed:" + code, file=sys.stderr)
             return 1
 
 
     if __name__ == "__main__":
         sys.exit(main(sys.argv[1:]))
+  login-setup.sh: |
+    #!/bin/bash
+    # Test-only first-login setup for the lab first-login probe: it writes a lab-only
+    # autologin configuration into the INSTALLED /etc, never into an image, and it
+    # never writes below /usr. The probe is report-only: a system whose display
+    # manager cannot be named ends as dm=none and gets no account.
+    set -Eeuo pipefail
+    # 022, not 077: the greeter and the session user must be able to read the
+    # configuration this script writes. /var/lib/snow-qa is made 0700 below.
+    umask 022
+    # Every path below is prefixed with this root; the offline tests point it at a
+    # temporary tree instead of /.
+    root="${SNOW_QA_ROOT:-}"
+    user=snowqa
+    state="$root/var/lib/snow-qa/login-setup"
+    session=none
+
+    dm=""
+    if command -v systemctl >/dev/null 2>&1; then
+      # The active display manager unit; an absent or unrelated one names no manager.
+      dm=$(systemctl show --value -p Id display-manager.service 2>/dev/null || true)
+    fi
+
+    # gdm3 is Debian's unit name for GDM; sddm has one unit name.
+    case "$dm" in
+      gdm.service|gdm3.service) kind=gdm ;;
+      sddm.service) kind=sddm ;;
+      *)
+        install -d -m 0700 "$root/var/lib/snow-qa"
+        printf 'dm=none\n' > "$state"
+        exit 0
+        ;;
+    esac
+
+    # The account exists in the installed system only, and only for this probe.
+    if ! id -u "$user" >/dev/null 2>&1; then
+      useradd --create-home --user-group --shell /bin/bash --comment 'Snow QA' "$user"
+    fi
+
+    case "$kind" in
+      gdm)
+        # The image's own autologin setting must never win over the probe's one, so
+        # every active autologin line goes first, whatever its case.
+        # An existing /etc/gdm3 keeps its own mode (install -d would change it),
+        # because the greeter and the session user must still read it.
+        [[ -d "$root/etc/gdm3" ]] || install -d -m 0755 "$root/etc/gdm3"
+        conf="$root/etc/gdm3/daemon.conf"
+        # 0644 so the greeter can read it; an existing file keeps its own mode.
+        [[ -e "$conf" ]] || install -m 0644 /dev/null "$conf"
+        python3 - "$conf" "$user" <<'PY'
+    import sys
+    from pathlib import Path
+
+    path, user = Path(sys.argv[1]), sys.argv[2]
+    raw = path.read_bytes()
+    if len(raw) > 65536:
+        sys.exit(1)
+    block = ["# snow-qa: test-only autologin for the lab first-login probe, never in an image",
+             "AutomaticLoginEnable=true",
+             "AutomaticLogin=" + user]
+
+
+    def remove(line):
+        """An active autologin key, whitespace around '=' allowed (GKeyFile)."""
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            return False
+        key, separator, _ = stripped.partition("=")
+        return bool(separator) and key.strip().lower().startswith(("automaticlogin", "timedlogin"))
+
+
+    kept = [line for line in raw.decode("utf-8", "replace").splitlines() if not remove(line)]
+    index = next((number for number, line in enumerate(kept) if line.strip() == "[daemon]"), None)
+    if index is None:
+        kept = kept + ["[daemon]"] + block
+    else:
+        kept = kept[:index + 1] + block + kept[index + 1:]
+    path.write_bytes(("\n".join(kept) + "\n").encode())
+    PY
+        ;;
+      sddm)
+        # A session the image ships: wayland Plasma first, then X11 Plasma.
+        for candidate in /usr/share/wayland-sessions/plasma.desktop \
+          /usr/share/xsessions/plasmax11.desktop \
+          /usr/share/xsessions/plasma.desktop; do
+          if [[ -f "$root$candidate" ]]; then
+            session="${candidate##*/}"
+            break
+          fi
+        done
+        # An existing /etc/sddm.conf.d keeps its own mode, for the same reason.
+        [[ -d "$root/etc/sddm.conf.d" ]] || install -d -m 0755 "$root/etc/sddm.conf.d"
+        # SDDM reads every file of /etc/sddm.conf.d in alphabetical order and the
+        # last one wins, so zz- sorts after a drop-in such as 10-sundog.conf.
+        {
+          printf '# snow-qa: test-only autologin for the lab first-login probe, never in an image\n'
+          printf '[Autologin]\n'
+          printf 'User=%s\n' "$user"
+          if [[ "$session" != none ]]; then
+            printf 'Session=%s\n' "$session"
+          fi
+        } > "$root/etc/sddm.conf.d/zz-snow-qa-autologin.conf"
+        chmod 0644 "$root/etc/sddm.conf.d/zz-snow-qa-autologin.conf"
+        # SDDM reads /etc/sddm.conf after /etc/sddm.conf.d, so an [Autologin]
+        # section there would win over the drop-in. Comment out its active User,
+        # Session and Relogin keys; the file is never created and keeps its mode.
+        if [[ -f "$root/etc/sddm.conf" ]]; then
+          python3 - "$root/etc/sddm.conf" <<'PY'
+    import sys
+    from pathlib import Path
+
+    path = Path(sys.argv[1])
+    raw = path.read_bytes()
+    if len(raw) > 65536:
+        sys.exit(1)
+    kept, inside = [], False
+    for line in raw.decode("utf-8", "replace").splitlines():
+        text = line.strip()
+        if text.startswith("[") and text.endswith("]"):
+            # SDDM and GLib strip whitespace around a section name too.
+            inside = text[1:-1].strip() == "Autologin"
+            kept.append(line)
+            continue
+        key, separator, _ = text.partition("=")
+        if inside and text and not text.startswith("#") and separator \
+                and key.strip() in ("User", "Session", "Relogin"):
+            kept.append("# snow-qa: " + line)
+            continue
+        kept.append(line)
+    path.write_bytes(("\n".join(kept) + "\n").encode())
+    PY
+        fi
+        ;;
+    esac
+
+    install -d -m 0700 "$root/var/lib/snow-qa"
+    {
+      printf 'dm=%s\n' "$kind"
+      printf 'user=%s\n' "$user"
+      printf 'session=%s\n' "$session"
+    } > "$state"

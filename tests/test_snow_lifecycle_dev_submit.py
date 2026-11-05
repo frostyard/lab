@@ -128,8 +128,10 @@ def test_print_renders_the_template_spec_with_script_artifacts(tmp_path):
         restored = root / MOUNT_PATH.lstrip("/") / key
         assert restored.read_bytes() == text.encode("utf-8"), key
         assert restored.stat().st_mode & 0o7777 == volume["configMap"]["defaultMode"], key
-    # Argo offloads a template above MaxEnvVarLen (128 KiB) to a ConfigMap.
-    assert len(json.dumps(entry_template(spec))) < 131072 // 2
+    # Argo offloads a template above MaxEnvVarLen (128 KiB) to a ConfigMap. The
+    # packed scripts grew with the first-login probe (qa.py and login-setup.sh),
+    # so keep a quarter of the real limit as headroom rather than half.
+    assert len(json.dumps(entry_template(spec))) < 131072 * 3 // 4
 
     # spec.arguments carries the manifest text and never keeps the VM.
     assert spec["arguments"] == {

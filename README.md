@@ -529,6 +529,46 @@ journal head and tail lines in the pod log, and judges after both sysext boots:
 any failure is `sysext_failed:<codes>`, otherwise the reason is
 `verified_sysext_probe`. This probe is not a release gate.
 
+The optional manifest key `first_login_probe` replaces the five-boot plan with
+a report-only first-login probe: `login-1`, and `login-2` for every product but
+Floe (headless). It is an object with exactly `session_wait` (60-900 s) and
+`app_wait` (30-600 s), never present with `sysext_probe`. With this key the
+version rule is `version_distinct` as for the sysext probe, and the two waits
+plus 180 s must fit the smaller of the `installed_boot` and `reboot` timeouts
+(else `first_login_window`). There is no `installed-n` attestation boot in this
+mode: it proves first login only, and Snowfield's `installed-n` boot is
+BLOCKED on kernel lockdown ([snosi#1213](https://github.com/frostyard/snosi/issues/1213)),
+which is not a first-login fact. `login-1` alone also runs
+`/opt/snow-qa/login-setup.sh` from its own unit: it names the active display
+manager (`gdm`/`gdm3`/`sddm`), creates a `snowqa` account, and writes a
+test-only autologin configuration into the installed `/etc` (GDM
+`daemon.conf`, or SDDM's `zz-snow-qa-autologin.conf` with the first Plasma
+session it finds; SDDM reads every file of `/etc/sddm.conf.d` in alphabetical
+order and the last one wins, so `zz-` sorts after a drop-in such as
+`10-sundog.conf`, and because SDDM reads `/etc/sddm.conf` after that directory
+the setup comments out the active `User`, `Session` and `Relogin` keys of its
+`[Autologin]` section, keeping the file's mode and never creating it). It
+never writes below `/usr` and never touches the image; a system with no GDM or
+SDDM records `dm=none` and creates no account. Each boot publishes one
+`SNOW_LOGIN_V1` record: display manager, whether the autologin configuration is
+still there (SDDM: the drop-in's effective `User` is `snowqa` and
+`/etc/sddm.conf` has no active `User`, `Session` or `Relogin` key in
+`[Autologin]`; GDM: `[daemon]` has `AutomaticLoginEnable=true` and
+`AutomaticLogin=snowqa`; whitespace around `=` and around a section name is
+allowed), the session (type `wayland`/`x11`, class `user`, state
+`active`/`online`, desktop), the first-run autostart entries it found, which
+known apps have an entry and a binary, which apps ran (`first-setup` in two
+consecutive process polls; `chairlift` only through its own `first-run: window
+presented` journal line, never through a bare `--first-run` process), the
+`login-1` mark-done results and the done markers. The runner keeps `login-N.json` and `first-login.txt`
+evidence and prints one `first_login=<summary>` line in `checks.txt`. Known
+apps today are `first-setup` and `chairlift`. The probe never fails the run
+because of which app started: a summary that starts with `unproven-` ends
+`BLOCKED` with `first_login_<summary>`
+([ADR-0003](docs/adr/0003-unproven-is-distinct-from-failed.md)), and every
+other summary ends `PASS` with `verified_first_login_probe;first_login=<summary>`
+([ADR-0016](docs/adr/0016-first-login-probe-is-a-report-only-lane-mode.md)).
+
 On failure, private evidence may also include `install-diagnostic.txt` (a
 bounded, redacted installer diagnostic or `unavailable`/`unparsed`) and
 `serial-redacted.log` (best-effort, bounded redacted console snapshot; never
