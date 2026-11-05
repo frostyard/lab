@@ -10,6 +10,7 @@ import importlib
 import importlib.util
 import json
 import os
+import pwd
 import re
 import subprocess
 import sys
@@ -276,7 +277,7 @@ def stub_problems(qa, monkeypatch, *, failed_unit=True, stage="network", crash=T
 
 def guest_environment(qa, tmp_path, monkeypatch, *, path="fresh", collector=True,
                       problems_file=True, details_file=True, document=None, details=None,
-                      problems_mode=0o644, details_gid=None, **stubs):
+                      problems_mode=0o644, details_gid=None, accounts=(), **stubs):
     """The installed VM's tree, its credentials and its boot id, below a temporary root."""
     m = probe_manifest(path)
     credentials = tmp_path / "credentials"
@@ -307,6 +308,9 @@ def guest_environment(qa, tmp_path, monkeypatch, *, path="fresh", collector=True
         target = root / "var/lib/snosi-health/details.json"
         target.write_text(json.dumps(details if details is not None else collector_details()))
         target.chmod(0o640)
+    # The account list comes from the test, never from the machine that runs it:
+    # a CI runner can have a real systemd-coredump account.
+    monkeypatch.setattr(qa.pwd, "getpwall", lambda: list(accounts))
     monkeypatch.setattr(qa, "PROBLEMS_ROOT", root)
     monkeypatch.setattr(qa, "GUEST_MANIFEST", normalized(tmp_path, m, qa))
     monkeypatch.setattr(qa, "GUEST_PATHS", {**qa.GUEST_PATHS, "boot_id": boot})
@@ -782,3 +786,9 @@ def test_guest_problems_accepts_the_coredump_pipe_and_socket(qa, tmp_path, monke
     _, credentials, root, _ = guest_environment(qa, tmp_path, monkeypatch)
     (root / "proc/sys/kernel/core_pattern").write_text(pattern)
     assert payload(qa.problems(credentials))["core_pattern"] is expected
+
+
+def test_guest_problems_finds_the_systemd_coredump_account(qa, tmp_path, monkeypatch):
+    account = pwd.struct_passwd(("systemd-coredump", "x", 997, 997, "", "/", "/usr/sbin/nologin"))
+    _, credentials, _, _ = guest_environment(qa, tmp_path, monkeypatch, accounts=(account,))
+    assert payload(qa.problems(credentials))["coredump_user"] is True
