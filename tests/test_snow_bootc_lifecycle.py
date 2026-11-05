@@ -3081,7 +3081,7 @@ def test_runner_failure_never_initializes_vm_and_does_not_expose_inputs(tmp_path
     assert (tmp_path / "results/result-summary.txt").read_text().strip() == expected
 
 
-@pytest.mark.parametrize("scenario", ["pass", "no_line5", "stage", "stage_keep", "iso_add_partial_keep", "iso_add_partial_detach_failed", "no_reboot", "tag_drift", "evidence_write", "output_write", "stage_teardown", "teardown", "serial_oversize", "serial_unreadable", "blocked_teardown", "phase_missing", "phase_malformed", "guest_error", "guest_error_crlf", "updater_error_crlf", "rollback_error_crlf", "duplicate_error_crlf", "conflicting_error_crlf", "install_missing", "install_failed", "install_firn_v2", "install_firn_hash", "install_fake_code", "install_disk_detect", "install_disk_byid", "install_progress", "install_bad_progress", "install_secret_code", "install_fallback", "install_empty_stream", "install_validate_secret", "install_validate_unknown", "install_validate_unclassified", "install_validate_fake", "cumulative_pass", "cumulative_stale", "cumulative_reset", "cumulative_prefix", "fsverity", "fsverity_known", "guest_shutdown", "nvram_escape", "console_reset_each_start", "reset_mid_boot", "reset_twice", "reset_then_truncate", "empty_then_reset", "installer_restart", "reset_then_stale", "reset_then_stale_error", "stopped_without_record", "final_read_record", "final_read_error", "final_read_conflict", "final_read_fresh_record"])
+@pytest.mark.parametrize("scenario", ["pass", "no_line5", "stage", "stage_keep", "iso_add_partial_keep", "iso_add_partial_detach_failed", "no_reboot", "tag_drift", "evidence_write", "output_write", "stage_teardown", "teardown", "serial_oversize", "serial_unreadable", "blocked_teardown", "phase_missing", "phase_malformed", "guest_error", "guest_error_crlf", "updater_error_crlf", "rollback_error_crlf", "duplicate_error_crlf", "conflicting_error_crlf", "install_missing", "install_failed", "install_firn_v2", "install_firn_hash", "install_fake_code", "install_disk_detect", "install_disk_byid", "install_progress", "install_bad_progress", "install_secret_code", "install_fallback", "install_empty_stream", "install_validate_secret", "install_validate_unknown", "install_validate_unclassified", "install_validate_fake", "cumulative_pass", "cumulative_stale", "cumulative_reset", "cumulative_prefix", "fsverity", "fsverity_known", "fsverity_known_surface", "fsverity_surface_lookalike", "guest_shutdown", "nvram_escape", "console_reset_each_start", "reset_mid_boot", "reset_twice", "reset_then_truncate", "empty_then_reset", "installer_restart", "reset_then_stale", "reset_then_stale_error", "stopped_without_record", "final_read_record", "final_read_error", "final_read_conflict", "final_read_fresh_record"])
 def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario):
     script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
     for old, new in (("ROOT=/var/lib/snosi-lab/snow-bootc-evidence", f"ROOT={tmp_path}/evidence"),
@@ -3138,13 +3138,17 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
             if prior != expected or os.environ['SCENARIO'] in ('stage', 'stage_keep', 'stage_teardown') and phase == 'stage': sys.exit(1)
             if os.environ['SCENARIO'] == 'no_reboot' and phase == 'boot-n-plus-1': print(prior); print('fsverity_errors=0'); print('kernel=7.3.1+deb14-amd64'); print('lockdown=integrity cmdline_lockdown=integrity'); print('cmdline=rw lockdown=integrity console=tty0'); sys.exit(0)
             print(f'{number:08x}-1234-4234-8234-123456789abc')
-            errors = os.environ['SCENARIO'] in ('fsverity', 'fsverity_known') and phase == 'boot-n-plus-1'
+            errors = os.environ['SCENARIO'] in ('fsverity', 'fsverity_known', 'fsverity_known_surface', 'fsverity_surface_lookalike') and phase == 'boot-n-plus-1'
             print('fsverity_errors=' + ('2' if errors else '0'))
-            print('kernel=' + ('7.2.11+deb14-amd64' if os.environ['SCENARIO'] == 'fsverity_known' and phase == 'boot-n-plus-1' else '7.3.1+deb14-amd64'))
+            if os.environ['SCENARIO'] == 'fsverity_known' and phase == 'boot-n-plus-1': kernel = '7.2.11+deb14-amd64'
+            elif os.environ['SCENARIO'] == 'fsverity_known_surface' and phase == 'boot-n-plus-1': kernel = '7.2.15-1-surface'
+            elif os.environ['SCENARIO'] == 'fsverity_surface_lookalike' and phase == 'boot-n-plus-1': kernel = '7.2.16-1-surface'
+            else: kernel = '7.3.1+deb14-amd64'
+            print('kernel=' + kernel)
             print('lockdown=integrity cmdline_lockdown=integrity')
             if os.environ['SCENARIO'] != 'no_line5':
                 print('cmdline=rw lockdown=integrity console=tty0')
-            if os.environ['SCENARIO'] == 'fsverity_known' and phase == 'boot-n-plus-1':
+            if os.environ['SCENARIO'] in ('fsverity_known', 'fsverity_known_surface') and phase == 'boot-n-plus-1':
                 # lab#174: the kept lines follow the 5 fixed lines, one per line.
                 print('seq=1 device=dm-0 inode=174546 pos=25952256 level=-1')
                 print('seq=2 device=dm-0 inode=174546 pos=4128768 level=-1')
@@ -3347,7 +3351,7 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
     summary = summary_path.read_text() if summary_path.exists() else (tmp_path / 'evidence/mock-run/result-summary.txt').read_text()
     assert not any('console' in p.name or p.name == 'serial-full'
                    for p in (tmp_path / 'evidence/mock-run').iterdir())
-    if scenario in ('pass', 'no_line5', 'cumulative_pass', 'fsverity_known', 'cumulative_reset', 'console_reset_each_start',
+    if scenario in ('pass', 'no_line5', 'cumulative_pass', 'fsverity_known', 'fsverity_known_surface', 'cumulative_reset', 'console_reset_each_start',
                     'reset_mid_boot', 'reset_twice', 'reset_then_truncate', 'empty_then_reset', 'installer_restart',
                     'final_read_record', 'final_read_fresh_record'):
         assert not (tmp_path / 'evidence/mock-run/serial-redacted.log').exists()
@@ -3355,6 +3359,8 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
         if scenario == 'fsverity_known':
             # Known upstream defect: recorded with a visible note, never failed.
             assert summary == 'PASS: verified_five_fresh_boots;fsverity_known_defect=7.2.11+deb14-amd64\n'
+        elif scenario == 'fsverity_known_surface':
+            assert summary == 'PASS: verified_five_fresh_boots;fsverity_known_defect=7.2.15-1-surface\n'
         else:
             assert summary == 'PASS: verified_five_fresh_boots\n'
         assert len([e for e in events if e.startswith('phase ')]) == 5
@@ -3364,7 +3370,7 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
         # One shutdown check per phase; scenarios that read the console several
         # times in a boot also ask once per extra poll whether the guest stopped.
         infos = len([e for e in events if e.startswith('incus info')])
-        assert infos == 5 if scenario in ('pass', 'cumulative_pass', 'fsverity_known') else infos >= 5
+        assert infos == 5 if scenario in ('pass', 'cumulative_pass', 'fsverity_known', 'fsverity_known_surface') else infos >= 5
         # Incus 7: the pool comes from `incus query`, and the MOK goes into the
         # varstore file that the qemu.nvram symlink names, not the link itself.
         assert 'incus query /1.0/instances/snow-qa-mock-run' in events
@@ -3379,16 +3385,17 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
         assert (tmp_path / 'evidence/mock-run').stat().st_mode & 0o777 == 0o700
         assert not (tmp_path / 'snow-qa-mock-run.iso').exists()
         checks = (tmp_path / 'results/checks.txt').read_text().splitlines()
-        assert len(checks) == 1 + 9 + 5 + (scenario == 'fsverity_known')  # manifest, tags, attested boots, note
-        assert all(re.fullmatch(r'(?:manifest_sha256=[0-9a-f]{64}|tag=[a-z0-9-]+ timestamp=[0-9T:+.\-]+|phase=[a-z0-9-]+ boot_id=[0-9a-f-]+ kernel=[0-9A-Za-z._+~-]+ fsverity_errors=[0-9]+ lockdown=(?:integrity|confidentiality) cmdline_lockdown=(?:absent|[a-z]{1,16})|fsverity_known_defect=7\.2\.11\+deb14-amd64)', line) for line in checks)
+        assert len(checks) == 1 + 9 + 5 + (scenario in ('fsverity_known', 'fsverity_known_surface'))  # manifest, tags, attested boots, note
+        assert all(re.fullmatch(r'(?:manifest_sha256=[0-9a-f]{64}|tag=[a-z0-9-]+ timestamp=[0-9T:+.\-]+|phase=[a-z0-9-]+ boot_id=[0-9a-f-]+ kernel=[0-9A-Za-z._+~-]+ fsverity_errors=[0-9]+ lockdown=(?:integrity|confidentiality) cmdline_lockdown=(?:absent|[a-z]{1,16})|fsverity_known_defect=(?:7\.2\.11\+deb14-amd64|7\.2\.15-1-surface))', line) for line in checks)
         assert ('fsverity_known_defect=7.2.11+deb14-amd64' in checks) is (scenario == 'fsverity_known')
+        assert ('fsverity_known_defect=7.2.15-1-surface' in checks) is (scenario == 'fsverity_known_surface')
         # lab#174: the kept lines live in their own file, next to checks.txt in
         # the results and in the evidence, and never in checks.txt.
         kept = ['phase=boot-n-plus-1 seq=1 device=dm-0 inode=174546 pos=25952256 level=-1',
                 'phase=boot-n-plus-1 seq=2 device=dm-0 inode=174546 pos=4128768 level=-1']
         for name in ('results', 'evidence/mock-run'):
             assert (tmp_path / name / 'fsverity.txt').read_text().splitlines() == (
-                kept if scenario == 'fsverity_known' else []), name
+                kept if scenario in ('fsverity_known', 'fsverity_known_surface') else []), name
             if scenario == 'no_line5':
                 assert (tmp_path / name / 'cmdline.txt').read_text().splitlines() == [], name
             else:
@@ -3411,11 +3418,12 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
                 assert (tmp_path / 'installer-attached').exists() is (scenario == 'iso_add_partial_detach_failed')
                 assert (tmp_path / 'evidence/mock-run/kept-vm.txt').exists() is (scenario == 'iso_add_partial_keep')
                 assert (tmp_path / 'snow-qa-mock-run.iso').exists() is False
-            if scenario == 'fsverity':
+            if scenario in ('fsverity', 'fsverity_surface_lookalike'):
                 # Judged only after all five fresh boots, so no phase's evidence is lost.
                 assert len([e for e in events if e.startswith('phase ')]) == 5
                 recorded = (tmp_path / 'results/checks.txt').read_text()
-                assert re.search(r'phase=boot-n-plus-1 boot_id=\S+ kernel=7\.3\.1\+deb14-amd64 fsverity_errors=2 lockdown=(?:integrity|confidentiality) cmdline_lockdown=(?:absent|[a-z]{1,16})\n', recorded)
+                expected_kernel = '7.2.16-1-surface' if scenario == 'fsverity_surface_lookalike' else '7.3.1+deb14-amd64'
+                assert re.search(r'phase=boot-n-plus-1 boot_id=\S+ kernel=' + re.escape(expected_kernel) + r' fsverity_errors=2 lockdown=(?:integrity|confidentiality) cmdline_lockdown=(?:absent|[a-z]{1,16})\n', recorded)
                 assert 'fsverity_known_defect' not in recorded
                 assert recorded.count('fsverity_errors=') == 5
             if scenario == 'stage_keep':
@@ -3470,7 +3478,8 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
                                     'reset_then_stale_error': 'BLOCKED: channel_lineage',
                                     'guest_shutdown': 'FAILED: guest_shutdown',
                                     'nvram_escape': 'BLOCKED: host_storage_unsupported',
-                                    'fsverity': 'FAILED: fsverity_errors'}[scenario]
+                                    'fsverity': 'FAILED: fsverity_errors',
+                                    'fsverity_surface_lookalike': 'FAILED: fsverity_errors'}[scenario]
 
 
 def test_installer_gives_firn_the_canonical_disk_not_the_by_id_link():

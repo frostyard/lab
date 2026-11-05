@@ -1055,7 +1055,8 @@ data:
     # Kernels with the known upstream btrfs fs-verity defect (frostyard/snosi#1130,
     # kdave/linux 254e15591ee4). Remove an entry when the kernel canary (Firn lane)
     # says `clean` on it or a fixed kernel ships. Keep identical in every lane.
-    known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64"
+    # 7.2.15-1-surface is Snowfield's linux-surface kernel; upstream 7.2.15 btrfs lacks the fix.
+    known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64 7.2.15-1-surface"
     fsverity_bad=0
     fsverity_known=""
     for phase in "${phase_plan[@]}"; do

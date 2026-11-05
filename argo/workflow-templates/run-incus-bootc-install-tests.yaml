@@ -689,7 +689,8 @@ spec:
         # checks whether that kernel has the fix. Remove a list entry when the
         # kernel canary (Firn lane) says `clean` on it or a fixed kernel ships.
         # Keep this list identical in every lane.
-        known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64"
+        # 7.2.15-1-surface is Snowfield's linux-surface kernel; upstream 7.2.15 btrfs lacks the fix.
+        known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64 7.2.15-1-surface"
         fsverity_note=""
         fsverity_errors="$(grep '^fsverity_errors=' /tmp/results/checks.txt | cut -d= -f2- | grep -E '^[0-9]+$' | sort -n | tail -n 1 || true)"
         if [[ ! "${fsverity_errors}" =~ ^[0-9]+$ ]]; then

@@ -191,7 +191,9 @@ upstream fix `254e15591ee4` in kdave/linux). It emits
 `cfs_compressed_objects=<N>`, `fsverity_errors=<N>` and `kernel=<release>`.
 The judge fails the cell when `cfs_compressed_objects` is above zero, and when
 `fsverity_errors` is missing, not a number, or above zero on a kernel that is
-not on the known-defect list (`7.2.11+deb14-amd64` to `7.2.14+deb14-amd64`).
+not on the known-defect list (`7.2.11+deb14-amd64` through
+`7.2.14+deb14-amd64`, and `7.2.15-1-surface`, Snowfield's linux-surface
+kernel; see [quality.md](docs/quality.md#fs-verity-regression-checks-snosi1130)).
 On a listed kernel a positive count is recorded with
 `fsverity_known_defect=<kernel>` and does not fail the cell. The informational
 `kernel_btrfs_verity_canary=defect|clean|skipped` never fails a cell. The bootc
