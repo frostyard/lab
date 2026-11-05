@@ -1,9 +1,9 @@
 {
   "family": "sundog",
   "product": "sundog",
-  "iso_url": "https://repository.frostyard.org/isos/native/v1/snosi-installer_20261104213621_x86-64.iso",
-  "iso_sha256": "2850a0cea8475bd3b5f6c9ca43a0ced02d8559afe300549664573dc69d79c5bf",
-  "iso_version": "20261104213621",
+  "iso_url": "https://repository.frostyard.org/isos/native/v1/snosi-installer_20261105145811_x86-64.iso",
+  "iso_sha256": "366872a23eaa36cfb1667240405e98f94698255fff64de0dcd46ad756a4c6dad",
+  "iso_version": "20261105145811",
   "image_n": "ghcr.io/frostyard/sundog@sha256:a32c0c2751ccabdae09e521cee344edc47bd06177f79ba7ee58e3da40f7bc4e8",
   "version_n": "20261105001226",
   "version_tag_n": "ghcr.io/frostyard/sundog:20261105001226",

@@ -1,9 +1,9 @@
 {
   "family": "floe",
   "product": "floe",
-  "iso_url": "https://repository.frostyard.org/isos/native/v1/snosi-installer_20261104213621_x86-64.iso",
-  "iso_sha256": "2850a0cea8475bd3b5f6c9ca43a0ced02d8559afe300549664573dc69d79c5bf",
-  "iso_version": "20261104213621",
+  "iso_url": "https://repository.frostyard.org/isos/native/v1/snosi-installer_20261105145811_x86-64.iso",
+  "iso_sha256": "366872a23eaa36cfb1667240405e98f94698255fff64de0dcd46ad756a4c6dad",
+  "iso_version": "20261105145811",
   "image_n": "ghcr.io/frostyard/floe@sha256:35cb54004c2b4eac084c127986aa0def77e71b9c6c775c9369da43648d3783cf",
   "version_n": "20261105001249",
   "version_tag_n": "ghcr.io/frostyard/floe:20261105001249",

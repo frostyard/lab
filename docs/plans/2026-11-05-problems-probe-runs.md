@@ -133,7 +133,63 @@ and an account. No boot-time regression is visible against the T843 baseline.
   tag is operator-owned (Brian); a dev run never moves it.
 - **Done when:** each product has 1 update run with `problems=ok`, which also
   proves that `preset-reconcile` enables `snosi-health.timer` and that sysusers
-  creates `systemd-coredump` on an updated host.
+  creates `systemd-coredump` on an updated host. Not met on 2026-11-05: the
+  timer is enabled but not active on the first N+1 boot (results below).
+
+Brian moved the 3 `qa-controlled` tags to the t5 images (T893); each target
+was read from the registry before the runs. The runs ran the merged lane
+([lab#187](https://github.com/frostyard/lab/pull/187)) at `99f0b272`.
+
+### Result 2026-11-05: update runs refused, the signed ISO index moved
+
+The first 3 update runs (`tnhwj` Snow, `7vqgs` Floe, `zfvqz` Sundog, 11:44 EST)
+ended `FAILED: preflight_mismatch:iso_index` before any boot. The signed
+`SHA256SUMS` then listed only `snosi-installer_20261105145811_x86-64.iso`
+(`sha256:366872a2…`), so the lane refused the pinned `20261104213621` ISO, as
+it must. The new index is signed by the pinned key (`F37282A3…`, snosi
+`39cf1988`) and the ISO matches it; the 3 update manifests now name it. The
+ISO only installs N; N and N+1 are unchanged.
+
+### Result 2026-11-05: Snow, Sundog and Floe PASS, problems=missing-timer
+
+Every run ended `PASS: verified_problems_probe;problems=missing-timer`. The
+`snosi-vm-qa` semaphore ran them one after the other (times include queue time).
+
+| Product | Run | Time (EST) | `target_ms` |
+| --- | --- | --- | --- |
+| Snow | `x9htr` | 14:52 to 15:04 | 21338 |
+| Floe | `mfg6x` | 14:52 to 15:14 | 17591 |
+| Sundog | `w7l84` | 14:52 to 15:27 | 21057 |
+
+Each `problems.txt` (Snow shown; Floe and Sundog have the same lines except the
+boot timing):
+
+```
+problems=missing-timer
+path=update collector=yes timer=enabled/inactive preset_reconcile=success coredump_user=yes core_pattern=yes journal_dir=yes
+file=0644 owner=0:0 schema=valid records=4 reportable=2 details=0640 group=sudo
+injected unit=yes stage=failed/network crash=yes app=yes collector_runs=0,0
+recorded unit=yes stage=yes crash=yes app=yes leak=no
+list rc=0 unit=yes stage=yes crash=yes app=yes
+```
+
+On the first boot of N+1, sysusers created `systemd-coredump`,
+`preset-reconcile` succeeded and enabled `snosi-health.timer`, and the collector
+recorded and listed all 4 injected problems. Only the timer is not active:
+`preset-reconcile` runs `systemctl preset`, which enables a unit but does not
+start it, so a timer that an update adds runs first on the next boot. snosi
+designed it so ("Newly enabled services take effect at the NEXT boot", in
+`/usr/libexec/preset-reconcile`); the probe expects the timer active on the
+first N+1 boot. Either snosi starts newly enabled timers, or the probe accepts
+next-boot activation on the update path (for example, with a second N+1 boot):
+[snosi#1229](https://github.com/frostyard/snosi/issues/1229) holds the
+question. Phase 3 is done when 1 update run per product says `problems=ok`
+under the chosen rule.
+
+The update runs have 4 records, not 5: no run recorded an `integrity_error`
+(the unexplained fs-verity record of the fresh runs). The boot timing of the
+first N+1 boot is at or below each product's fresh median above (Snow
+21338 ms, Floe 17591 ms, Sundog 21057 ms).
 
 ## Later / ideas
 
