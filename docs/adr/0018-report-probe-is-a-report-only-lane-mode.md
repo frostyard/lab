@@ -1,6 +1,7 @@
 # 0018 — The report probe is a report-only lane mode
 
-- **Status:** Accepted
+- **Status:** Accepted (covers the snosi sender on Floe and chairlift on the
+  desktops)
 - **Date:** 2026-11-05
 
 ## Context
@@ -23,6 +24,19 @@ the path a real host takes. And the intake is a Cloudflare Worker
 Worker must strip them: a Python mock of the intake would prove neither the
 Worker's acceptance nor its IP handling.
 
+The desktop products (Snow, Snowfield, Sundog) ship no snosi sender. Their
+sender is chairlift v0.15.0's windowless mode, `chairlift --send-pending-reports`
+(chairlift `docs/specs/problem-reporting.md` at that tag). It reads a per-user
+consent file (`~/.config/chairlift/reporting.json`, off when the file is
+missing), records only successful sends in `~/.local/state/chairlift/reports.json`,
+paces 7 s between requests, never sends a crash, and exits 0 when it sent
+everything or sent nothing by rule. Only an administrator file
+(`/etc/chairlift/config.yml`, authoritative as a whole, or the shipped
+`/usr/share/chairlift/config.yml`) can set the endpoint, as
+`problems_page.problems_reporting_group.endpoint`. Because the consent, the log
+and the state folder belong to 1 user, the sender only proves anything in that
+user's own login.
+
 The lane already has 3 optional probe modes that replace the five-boot plan and
 report without gating the release
 ([ADR-0016](0016-first-login-probe-is-a-report-only-lane-mode.md),
@@ -35,9 +49,8 @@ evidence about the image, not a release decision.
 
 The manifest may carry the optional key `report_probe`, an object with exactly
 `{"intake": "lab"}` or `{"intake": "production"}`, instead of `sysext_probe`,
-`first_login_probe` or `problems_probe`; the four never travel together. In this
-commit it is valid only for product `floe`, the product that ships the sender
-first; a desktop product is a later change. It never stages N+1, so its rule is
+`first_login_probe` or `problems_probe`; the four never travel together. It is
+valid for all 4 products. It never stages N+1, so its rule is
 `version_distinct`, its budget is `installed_boot`, and its plan is the one
 `report` boot of the installed N.
 
@@ -71,14 +84,48 @@ evidence. With `intake: production` there is no container, no mark and no
 consent change: the guest sends exactly 1 lab test report (`app_problem`, code
 `lab.injected_t857`) with `curl` and no redirect, over `https` only.
 
+On a desktop product the record proves chairlift instead. The boot pulls the
+test-only autologin setup unit that the first-login probe's `login-1` boot uses
+([ADR-0016](0016-first-login-probe-is-a-report-only-lane-mode.md)), so the probe
+has the test-only user's own session. It is the sender when `/usr/bin/chairlift`
+exists and its package version is 0.15.0 or newer; the version travels in the
+record, also when it is too old. Then the guest:
+
+1. waits, bounded, for that session, and records its type, class, state and
+   desktop; without a session the probe stops and the host reports
+   `unproven-session`;
+2. marks `off-begin`, injects the same 2 problems and runs the collector twice;
+3. writes the lab endpoint into `/etc/chairlift/config.yml` as an administrator
+   would, from the shipped file when `/etc` has none, and refuses a file whose
+   `problems_page` does not hold exactly 1 `problems_reporting_group`
+   (`chairlift_config`);
+4. runs the sender in the user's session with no consent file, then with a
+   stored `enabled: false` consent, and both runs must be clean, name the
+   consent, and leave the sent log empty;
+5. marks `on-begin`, writes `enabled: true` with `mode: auto`, runs the sender
+   again, marks `on-end`, and reads its own sent log: every entry is a report it
+   sent, so the entries are `accepted` and carry no HTTP status (`0`).
+
+The lab POST and the envelope checks are the same as on Floe: the count, the
+injected app problem, no crash, `frostyard.problem/1`, and no client IP in what
+reaches GlitchTip. With `intake: production` the desktop path writes the consent
+that allows, takes the document from `chairlift --send-pending-reports
+--dry-run` (which follows the same rules, sends nothing and writes no state),
+removes the consent again, and posts the 1 injected preview with `curl`.
+
 The host validates the record's exact shape, identity, boot id and booted image,
 and reports one summary line:
 
-- `unproven-no-sender` when the image predates the sender;
+- `unproven-no-sender` when the image has no sender, or a chairlift below
+  0.15.0;
+- `unproven-session` when a desktop probe found no session to send from;
 - `unproven-intake` when a mark is missing from the intake's request log, or the
   marks are out of order (the guest never reached the intake);
-- otherwise `ok`, or `missing-` plus the failed checks: `off` (a report posted
-  before `on-begin`, or a failed guest off check), `timer`, `consent`, `count`
+- otherwise `ok`, or `missing-` plus the failed checks. On a desktop the sender
+  checks are `off` (a report posted before `on-begin`, an off run that failed or
+  did not name the consent, or a sent log that already had an entry) and `cli`
+  (the on run failed, or the administrator file was not written); on Floe they
+  are `off`, `timer` and `consent`. Both products share `count`
   (not exactly 1 accepted `count`), `app` (no accepted `lab.injected_t857`),
   `crash` (a crash was sent, which must never happen), `schema` (a posted body
   is not `frostyard.problem/1`, or a POST was not 202), `ip` (a peer IP reached
@@ -114,8 +161,16 @@ workflow publishes it as the `report` output parameter.
   changes.
 - The lab intake is real code, so a defect in the intake now shows up as a
   `missing-*` finding of this lane, not only in the intake's own tests.
-- `report_probe` is Floe only until the desktop products ship the sender; a
-  desktop image is refused with `report_product` rather than probed.
+- A desktop report boot waits up to 300 s for the user's session and runs the
+  sender up to 3 times, so it needs the `installed_boot` budget to cover a
+  login, and it changes 1 more file than the Floe boot: the installed `/etc`
+  gets a test-only autologin configuration and 1 administrator endpoint line.
+- The report boot of a desktop runs an image's own systemd unit
+  (`snosi-health-report.timer`) drop-in that does not exist there: it is
+  harmless, and it keeps the 2 products on 1 code path.
+- A `report_probe` run on a desktop proves the test-only user's chairlift, not
+  the user who will use the computer: the consent, the endpoint and the sent
+  log are that user's.
 - The mode is report-only until 3 lab runs with `report=ok` and 1 accepted
   production report; making it a gate is a new decision, not a change to this
   one.
@@ -135,6 +190,15 @@ workflow publishes it as the `report` output parameter.
   proves only the mock.
 - **The production intake only:** that would send test data to production and
   would not let the probe force the off and on states of a lab host.
+- **Run chairlift as root, outside a session:** the consent file, the sent log
+  and the state folder belong to 1 user, so a root run would read and write
+  root's own files and prove nothing about a user's consent.
+- **A system unit for chairlift's windowless mode:** the consent is per user, and
+  the endpoint override is the only administrator key; a system unit would need
+  a per-user consent that no user gave.
+- **Use the chairlift GUI instead of the windowless mode:** a GTK window in a
+  report-only lane adds a session-dependent UI to prove a command line that the
+  same package already tests.
 - **A separate WorkflowTemplate:** it would duplicate the installer, the SMBIOS
   credential plumbing, the serial channel and the evidence pipeline for one more
   boot mode.

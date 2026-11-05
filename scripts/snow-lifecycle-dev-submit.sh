@@ -8,7 +8,7 @@
 # It renders ONE Workflow from DIR (default: this checkout):
 #   - the spec of argo/workflow-templates/run-snow-bootc-lifecycle.yaml, inline;
 #   - the scripts of argo/workflow-templates/snow-bootc-lifecycle-scripts.yaml
-#     as Argo raw input artifacts (gzip+base64, unpacked to /opt/snow-qa by the
+#     as 1 Argo raw input artifact (a gzipped tar, unpacked to /opt/snow-qa by the
 #     entry command), instead of the ConfigMap;
 #   - name dev-snow-bootc-lifecycle-*, label snosi.io/trigger=dev and the
 #     source commit, keep-vm-on-failure=false.
@@ -35,7 +35,7 @@ python=${PYTHON:-python3}
 "$python" -c 'import yaml' 2>/dev/null || { printf '%s\n' "PyYAML is required (set PYTHON)" >&2; exit 69; }
 commit=$(git -C "$repo" rev-parse HEAD)
 workflow=$("$python" - "$repo" "$1" "$commit" <<'PY'
-import base64, gzip, json, sys
+import base64, gzip, io, json, sys, tarfile
 from pathlib import Path
 import yaml
 
@@ -60,13 +60,24 @@ mode = mounted[0]["configMap"].get("defaultMode", 0o555)
 packed = mount["mountPath"] + ".packed"
 command = entry["container"]["command"]
 assert command == ["/bin/bash", mount["mountPath"] + "/run.sh"], command
+# 1 gzipped tar, not 1 artifact per key: the whole script set stays under Argo's
+# MaxEnvVarLen (128 KiB) with room to grow (one tar saves about 5 KiB of base64).
+archive = io.BytesIO()
+with tarfile.open(fileobj=archive, mode="w") as tar:
+    for name, data in sorted(scripts["data"].items()):
+        body = data.encode()
+        info = tarfile.TarInfo(name)
+        info.size, info.mtime, info.mode = len(body), 0, mode
+        tar.addfile(info, io.BytesIO(body))
+# mtime=0 keeps 2 renders of the same commit byte-identical.
+packed_tar = gzip.compress(archive.getvalue(), 9, mtime=0)
 entry["inputs"]["artifacts"] = [
-    {"name": "script-" + name.replace(".", "-").replace("_", "-"), "path": packed + "/" + name + ".gz.b64",
-     "mode": 0o444, "raw": {"data": base64.b64encode(gzip.compress(data.encode(), 9, mtime=0)).decode()}}
-    for name, data in sorted(scripts["data"].items())]
+    {"name": "scripts", "path": packed + "/scripts.tar.gz.b64", "mode": 0o444,
+     "raw": {"data": base64.b64encode(packed_tar).decode()}}]
 entry["container"]["command"] = ["/bin/bash", "-c", (
-    "set -euo pipefail; install -d -m 0755 {dest}; for f in {src}/*.gz.b64; do n=${{f##*/}}; n=${{n%.gz.b64}}; "
-    "base64 -d \"$f\" | gzip -dc > \"{dest}/$n\"; chmod {mode:o} \"{dest}/$n\"; done; exec \"$@\""
+    "set -euo pipefail; install -d -m 0755 {dest}; "
+    "base64 -d \"{src}/scripts.tar.gz.b64\" | tar -xzf - -C {dest}; "
+    "chmod {mode:o} {dest}/*; exec \"$@\""
 ).format(dest=mount["mountPath"], src=packed, mode=mode), "dev-unpack", *command]
 spec["arguments"] = {"parameters": [
     {"name": "manifest-json", "value": manifest.read_text()},

@@ -771,14 +771,15 @@ def test_run_script_injects_the_setup_unit_only_in_login_1():
     assert loop.count("systemd.extra-unit.snow-login-setup.service") == 1
     assert 'login_credential=" -smbios type=11,value=io.systemd.credential.binary:' \
            'systemd.extra-unit.snow-login-setup.service=$lb"' in loop
-    assert loop.count("$td$login_credential") == 1
+    assert loop.count("$td$login_credential$report_credential") == 1
     # The setup unit runs before the display manager and the first user session.
     assert ("Before=display-manager.service gdm.service gdm3.service sddm.service "
             "systemd-user-sessions.service") in loop
     assert "TimeoutStartSec=120" in loop
     assert '[[ ${#lb} -lt 60000 ]] || fail unit_size' in loop
-    # Only login-1 pulls it, and only login-1 encodes the setup script.
-    guarded = re.search(r'(?ms)if \[\[ "\$phase" == login-1 \]\]; then\n.*?\n  else\n', loop).group()
+    # Only the login boots and the report boot of a desktop pull it, from 1
+    # encoded copy of the setup script.
+    guarded = re.search(r'(?ms)if \[\[ "\$login_setup" == 1 \]\]; then\n.*?\n  else\n', loop).group()
     assert "login_b64=" in guarded and "snow-login-setup.service" in guarded
     assert loop.count("login_b64=") == 1
 

@@ -108,14 +108,15 @@ def test_print_renders_the_template_spec_with_script_artifacts(tmp_path):
         for m in entry_template(spec)["container"]["volumeMounts"]
     )
 
-    # inputs.artifacts: exactly the ConfigMap data keys, gzip+base64 under the
-    # packed path; the entry command restores them byte-equal at the mount
-    # path with the ConfigMap volume's mode.
+    # inputs.artifacts: 1 gzipped tar of the whole ConfigMap data under the packed
+    # path; the entry command restores every key byte-equal at the mount path
+    # with the ConfigMap volume's mode. 1 tar, not 1 artifact per key, keeps the
+    # rendered spec under Argo's MaxEnvVarLen.
     artifacts = entry_template(spec)["inputs"]["artifacts"]
     packed = MOUNT_PATH + ".packed"
-    assert len(artifacts) == len(data) == len({a["path"] for a in artifacts})
-    assert len({a["name"] for a in artifacts}) == len(artifacts)
-    assert {a["path"] for a in artifacts} == {packed + "/" + key + ".gz.b64" for key in data}
+    assert len(artifacts) == 1, artifacts
+    assert artifacts[0]["name"] == "scripts"
+    assert artifacts[0]["path"] == packed + "/scripts.tar.gz.b64"
     assert volume["configMap"]["defaultMode"] == 0o555
     root = tmp_path / "root"
     for artifact in artifacts:
@@ -124,6 +125,7 @@ def test_print_renders_the_template_spec_with_script_artifacts(tmp_path):
         target.write_text(artifact["raw"]["data"], encoding="ascii")
     unpack = command[2].replace(MOUNT_PATH, str(root) + MOUNT_PATH)
     subprocess.run(["/bin/bash", "-c", unpack, "dev-unpack", "true"], check=True, timeout=60)
+    assert set(data) == set(p.name for p in (root / MOUNT_PATH.lstrip("/")).iterdir())
     for key, text in data.items():
         restored = root / MOUNT_PATH.lstrip("/") / key
         assert restored.read_bytes() == text.encode("utf-8"), key
@@ -131,9 +133,8 @@ def test_print_renders_the_template_spec_with_script_artifacts(tmp_path):
     # Argo offloads a template above MaxEnvVarLen (128 KiB) to a ConfigMap. The
     # packed scripts grew with the first-login probe (qa.py and login-setup.sh)
     # and again with the report probe (report.py, report-guest.py, intake-lab.py
-    # and intake-setup.sh), which took the quarter-limit headroom: the guard is
-    # now the real limit with 8 KiB of margin. A further growth of this set needs
-    # a second ConfigMap, not a smaller margin.
+    # and intake-setup.sh); the 1 tar packing bought back about 5 KiB. A further
+    # growth of this set needs a second ConfigMap, not a smaller margin.
     assert len(json.dumps(entry_template(spec))) < 131072 - 8192
 
     # spec.arguments carries the manifest text and never keeps the VM.

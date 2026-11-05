@@ -9,6 +9,8 @@ import base64
 import importlib
 import importlib.util
 import json
+import os
+import pwd
 import re
 import shutil
 import subprocess
@@ -139,10 +141,14 @@ def test_report_probe_rejects_unsafe_input(qa, change):
         qa.normalize(m)
 
 
-@pytest.mark.parametrize("product", ["snow", "snowfield", "sundog"])
-def test_report_probe_is_floe_only_in_this_commit(qa, product):
-    with pytest.raises(qa.GateError, match="^report_product$"):
-        qa.normalize(probe_manifest("lab", product))
+@pytest.mark.parametrize("product", ["snow", "floe", "snowfield", "sundog"])
+@pytest.mark.parametrize("intake", ["lab", "production"])
+def test_report_probe_normalizes_for_every_product(qa, product, intake):
+    # Floe carries the snosi sender; the desktops carry chairlift, which sends
+    # from the user's own session. Both are the same manifest key.
+    m = probe_manifest(intake, product)
+    assert qa.normalize(m) is m
+    assert qa.normalize(m)["report_probe"] == {"intake": intake}
 
 
 @pytest.mark.parametrize("other", [
@@ -401,7 +407,8 @@ def test_guest_report_records_the_production_status_it_saw(qa, monkeypatch, gues
 
 def full_record(**overrides):
     record = dict(phase="report", nonce=NONCE, boot_id=BOOT_ID, booted_digest=N, sender=True,
-                  intake="lab", injected={"app": True, "crash": True},
+                  sender_version=None, intake="lab", session=None,
+                  injected={"app": True, "crash": True},
                   off={"conf_absent": True, "service_rc": 1, "condition": "no", "send_rc": 1,
                        "send_off": True, "status_rc": 0, "endpoint": True, "again_rc": 1,
                        "again_result": "success", "sent_absent": True, "dry_rc": 0},
@@ -411,7 +418,7 @@ def full_record(**overrides):
                          "kind": "app_problem", "report_id": APP_ID},
                         {"status": "accepted", "http_status": 202, "problem_id": "0123456789abcdee",
                          "kind": "count", "report_id": COUNT_ID}],
-                  dry=["app_problem", "count"], production=None)
+                  dry=["app_problem", "count"], cli=None, production=None)
     record.update(overrides)
     return record
 
@@ -1296,3 +1303,591 @@ def test_report_ignores_the_loopback_readiness_check_and_the_mock_host(report, q
 def test_report_without_a_guest_peer_is_not_ip_clean(report):
     # Only loopback peers: nothing proves the guest's address stayed out.
     assert report.ip_clean([{"peer": "127.0.0.1"}], []) is False
+
+
+# ------------------------------------------------------- the desktop sender
+# Snow, Snowfield and Sundog have no snosi sender: chairlift sends, from the
+# test-only user's own session (chairlift docs/specs/problem-reporting.md v0.15.0).
+
+SHIPPED = """# ChairLift configuration. Administrator-owned files override the defaults.
+general:
+  window_width: 1280
+problems_page:
+  problems_system_group:
+    enabled: true
+  problems_apps_group:
+    enabled: true
+    notes: keep
+  problems_reporting_group:
+    enabled: true
+    # endpoint: https://report.frostyard.org/v1/report
+help_page:
+  help_resources_group:
+    enabled: true
+    website: https://frostyard.org
+"""
+
+SESSION = {"type": "wayland", "class": "user", "state": "active", "desktop": "KDE"}
+
+
+def sent_log_entries():
+    """What chairlift records after 1 app problem and 1 count: successes only."""
+    return [{"report_id": APP_ID, "kind": "app_problem", "problem_id": "0123456789abcdef",
+             "week": WEEK, "sent_at": "2026-11-05T04:10:00Z"},
+            {"report_id": COUNT_ID, "kind": "count", "problem_id": "",
+             "week": WEEK, "sent_at": "2026-11-05T04:10:01Z"}]
+
+
+def preview_text(documents):
+    """A dry run's stdout: indented JSON documents, one after the other."""
+    return "".join(json.dumps(document, indent=2) + "\n" for document in documents)
+
+
+class Desktop:
+    """The installed desktop, its user and its files, below a temporary tree."""
+
+    def __init__(self, module, home, admin, shipped, cli, calls):
+        self.module, self.home, self.admin, self.shipped = module, home, admin, shipped
+        self.cli, self.calls = cli, calls
+
+    def consent(self):
+        return Path(self.home) / ".config/chairlift/reporting.json"
+
+    def reports(self):
+        return Path(self.home) / ".local/state/chairlift/reports.json"
+
+
+def desktop_environment(qa, monkeypatch, module, tmp_path, *, intake="lab", product="snow",
+                        version="0.15.0", session=SESSION, documents=(),
+                        status=202, layout=SHIPPED, admin=None, account=True):
+    """1 installed desktop: chairlift, its config, the user's home and its commands."""
+    m = probe_manifest(intake, product)
+    credentials = tmp_path / "credentials"
+    credentials.mkdir()
+    for name, value in {"phase": "report", "nonce": NONCE, "image_n": m["image_n"],
+                        "image_n_plus_1": m["image_n_plus_1"],
+                        "target_ref": m["target_ref"]}.items():
+        (credentials / name).write_text(value + "\n")
+    boot = tmp_path / "boot_id"
+    boot.write_text(BOOT_ID + "\n")
+    monkeypatch.setattr(qa, "GUEST_MANIFEST", normalized(tmp_path, m, qa))
+    monkeypatch.setattr(qa, "GUEST_PATHS", {**qa.GUEST_PATHS, "boot_id": boot})
+    cli = tmp_path / "chairlift"
+    cli.write_text("#!/bin/bash\n")
+    monkeypatch.setattr(module, "CLI", str(cli))
+    shipped = tmp_path / "share" / "config.yml"
+    shipped.parent.mkdir()
+    shipped.write_text(layout)
+    monkeypatch.setattr(module, "CLI_SHIPPED", str(shipped))
+    admin_path = tmp_path / "etc" / "chairlift" / "config.yml"
+    if admin is not None:
+        admin_path.parent.mkdir(parents=True)
+        admin_path.write_text(admin)
+    monkeypatch.setattr(module, "CLI_ADMIN", str(admin_path))
+    monkeypatch.setattr(module, "BODY", str(tmp_path / "snow-report.json"))
+    credential = tmp_path / "snow-intake"
+    credential.write_text(INTAKE_URL + "\n")
+    monkeypatch.setattr(module, "INTAKE_CREDENTIAL", str(credential))
+    home = tmp_path / "home"
+    home.mkdir()
+    entry = pwd.struct_passwd(("snowqa", "x", os.getuid(), os.getgid(), "", str(home), "/bin/bash"))
+    monkeypatch.setattr(qa, "login_account", lambda: entry if account else None)
+    monkeypatch.setattr(qa, "login_display_manager", lambda: "sddm")
+    monkeypatch.setattr(qa, "login_session", lambda wait: session)
+    monkeypatch.setattr(qa, "problems_app", lambda: True)
+    monkeypatch.setattr(qa, "problems_crash", lambda: True)
+    monkeypatch.setattr(qa.time, "sleep", lambda seconds: None)
+    calls, posts = [], []
+
+    def consent_text():
+        try:
+            return (Path(home) / ".config/chairlift/reporting.json").read_text()
+        except OSError:
+            return None
+
+    def run(args, timeout=120):
+        calls.append(args)
+        if args[0] == "dpkg-query":
+            return (0, (version + "\n").encode()) if version else (1, b"")
+        if args[0] == "systemd-run":
+            consent = consent_text()
+            allowed = consent is not None and '"enabled":true' in consent
+            if "--dry-run" in args:
+                return (0, preview_text(documents).encode()) if allowed else (0, b"")
+            if not allowed:
+                return 0, b"problem reporting is off\n"
+            state = home / ".local/state/chairlift"
+            state.mkdir(parents=True, exist_ok=True)
+            (state / "reports.json").write_text(
+                json.dumps({"format": 1, "sent": sent_log_entries(), "count_week": WEEK}))
+            return 0, b"sent 2 reports\n"
+        if args[0] == "curl":
+            return 0, str(status).encode()
+        return 0, b""
+
+    monkeypatch.setattr(qa, "problems_run", run)
+
+    def fake_post(url, timeout=30):
+        posts.append(url)
+        return 204, b""
+
+    monkeypatch.setattr(module, "post", fake_post)
+    published = []
+    monkeypatch.setattr(qa, "publish", published.append)
+
+    def fake_status(args, **kwargs):
+        document = {"spec": {"image": {"image": m["target_ref"], "transport": "registry"}},
+                    "status": {"booted": {"image": {"imageDigest": "sha256:" + N,
+                                                   "version": "20260923000000"}},
+                               "staged": None, "rollback": None}}
+        return subprocess.CompletedProcess(args, 0, json.dumps(document).encode(), b"")
+
+    monkeypatch.setattr(qa.subprocess, "run", fake_status)
+    desktop = Desktop(module, home, admin_path, shipped, cli, calls)
+    return m, credentials, desktop, posts, published
+
+
+def test_guest_desktop_report_records_the_chairlift_path(qa, monkeypatch, guest_module, tmp_path):
+    m, credentials, desktop, posts, published = desktop_environment(
+        qa, monkeypatch, guest_module, tmp_path,
+        documents=(guest_document("app_problem", APP_ID), guest_document("count", COUNT_ID)))
+    assert guest_module.main(credentials) == 0
+    record = payload(published[0])
+    assert set(record) == guest_module.REPORT_RECORD_FIELDS
+    assert record["sender"] is True and record["sender_version"] == "0.15.0"
+    assert record["session"] == SESSION and record["intake"] == "lab"
+    assert record["injected"] == {"app": True, "crash": True}
+    # A desktop has no snosi sender state: the 3 triples are null.
+    assert record["off"] is None and record["consent"] is None and record["timer"] is None
+    assert record["cli"] == {"off_rc": [0, 0], "off_consent": True, "sent_absent": True,
+                             "config": True, "on_rc": 0, "output": ["sent 2 reports"]}
+    # chairlift logs only successes and no HTTP status: 0 means "not recorded".
+    assert [(entry["kind"], entry["report_id"], entry["status"], entry["http_status"])
+            for entry in record["sent"]] == [("app_problem", APP_ID, "accepted", 0),
+                                             ("count", COUNT_ID, "accepted", 0)]
+    assert record["production"] is None
+    assert posts == [INTAKE_URL + "/lab/mark/off-begin", INTAKE_URL + "/lab/mark/on-begin",
+                     INTAKE_URL + "/lab/mark/on-end"]
+    # The sender ran in the user's own session, as the user, 4 times: 2 off, 1 on.
+    senders = [args for args in desktop.calls if args[0] == "systemd-run"]
+    assert len(senders) == 3
+    assert senders[-1] == ["systemd-run", "--machine=snowqa@.host", "--user", "--wait", "--pipe",
+                           "--quiet", "--collect", "--", "/bin/sh", "-c",
+                           guest_module.BOTH_STREAMS, str(desktop.cli)]
+    # 2 collector runs after the injection, like on Floe.
+    assert desktop.calls.count(["systemctl", "start", "snosi-health.service"]) == 2
+
+
+def test_guest_desktop_report_writes_the_admin_endpoint(qa, monkeypatch, guest_module, tmp_path):
+    m, credentials, desktop, posts, published = desktop_environment(qa, monkeypatch, guest_module, tmp_path)
+    assert guest_module.main(credentials) == 0
+    written = desktop.admin.read_text()
+    lines = written.splitlines()
+    # The line goes directly after the group line, indented 2 more, and the
+    # administrator's own commented example stays where it was.
+    group = lines.index("  problems_reporting_group:")
+    assert lines[group + 1] == "    endpoint: " + ENDPOINT
+    assert "    # endpoint: https://report.frostyard.org/v1/report" in lines
+    assert "  problems_apps_group:" in lines and "    notes: keep" in lines
+    stripped = [line.strip() for line in lines]
+    assert "help_page:" in stripped and "website: https://frostyard.org" in stripped
+    assert desktop.admin.stat().st_mode & 0o777 == 0o644
+    assert desktop.admin.parent.stat().st_mode & 0o777 == 0o755
+
+
+def test_the_admin_config_is_authoritative_as_a_whole(qa, monkeypatch, guest_module, tmp_path):
+    admin = ("problems_page:\n"
+             "  problems_reporting_group:\n"
+             "    enabled: true\n"
+             "    endpoint: https://wrong.example/v1/report\n"
+             "    notes: admin\n"
+             "other_page:\n"
+             "  keep: yes\n")
+    m, credentials, desktop, posts, published = desktop_environment(
+        qa, monkeypatch, guest_module, tmp_path, admin=admin)
+    assert guest_module.main(credentials) == 0
+    written = desktop.admin.read_text()
+    # The /etc file is the whole source: no merge with /usr/share, and its own
+    # endpoint is replaced, not doubled.
+    assert written == ("problems_page:\n"
+                       "  problems_reporting_group:\n"
+                       "    endpoint: " + ENDPOINT + "\n"
+                       "    enabled: true\n"
+                       "    notes: admin\n"
+                       "other_page:\n"
+                       "  keep: yes\n")
+    assert "general:" not in written
+
+
+@pytest.mark.parametrize("layout", [
+    # No problems_page at all.
+    "general:\n  window_width: 1280\n",
+    # A group outside problems_page.
+    "problems_page:\n  other_group:\n    enabled: true\nproblems_reporting_group:\n  enabled: true\n",
+    # 2 groups under problems_page: never guess which one is the sender's.
+    ("problems_page:\n  problems_reporting_group:\n    enabled: true\n"
+     "  problems_reporting_group:\n    enabled: false\n"),
+])
+def test_guest_desktop_refuses_a_foreign_config_layout(qa, monkeypatch, guest_module, tmp_path, layout):
+    m, credentials, desktop, posts, published = desktop_environment(
+        qa, monkeypatch, guest_module, tmp_path, layout=layout)
+    assert guest_module.main(credentials) == 1
+    assert published == ["SNOW_REPORT_ERR chairlift_config"]
+    assert not desktop.admin.exists()
+
+
+def test_guest_desktop_report_writes_the_consent_for_the_user(qa, monkeypatch, guest_module, tmp_path):
+    m, credentials, desktop, posts, published = desktop_environment(qa, monkeypatch, guest_module, tmp_path)
+    assert guest_module.main(credentials) == 0
+    body = json.loads(desktop.consent().read_text())
+    assert body == {"format": 1, "enabled": True, "mode": "auto",
+                    "decided_at": body["decided_at"], "schema": "frostyard.problem/1"}
+    assert re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", body["decided_at"])
+    folder = desktop.consent().parent
+    assert folder.stat().st_mode & 0o777 == 0o700
+    assert desktop.consent().stat().st_mode & 0o777 == 0o600
+    assert folder.stat().st_uid == os.getuid()
+    assert desktop.consent().stat().st_uid == os.getuid()
+    assert desktop.consent().stat().st_gid == os.getgid()
+    # No temporary file is left behind next to it.
+    assert [entry.name for entry in folder.iterdir()] == ["reporting.json"]
+
+
+def test_guest_desktop_report_without_a_session_is_unproven(qa, monkeypatch, guest_module, tmp_path):
+    m, credentials, desktop, posts, published = desktop_environment(
+        qa, monkeypatch, guest_module, tmp_path, session=None)
+    assert guest_module.main(credentials) == 0
+    record = payload(published[0])
+    assert record["sender"] is True and record["session"] is None
+    assert record["cli"] is None and record["sent"] is None and record["injected"] is None
+    # Nothing was sent and no mark was made: the host reports unproven-session.
+    assert posts == [] and not any(args[0] == "systemd-run" for args in desktop.calls)
+
+
+def test_guest_desktop_record_bounds_a_localized_desktop_name(qa, monkeypatch, guest_module, tmp_path):
+    session = {"type": "wayland", "class": "user", "state": "active",
+               "desktop": "KDE\x1b[0m Plasmä " + "x" * 80}
+    m, credentials, desktop, posts, published = desktop_environment(
+        qa, monkeypatch, guest_module, tmp_path, session=session)
+    assert guest_module.main(credentials) == 0
+    record = payload(published[0])
+    # Only printable ASCII, at most 64 characters: the host bound is never a surprise.
+    desktop = record["session"]["desktop"]
+    assert desktop.startswith("KDE[0m Plasm") and desktop.count("x") >= 51
+    assert all(32 <= ord(ch) <= 126 for ch in desktop)
+    assert len(desktop) == 64
+    assert set(record["session"]) == {"type", "class", "state", "desktop"}
+
+
+def test_guest_desktop_report_without_an_account_is_unproven(qa, monkeypatch, guest_module, tmp_path):
+    m, credentials, desktop, posts, published = desktop_environment(
+        qa, monkeypatch, guest_module, tmp_path, account=False)
+    assert guest_module.main(credentials) == 0
+    assert payload(published[0])["session"] is None
+
+
+@pytest.mark.parametrize("version,sender", [
+    ("0.15.0", True), ("0.15.1", True), ("0.16", True), ("1.0.0", True),
+    ("0.14.9", False), ("0.0.1", False), ("", False), ("broken", False),
+])
+def test_a_desktop_sender_needs_chairlift_0_15_0(qa, monkeypatch, guest_module, tmp_path, version, sender):
+    m, credentials, desktop, posts, published = desktop_environment(
+        qa, monkeypatch, guest_module, tmp_path, version=version)
+    assert guest_module.main(credentials) == 0
+    record = payload(published[0])
+    assert record["sender"] is sender
+    assert record["sender_version"] == (version or None)
+    if not sender:
+        assert record["session"] is None and record["cli"] is None
+        assert not any(args[0] == "systemd-run" for args in desktop.calls)
+
+
+def test_guest_desktop_production_posts_the_one_injected_preview(qa, monkeypatch, guest_module, tmp_path):
+    m, credentials, desktop, posts, published = desktop_environment(
+        qa, monkeypatch, guest_module, tmp_path, intake="production",
+        documents=(guest_document("app_problem", APP_ID), guest_document("count", COUNT_ID)))
+    assert guest_module.main(credentials) == 0
+    record = payload(published[0])
+    assert record["intake"] == "production" and record["session"] == SESSION
+    assert record["production"] == {"http_status": 202, "report_id": APP_ID}
+    assert record["cli"]["on_rc"] == 0 and record["cli"]["sent_absent"] is True
+    assert record["cli"]["config"] is False and record["cli"]["off_rc"] == []
+    # No mark, and the sent log is never written: the dry run changes nothing.
+    assert posts == [] and not desktop.reports().exists()
+    # The consent exists for the dry run, and the probe removes it again.
+    assert not desktop.consent().exists()
+    # Only the dry run reaches the sender, and only its 1 document is posted.
+    senders = [args for args in desktop.calls if args[0] == "systemd-run"]
+    assert len(senders) == 1 and senders[0][-1] == "--dry-run"
+    assert guest_module.STDOUT_ONLY in senders[0]
+    curl = next(args for args in desktop.calls if args[0] == "curl")
+    assert curl[curl.index("--data-binary") + 1] == "@" + guest_module.BODY
+    assert json.loads(Path(guest_module.BODY).read_text())["report_id"] == APP_ID
+    # The admin endpoint is not touched on the production path.
+    assert not desktop.admin.exists()
+
+
+@pytest.mark.parametrize("documents", [
+    (),
+    ({"schema": "frostyard.problem/1", "kind": "app_problem", "detail": {"code": "other"}},),
+    (guest_document("app_problem", APP_ID), guest_document("app_problem", APP_ID)),
+])
+def test_guest_desktop_production_refuses_an_unexpected_preview(qa, monkeypatch, guest_module, tmp_path, documents):
+    m, credentials, desktop, posts, published = desktop_environment(
+        qa, monkeypatch, guest_module, tmp_path, intake="production", documents=documents)
+    assert guest_module.main(credentials) == 1
+    assert published == ["SNOW_REPORT_ERR production_document"]
+    assert not any(args[0] == "curl" for args in desktop.calls)
+    assert not desktop.consent().exists()
+
+
+def test_the_sent_log_of_chairlift_is_parsed_and_bounded(guest_module, tmp_path):
+    home = tmp_path / "home"
+    state = home / ".local/state/chairlift"
+    state.mkdir(parents=True)
+    entries = [{"report_id": APP_ID, "kind": "app_problem", "problem_id": "0123456789abcdef"},
+               {"report_id": COUNT_ID, "kind": "count", "problem_id": ""},
+               {"report_id": "not-a-uuid", "kind": "Bad Kind!", "problem_id": "zz"},
+               {"report_id": COUNT_ID, "kind": "crash"}]
+    entries += [{"report_id": APP_ID, "kind": "app_problem"} for _ in range(40)]
+    (state / "reports.json").write_text(json.dumps({"format": 1, "sent": entries}))
+    kept = guest_module.cli_sent(home)
+    assert len(kept) == 32
+    assert kept[0] == {"status": "accepted", "http_status": 0, "problem_id": "0123456789abcdef",
+                       "kind": "app_problem", "report_id": APP_ID}
+    # A count has no problem_id, and a foreign value is never guessed at.
+    assert kept[1]["problem_id"] is None and kept[1]["kind"] == "count"
+    assert kept[2] == {"status": "accepted", "http_status": 0, "problem_id": None,
+                       "kind": "other", "report_id": None}
+    assert kept[3]["problem_id"] is None and kept[3]["kind"] == "crash"
+
+
+@pytest.mark.parametrize("content", [b"not json", b"[]", b'{"sent": "one"}', b"{}"])
+def test_a_broken_sent_log_is_no_send(guest_module, tmp_path, content):
+    home = tmp_path / "home"
+    state = home / ".local/state/chairlift"
+    state.mkdir(parents=True)
+    (state / "reports.json").write_bytes(content)
+    assert guest_module.cli_sent(home) == []
+
+
+def test_previews_reads_the_indented_documents(guest_module):
+    documents = (guest_document("app_problem", APP_ID), guest_document("count", COUNT_ID))
+    parsed = guest_module.previews(preview_text(documents).encode())
+    assert parsed == list(documents)
+    # 1 unparsable preview after a good one never becomes a document.
+    assert guest_module.previews((json.dumps(documents[0], indent=2) + "\nnot json\n").encode()) == [documents[0]]
+
+
+def test_the_endpoint_edit_leaves_a_nested_endpoint_alone(guest_module, tmp_path, monkeypatch):
+    layout = ("problems_page:\n"
+              "  problems_reporting_group:\n"
+              "    enabled: true\n"
+              "  problems_system_group:\n"
+              "    nested:\n"
+              "      endpoint: keep-me\n"
+              "help_page:\n"
+              "  keep: yes\n")
+    shipped = tmp_path / "share.yml"
+    shipped.write_text(layout)
+    admin = tmp_path / "etc/config.yml"
+    monkeypatch.setattr(guest_module, "CLI_ADMIN", str(admin))
+    monkeypatch.setattr(guest_module, "CLI_SHIPPED", str(shipped))
+    assert guest_module.write_endpoint("http://10.0.0.5:8787/v1/report") is True
+    written = admin.read_text().splitlines()
+    # Only an endpoint line of the reporting group is replaced: a deeper key of
+    # another group keeps its own value.
+    assert written[2] == "    endpoint: http://10.0.0.5:8787/v1/report"
+    assert "      endpoint: keep-me" in written
+
+
+# ------------------------------------------------- report.py on a desktop
+
+def desktop_record(**overrides):
+    record = full_record(sender_version="0.15.0", session=dict(SESSION), off=None, consent=None,
+                         timer=None, dry=None,
+                         cli={"off_rc": [0, 0], "off_consent": True, "sent_absent": True,
+                              "config": True, "on_rc": 0, "output": ["sent 2 reports"]},
+                         sent=[{"status": "accepted", "http_status": 0,
+                                "problem_id": "0123456789abcdef", "kind": "app_problem",
+                                "report_id": APP_ID},
+                               {"status": "accepted", "http_status": 0, "problem_id": None,
+                                "kind": "count", "report_id": COUNT_ID}])
+    record.update(overrides)
+    return record
+
+
+def test_report_of_a_desktop_pass_is_ok(report, qa, tmp_path, capsys):
+    summary, detail = run_report(report, qa, tmp_path, desktop_record(), capsys=capsys)
+    assert summary == "report=ok"
+    assert detail == [
+        "intake=lab sender=yes",
+        "session type=wayland desktop=KDE",
+        "sender version=0.15.0",
+        "marks off-begin=yes on-begin=yes on-end=yes",
+        "posted total=2 accepted=2 app_problem=1 count=1 crash=0",
+        "report_ids app_problem=%s count=%s" % (APP_ID, COUNT_ID),
+        "envelopes=1 bearer_ok=yes",
+        "cli off_rc=0,0 off_consent=yes sent_absent=yes config=yes on_rc=0",
+        "sent accepted=2 of 2",
+    ]
+
+
+def test_report_of_a_desktop_without_a_session_is_unproven(report, qa, tmp_path, capsys):
+    record = desktop_record(session=None, cli=None, sent=None, injected=None)
+    summary, detail = run_report(report, qa, tmp_path, record, capsys=capsys)
+    assert summary == "report=unproven-session"
+    assert detail[1] == "session type=none desktop=none"
+    assert detail[7] == "cli off_rc=none off_consent=no sent_absent=no config=no on_rc=none"
+
+
+@pytest.mark.parametrize("change,failed", [
+    (lambda r: r["cli"].update(off_rc=[0, 1]), "off"),
+    (lambda r: r["cli"].update(off_rc=[1, 0]), "off"),
+    (lambda r: r["cli"].update(off_consent=False), "off"),
+    (lambda r: r["cli"].update(sent_absent=False), "off"),
+    (lambda r: r["cli"].update(on_rc=1), "cli"),
+    (lambda r: r["cli"].update(config=False), "cli"),
+    (lambda r: r["sent"][0].update(report_id=COUNT_ID), "match"),
+])
+def test_report_names_every_failed_desktop_check(report, qa, tmp_path, capsys, change, failed):
+    record = desktop_record()
+    change(record)
+    summary, _ = run_report(report, qa, tmp_path, record, capsys=capsys)
+    assert summary == "report=missing-" + failed
+
+
+def test_report_of_a_desktop_that_sent_before_the_consent_is_a_finding(report, qa, tmp_path, capsys):
+    requests = requests_log(before_posts=(guest_document("count", COUNT_ID),),
+                            after_posts=(guest_document("app_problem", APP_ID),))
+    summary, _ = run_report(report, qa, tmp_path, desktop_record(),
+                            logs=lab_logs(tmp_path, requests, [envelope(APP_ID)]), capsys=capsys)
+    assert summary == "report=missing-off"
+
+
+def test_report_of_every_failed_desktop_check_fits_the_bound(report, qa, tmp_path, capsys):
+    record = desktop_record(cli={"off_rc": [1, 1], "off_consent": False, "sent_absent": False,
+                                 "config": False, "on_rc": 1, "output": []},
+                            sent=[])
+    requests = requests_log(after_posts=(guest_document("crash", APP_ID, exe="sleep",
+                                                        signal="SIGSEGV"),))
+    summary, _ = run_report(report, qa, tmp_path, record,
+                            logs=lab_logs(tmp_path, requests, []), capsys=capsys)
+    assert summary == "report=missing-off+cli+count+app+crash+forward+match"
+    assert len(summary) <= 96
+
+
+def test_report_of_a_desktop_production_send_is_accepted(report, qa, tmp_path, capsys):
+    record = desktop_record(intake="production", sent=None, dry=None,
+                            production={"http_status": 202, "report_id": APP_ID},
+                            cli={"off_rc": [], "off_consent": False, "sent_absent": True,
+                                 "config": False, "on_rc": 0, "output": ["a preview"]})
+    summary, detail = run_report(report, qa, tmp_path, record, capsys=capsys)
+    assert summary == "report=production-accepted"
+    assert detail == ["intake=production sender=yes", "session type=wayland desktop=KDE",
+                      "sender version=0.15.0", "report_id=%s kind=app_problem" % APP_ID,
+                      "http_status=202"]
+
+
+def test_report_of_a_desktop_production_run_without_a_session_is_unproven(report, qa, tmp_path, capsys):
+    record = desktop_record(intake="production", sent=None, dry=None, session=None, cli=None,
+                            production=None)
+    summary, _ = run_report(report, qa, tmp_path, record, capsys=capsys)
+    assert summary == "report=unproven-session"
+
+
+@pytest.mark.parametrize("change,code", [
+    (lambda r: r.update(sender_version="0.15.0 "), "record_sender"),
+    (lambda r: r.update(session={"type": "wayland"}), "record_session"),
+    (lambda r: r["session"].update(type="wa\nyl"), "record_session"),
+    (lambda r: r.update(cli={"off_rc": [0, 0, 0], "off_consent": True, "sent_absent": True,
+                             "config": True, "on_rc": 0, "output": []}), "record_cli"),
+    (lambda r: r["cli"].update(on_rc=True), "record_cli"),
+    (lambda r: r["cli"].update(output=["x"] * 21), "record_cli"),
+    (lambda r: r["cli"].update(output=["\x01"]), "record_cli"),
+    # A chairlift record never carries the snosi triples, and a Floe record
+    # never carries a version, a session or a cli.
+    (lambda r: r.update(off=full_record()["off"]), "record_fields"),
+    (lambda r: full_record(session=dict(SESSION)), "record_fields"),
+    (lambda r: full_record(cli={"off_rc": [], "off_consent": False, "sent_absent": True,
+                                "config": True, "on_rc": 0, "output": []}), "record_fields"),
+])
+def test_phase_rejects_a_malformed_desktop_record(report, qa, tmp_path, change, code):
+    record = desktop_record()
+    record = change(record) or record
+    serial = tmp_path / "serial"
+    serial.write_text(record_line(report, record) + "\n")
+    with pytest.raises(report.GateError, match="^%s$" % code):
+        report.phase(probe_manifest(), "report", NONCE, "none", str(serial),
+                     str(tmp_path / "out.json"))
+
+
+def test_phase_accepts_a_desktop_record_for_every_desktop_product(report, qa, tmp_path):
+    for product in ("snow", "snowfield", "sundog"):
+        record = desktop_record()
+        serial = tmp_path / "serial"
+        serial.write_text(record_line(report, record) + "\n")
+        assert report.phase(probe_manifest("lab", product), "report", NONCE, "none", str(serial),
+                            str(tmp_path / "out.json")) is None
+
+
+# --------------------------------------------------- run.sh on a desktop boot
+
+def report_plan_block():
+    return re.search(r"(?ms)^  phase_plan=\(report\)\n.*?report_login=1\n", run_script()).group()
+
+
+@pytest.mark.parametrize("product,login", [("floe", "0"), ("snow", "1"),
+                                           ("snowfield", "1"), ("sundog", "1")])
+def test_run_script_plans_the_login_setup_only_on_a_desktop_report_boot(tmp_path, product, login):
+    work = tmp_path / product
+    work.mkdir()
+    (work / "normalized.json").write_text(json.dumps({"product": product}))
+    script = ("set -Eeuo pipefail\nfail() { exit 9; }\n" f"WORK={work}\n" + report_plan_block() +
+              '\nprintf "%s\\n" "$report_login"\n')
+    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == login
+
+
+def login_setup_block():
+    return re.search(r'(?ms)^  login_setup=0\n.*?\n  fi\n', run_script()).group()
+
+
+@pytest.mark.parametrize("phase,report_login,setup", [
+    ("login-1", "0", "1"), ("login-2", "0", "0"), ("report", "1", "1"),
+    ("report", "0", "0"), ("installed-n", "1", "0"),
+])
+def test_run_script_reuses_the_login_setup_for_a_desktop_report_boot(tmp_path, phase, report_login, setup):
+    script = ("set -Eeuo pipefail\n" f"phase={phase} report_login={report_login}\n" +
+              login_setup_block() + '\nprintf "%s\\n" "$login_setup"\n')
+    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == setup
+    # The unit and the drop-in are the first-login probe's own code, never a copy.
+    run = run_script()
+    assert run.count("login_b64=") == 1
+    assert run.count("systemd.extra-unit.snow-login-setup.service=$lb") == 1
+    assert 'gd=$(printf \'[Unit]\\nWants=snow-guest.service snow-login-setup.service\'' in run
+    guarded = re.search(r'(?ms)if \[\[ "\$login_setup" == 1 \]\]; then\n.*?\n  else\n', run).group()
+    assert "snow-login-setup.service" in guarded and "login_b64=" in guarded
+
+
+@pytest.mark.parametrize("out,expected", [
+    (b"problem reporting is off\n", True),
+    (b"main.go:52: main: process start\nproblem reporting is off\n", True),
+    (b"problem reporting is off: the report format changed; turn reporting on in ChairLift to agree again\n", False),
+    (b"Ask each time: nothing is sent without a window\n", False),
+    (b"", False),
+])
+def test_guest_desktop_off_needs_chairlifts_exact_off_line(guest_module, out, expected):
+    # chairlift v0.15.0 prints "problem reporting is off" on stderr for a missing or
+    # off consent; the word "consent" is in none of its lines (cli.go).
+    assert guest_module.says_off(out) is expected
+
+
+def test_guest_desktop_sender_keeps_stderr_except_for_the_dry_run(guest_module):
+    # The reason line and the log are on stderr; the previews alone are on stdout.
+    assert guest_module.BOTH_STREAMS.endswith("2>&1")
+    assert guest_module.STDOUT_ONLY.endswith("2>/dev/null")
+    assert '"$0" --send-pending-reports "$@"' in guest_module.BOTH_STREAMS

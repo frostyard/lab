@@ -611,11 +611,13 @@ never fails the run for a product finding
 ([ADR-0017](docs/adr/0017-problems-probe-is-a-report-only-lane-mode.md)).
 
 The optional manifest key `report_probe` replaces the five-boot plan with a
-report-only report probe of the installed image's snosi problem-report sender
-(snosi ADR-0030). It is an object with exactly `{"intake": "lab"}` or
-`{"intake": "production"}`, never present with `sysext_probe`,
-`first_login_probe` or `problems_probe`, and valid only for product `floe` in
-this commit (a desktop product is refused with `report_product`). It never
+report-only report probe of the installed image's problem-report sender. It is
+an object with exactly `{"intake": "lab"}` or `{"intake": "production"}`, never
+present with `sysext_probe`, `first_login_probe` or `problems_probe`, and valid
+for all 4 products. On Floe the sender is the snosi sender (snosi ADR-0030); on
+Snow, Snowfield and Sundog it is chairlift v0.15.0's
+`chairlift --send-pending-reports`, run in the test-only user's own session,
+which the boot gets from the first-login probe's autologin setup unit. It never
 stages N+1, so its rule is `version_distinct`, its budget is `installed_boot`,
 and its plan is the one `report` boot of the installed N. Its guest code travels
 in its own `snow-report.z` credential, because it does not fit in `qa.py`. With
@@ -634,11 +636,20 @@ bounded, for 1 send, marks `on-end`, and reads the sender's own `sent.jsonl`. Th
 run pulls the intake's 2 JSON line logs as evidence. With `intake: production`
 there is no container and no consent change: the guest sends exactly 1 lab test
 report (`app_problem`, code `lab.injected_t857`) with `curl`, over `https` only.
-The host validates the record and the intake's logs and prints one
-`report=<summary>` line in `checks.txt` and `report.txt`: `ok`,
-`unproven-no-sender`, `unproven-intake`, `production-accepted`,
+On a desktop the record proves chairlift instead: the probe waits, bounded, for
+the test-only user's session, writes the lab endpoint into
+`/etc/chairlift/config.yml` as an administrator would, runs the sender with no
+consent file and then with a stored off consent, turns the consent on and runs it
+once more, and reads chairlift's own
+`~/.local/state/chairlift/reports.json`. Its `intake: production` path takes the
+1 injected document from `chairlift --send-pending-reports --dry-run`, which
+sends nothing and writes no state, and posts it with `curl`. The host validates
+the record and the intake's logs and prints one `report=<summary>` line in
+`checks.txt` and `report.txt`: `ok`, `unproven-no-sender`, `unproven-session`
+(a desktop with no session), `unproven-intake`, `production-accepted`,
 `missing-production`, or `missing-` plus the failed checks (`off`, `timer`,
-`consent`, `count`, `app`, `crash`, `schema`, `ip`, `forward`, `match`). A
+`consent` on Floe; `off` and `cli` on a desktop; `count`, `app`, `crash`,
+`schema`, `ip`, `forward` and `match` on both). A
 summary that starts with `unproven-` ends `BLOCKED` with `report_<summary>`
 ([ADR-0003](docs/adr/0003-unproven-is-distinct-from-failed.md)); every other
 summary ends `PASS` with `verified_report_probe;report=<summary>`. The run's

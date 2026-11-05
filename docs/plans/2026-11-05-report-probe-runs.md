@@ -1,16 +1,18 @@
-# Plan: Report probe on the Floe report sender (T857 t21)
+# Plan: Report probe on the image problem-report senders (T857 t21)
 
 This plan proves phase 2 of plan T857 in the lab: the snosi problem-report sender
 of snosi ADR-0030 (`/usr/libexec/snosi-health-report`, the
 `snosi-health reporting on|off` commands and `snosi-health-report.timer`/`.service`)
-neither sends while reporting is off nor loses the client's IP when it sends,
-and that the real frostyard/problem-intake Worker accepts its reports as
+on Floe, and chairlift v0.15.0's windowless sender
+(`chairlift --send-pending-reports`, chairlift
+`docs/specs/problem-reporting.md`) on Snow, Snowfield and Sundog. Neither sender
+sends while reporting is off, neither loses the client's IP when it sends, and
+the real frostyard/problem-intake Worker accepts their reports as
 `frostyard.problem/1`. It uses the report-only
 [report probe](../adr/0018-report-probe-is-a-report-only-lane-mode.md) of the
-[bootc lifecycle lane](../../README.md#manual-snow-bootc-lifecycle) on Floe, the
-first product that ships the sender. The probe records; it gates nothing until 3
-lab runs end `report=ok` and 1 production report is accepted, and then a new
-decision promotes it.
+[bootc lifecycle lane](../../README.md#manual-snow-bootc-lifecycle). The probe
+records; it gates nothing until 3 lab runs of a product end `report=ok` and 1
+production report is accepted, and then a new decision promotes it.
 
 ## Selected inputs
 
@@ -53,15 +55,24 @@ report (`app_problem`, code `lab.injected_t857`) to
 
 *(to be filled from the run)*
 
-## Phase 4 — Desktops (chairlift)
+## Phase 4 — Desktops (chairlift), lane mode
 
-The desktop products send chairlift problems; the mode is Floe only until they
-ship the sender.
+Snow, Snowfield and Sundog send through chairlift v0.15.0's windowless mode, in
+the test-only user's own session.
 
-- Work item: allow `report_probe` for Snow, Snowfield and Sundog, and probe the
-  chairlift `app_problem` the first-login probe already starts.
-- **Done when:** each desktop product has 3 runs with `report=ok`.
-- Blocked on chairlift v0.15.0.
+- `report_probe` for every product, the chairlift guest path (session, the
+  administrator endpoint, the consent file, the 2 off runs and the on run, the
+  dry-run preview for `intake: production`), the record's `sender_version`,
+  `session` and `cli` keys, the desktop summaries and `unproven-session`
+  ([ADR-0018](../adr/0018-report-probe-is-a-report-only-lane-mode.md)).
+- **Done when:** the full test suite passes and the cross-review is Ready.
+- Then 3 lab runs per desktop product, and 1 production run, each submitted as a
+  dev run under the `lab-dev` lease:
+  **Done when:** each desktop product has 3 runs with `report=ok`.
+
+### Result
+
+*(to be filled from the runs)*
 
 ## Later / ideas
 
@@ -71,10 +82,15 @@ ship the sender.
 
 ## Open questions
 
-- **Question:** does the sender's `/var/lib/snosi-health/sent.jsonl` line keep
-  `status`, `http_status`, `problem_id` and a nested `report` object? The guest
-  reads that shape; a different shape makes the `match` check fail and needs a
-  guest fix, by phase 2.
+- **Question:** does the snosi sender's `/var/lib/snosi-health/sent.jsonl` line
+  keep `status`, `http_status`, `problem_id` and a nested `report` object? The
+  guest reads that shape; a different shape makes the `match` check fail and
+  needs a guest fix, by phase 2. (Phase 2 answered this for Floe.)
+- **Question:** does chairlift's `--send-pending-reports` output name the consent
+  in the off runs, and how many problems does the live `problems_page` report? 2
+  injected documents (1 app problem, 1 count) are expected on a fresh VM; more
+  reportable items would make the `count` and `app` checks pass and the envelope
+  checks fail, and phase 4 must then decide whether to dismiss them first.
 
 ## References
 

@@ -1097,7 +1097,13 @@ data:
       fi
     elif [[ "$report_mode" == 1 ]]; then
       # The report probe proves the sender on the installed N; N+1 never boots.
+      # Floe's sender is snosi-health-report; a desktop's is chairlift, which sends
+      # from the user's own login, so its report boot needs the same test-only
+      # autologin setup that the first-login probe's login-1 boot makes.
       phase_plan=(report)
+      report_product=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["product"])' "$WORK/normalized.json") || fail manifest_read
+      report_login=0
+      [[ "$report_product" == floe ]] || report_login=1
     else
       phase_plan=(installed-n stage boot-n-plus-1 rollback boot-n)
     fi
@@ -1196,7 +1202,13 @@ data:
       gd=
       login_credential=""
       report_credential=""
-      if [[ "$phase" == login-1 ]]; then
+      # The login-setup unit is the first-login probe's test-only autologin, and the
+      # report boot of a desktop product reuses it: chairlift sends in that session.
+      login_setup=0
+      if [[ "$phase" == login-1 || ( "$phase" == report && "${report_login:-0}" == 1 ) ]]; then
+        login_setup=1
+      fi
+      if [[ "$login_setup" == 1 ]]; then
         # login-1 also pulls the test-only autologin setup unit, from the same
         # multi-user.target drop-in and the same single raw.qemu of the phase.
         login_b64=$(base64 -w0 /opt/snow-qa/login-setup.sh) || fail unit_encoding
@@ -1815,9 +1827,9 @@ data:
                 require(m["version_n"] < m["version_n_plus_1"], "version_order")
         elif "report_probe" in m:
             # The report probe never stages N+1 either, so its versions only have
-            # to differ, and only a Floe image carries the report sender.
+            # to differ. Floe carries the snosi sender; the desktops carry
+            # chairlift, which sends from the user's own session.
             report_probe(m["report_probe"])
-            require(m["product"] == "floe", "report_product")
             require(m["version_n"] != m["version_n_plus_1"], "version_distinct")
         else:
             require(m["version_n"] < m["version_n_plus_1"], "version_order")
@@ -5025,15 +5037,20 @@ data:
       }
     }
   report-guest.py: |
-    """Guest side of the report probe (plan T857 phase 2, Floe).
+    """Guest side of the report probe (plan T857 phase 2).
 
-    It proves on a real installed Floe VM that the snosi problem-report sender
-    (snosi ADR-0030) sends nothing while reporting is off and, when it is on, sends
-    the injected problem and 1 weekly count to a lab intake. qa.py starts this
-    program from its own credential and publishes the one record it returns.
+    On Floe it proves the snosi problem-report sender (snosi ADR-0030): nothing is
+    sent while reporting is off, and when it is on, the injected problem and 1
+    weekly count reach the intake. On Snow, Snowfield and Sundog it proves
+    chairlift's windowless sender (`chairlift --send-pending-reports`, chairlift
+    docs/specs/problem-reporting.md at v0.15.0), run in the test-only user's own
+    session. qa.py starts this program from its own credential and publishes the one
+    record it returns.
     """
     import base64
+    import datetime
     import json
+    import os
     import re
     import sys
     import time
@@ -5042,29 +5059,46 @@ data:
     from pathlib import Path
 
     # The record this probe publishes: fixed keys, every value bounded by report.py.
-    REPORT_RECORD_FIELDS = set("phase nonce boot_id booted_digest sender intake injected off consent timer sent dry production".split())
+    REPORT_RECORD_FIELDS = set("phase nonce boot_id booted_digest sender sender_version intake session injected off consent timer sent dry cli production".split())
+    # Floe: the snosi sender, its consent file and its own sent log.
     SENDER = "/usr/libexec/snosi-health-report"
     CONF_DIR = "/etc/snosi-health"
     CONF = "/etc/snosi-health/reporting.conf"
     SENT = "/var/lib/snosi-health/sent.jsonl"
-    # The 1 document of the production path, written for curl's --data-binary.
+    HEALTH_URL = "/usr/bin/snosi-health"
+    REPORT_UNIT = "snosi-health-report.service"
+    REPORT_TIMER = "snosi-health-report.timer"
+    OFF = "problem reporting is off"
+    # Desktops: chairlift's windowless sender and its per-user files. Only an
+    # administrator file may choose the endpoint, and the package ships the group in
+    # /usr/share; /etc is authoritative as a whole when it exists.
+    CLI = "/usr/bin/chairlift"
+    CLI_MIN = (0, 15, 0)
+    CLI_ADMIN = "/etc/chairlift/config.yml"
+    CLI_SHIPPED = "/usr/share/chairlift/config.yml"
+    CLI_PAGE = re.compile(r"problems_page:\s*(?:#.*)?")
+    CLI_GROUP = re.compile(r"problems_reporting_group:\s*(?:#.*)?")
+    CONSENT_DIR = ".config/chairlift"
+    CONSENT = ".config/chairlift/reporting.json"
+    SENT_LOG = ".local/state/chairlift/reports.json"
+    CONSENT_TEXT = '{"format":1,"enabled":%s,"mode":"auto","decided_at":"%s","schema":"frostyard.problem/1"}\n'
+    # 1 document of the production path, written for curl's --data-binary.
     BODY = "/run/snow-report.json"
     INTAKE_CREDENTIAL = "/run/credentials/@system/snow-intake"
     # The lab intake is reachable only on its container's own address, never a name.
     INTAKE_URL = re.compile(r"http://[0-9]{1,3}(?:\.[0-9]{1,3}){3}:8787")
     PRODUCTION_URL = "https://report.frostyard.org/v1/report"
-    HEALTH_URL = "/usr/bin/snosi-health"
-    REPORT_UNIT = "snosi-health-report.service"
-    REPORT_TIMER = "snosi-health-report.timer"
     # Bounds: the record travels as 1 marker line, so every list and string is small.
     SENT_MAX = 32
     DRY_MAX = 32
     STATUS_MAX = 160
     SENT_FILE_MAX = 256 * 1024
     DOCUMENT_MAX = 64
+    OUTPUT_MAX = 20
     TRIGGER_TIMEOUT = 300
     TRIGGER_POLL = 5
-    OFF = "problem reporting is off"
+    SESSION_WAIT = 300
+    SEND_TIMEOUT = 300
     TOKEN = re.compile(r"[a-z0-9_.-]{1,32}")
     UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
 
@@ -5092,6 +5126,11 @@ data:
         return None if raw is None else raw.decode("utf-8", "replace")
 
 
+    def printable(value, limit=STATUS_MAX):
+        """Text the guest read, reduced to printable characters and 1 bound."""
+        return "".join(ch for ch in value if 32 <= ord(ch) <= 126)[:limit]
+
+
     def post(url, timeout=30):
         """(status, body) of one POST; 0 when the request could not be made."""
         request = urllib.request.Request(url, data=b"", method="POST")
@@ -5116,6 +5155,26 @@ data:
                    "intake_credential")
         return value
 
+
+    def curl_post(document):
+        """POST 1 document to the production intake, over https and without a redirect."""
+        body = Path(BODY)
+        try:
+            body.write_bytes(qa.canonical(document))
+        except OSError:
+            qa.require(False, "production_document")
+        rc, out = qa.problems_run(
+            ["curl", "-q", "--proto", "=https", "--connect-timeout", "10", "--max-time", "30",
+             "-A", "", "-H", "Accept:", "-H", "Content-Type: application/json",
+             "--data-binary", "@" + str(body), "-o", "/dev/null", "-w", "%{http_code}",
+             PRODUCTION_URL], 60)
+        status = int(out.strip()) if out.strip().isdigit() else 0
+        report_id = document.get("report_id")
+        return {"http_status": status,
+                "report_id": report_id if type(report_id) is str and UUID.fullmatch(report_id) else None}
+
+
+    # ------------------------------------------------------------- the Floe sender
 
     def dry_run():
         """The kinds of the documents `snosi-health send --dry-run` would send."""
@@ -5203,7 +5262,7 @@ data:
         first = status.splitlines()[0] if status.splitlines() else ""
         return {"on_rc": on_rc, "enabled": "enabled=1" in lines,
                 "endpoint": bool(endpoints) and endpoints[-1] == endpoint,
-                "status": "".join(ch for ch in first if 32 <= ord(ch) <= 126)[:STATUS_MAX]}
+                "status": printable(first)}
 
 
     def invocation():
@@ -5232,15 +5291,21 @@ data:
                 "enabled": token(qa.problems_show(["systemctl", "is-enabled", REPORT_TIMER]))}
 
 
-    def lab(url):
-        """The lab intake path: off, then consent, then the timer's own send."""
-        endpoint = url + "/v1/report"
-        mark(url, "off-begin")
+    def inject():
+        """The 2 problems that a real host could report, and their 2 collector runs."""
         injected = {"app": qa.problems_app(), "crash": qa.problems_crash()}
         # Two collector runs, like the problems probe: the second one is always a
         # full run after the injections.
         for _ in (1, 2):
             qa.problems_run(["systemctl", "start", "snosi-health.service"], 400)
+        return injected
+
+
+    def lab(url):
+        """The Floe lab intake path: off, then consent, then the timer's own send."""
+        endpoint = url + "/v1/report"
+        mark(url, "off-begin")
+        injected = inject()
         off, dry = off_checks(endpoint)
         mark(url, "on-begin")
         consent = consent_on(endpoint)
@@ -5265,7 +5330,7 @@ data:
 
 
     def production():
-        """The production path: 1 lab test report, and nothing else."""
+        """The Floe production path: 1 lab test report, and nothing else."""
         qa.problems_app()
         for _ in (1, 2):
             qa.problems_run(["systemctl", "start", "snosi-health.service"], 400)
@@ -5274,22 +5339,260 @@ data:
                   and document["detail"].get("code") == qa.PROBLEMS_APP_FIELDS["FROSTYARD_CODE"]]
         # Exactly 1 injected document: 2 would send 2 reports, none proves nothing.
         qa.require(len(chosen) == 1, "production_document")
-        document = chosen[0]
-        report_id = document.get("report_id")
-        body = Path(BODY)
-        try:
-            body.write_bytes(qa.canonical(document))
-        except OSError:
-            qa.require(False, "production_document")
-        rc, out = qa.problems_run(
-            ["curl", "-q", "--proto", "=https", "--connect-timeout", "10", "--max-time", "30",
-             "-A", "", "-H", "Accept:", "-H", "Content-Type: application/json",
-             "--data-binary", "@" + str(body), "-o", "/dev/null", "-w", "%{http_code}",
-             PRODUCTION_URL], 60)
-        status = int(out.strip()) if out.strip().isdigit() else 0
-        return {"http_status": status,
-                "report_id": report_id if type(report_id) is str and UUID.fullmatch(report_id) else None}
+        return curl_post(chosen[0])
 
+
+    # -------------------------------------------------------- the desktop sender
+
+    def numeric_version(value):
+        """The first 3 numeric parts of a version string, as integers."""
+        parts = []
+        for piece in value.strip().split(".")[:3]:
+            digits = re.match(r"[0-9]+", piece)
+            if digits is None:
+                break
+            parts.append(int(digits[0]))
+        return parts
+
+
+    def cli_version():
+        """chairlift's package version, or None when the package is not installed."""
+        if not Path(CLI).is_file():
+            return None
+        version = qa.problems_show(["dpkg-query", "-W", "-f", "${Version}", "chairlift"], 60).strip()
+        return version if re.fullmatch(r"[0-9A-Za-z.+~-]{1,64}", version) else None
+
+
+    def cli_new_enough(version):
+        """True when that version can send pending reports (0.15.0 or newer)."""
+        parts = (numeric_version(version or "") + [0, 0, 0])[:3]
+        return tuple(parts) >= CLI_MIN
+
+
+    def session(account):
+        """The user's own session, or None: no display manager or account means none."""
+        if account is None or qa.login_display_manager() is None:
+            return None
+        found = qa.login_session(SESSION_WAIT)
+        if found is None:
+            return None
+        # The 4 session fields, each bounded: a localized desktop string must not make
+        # the record unreadable on the host.
+        return {name: printable(found.get(name, ""), 64)
+                for name in ("type", "class", "state", "desktop")}
+
+
+    def own(path, account):
+        """Give the account its own file: the sender runs as that user, not as root."""
+        try:
+            os.chown(path, account.pw_uid, account.pw_gid)
+            return True
+        except (OSError, AttributeError):
+            return False
+
+
+    def save_consent(home, account, enabled):
+        """Write chairlift's consent file: folder 0700, file 0600, owned by the user."""
+        folder = Path(home) / CONSENT_DIR
+        target = Path(home) / CONSENT
+        stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        temp = folder / ".reporting.json.snow-qa"
+        try:
+            folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+            folder.chmod(0o700)
+            with open(temp, "w", encoding="utf-8",
+                      opener=lambda path, flags: os.open(path, flags, 0o600)) as stream:
+                stream.write(CONSENT_TEXT % ("true" if enabled else "false", stamp))
+            temp.chmod(0o600)
+            temp.replace(target)
+            target.chmod(0o600)
+        except OSError:
+            qa.require(False, "chairlift_consent")
+        # A file the user cannot read or replace is not consent: fail closed.
+        qa.require(own(folder, account) and own(target, account), "chairlift_consent")
+
+
+    def remove_consent(home):
+        """No consent file at all: chairlift reads that as off, with no error."""
+        try:
+            (Path(home) / CONSENT).unlink()
+        except OSError:
+            pass
+
+
+    def indent_of(line):
+        return len(line) - len(line.lstrip(" "))
+
+
+    def group_lines(lines):
+        """(index, indent) of every problems_reporting_group below problems_page."""
+        pages = [number for number, line in enumerate(lines) if CLI_PAGE.fullmatch(line.strip())]
+        found = []
+        for page in pages:
+            base = indent_of(lines[page])
+            for number in range(page + 1, len(lines)):
+                line = lines[number]
+                if line.strip() and indent_of(line) <= base:
+                    break
+                if CLI_GROUP.fullmatch(line.strip()):
+                    found.append((number, indent_of(line)))
+        return found
+
+
+    def write_endpoint(endpoint):
+        """Give chairlift the lab endpoint, in the administrator file only (CONFIG.md)."""
+        source = CLI_ADMIN if Path(CLI_ADMIN).is_file() else CLI_SHIPPED
+        body = text(source)
+        qa.require(body is not None, "chairlift_config")
+        lines = body.splitlines()
+        groups = group_lines(lines)
+        # Exactly 1 group under problems_page: a different layout is never guessed.
+        qa.require(len(groups) == 1, "chairlift_config")
+        index, indent = groups[0]
+        stop = len(lines)
+        for number in range(index + 1, len(lines)):
+            if lines[number].strip() and indent_of(lines[number]) <= indent:
+                stop = number
+                break
+        kept = lines[:index + 1]
+        kept.append(" " * (indent + 2) + "endpoint: " + endpoint)
+        for number in range(index + 1, len(lines)):
+            # An old endpoint inside the group never survives the administrator's edit.
+            if index < number < stop and lines[number].strip().startswith("endpoint:"):
+                continue
+            kept.append(lines[number])
+        target = Path(CLI_ADMIN)
+        try:
+            target.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+            target.parent.chmod(0o755)
+            with open(target, "w", encoding="utf-8",
+                      opener=lambda path, flags: os.open(path, flags, 0o644)) as stream:
+                stream.write("\n".join(kept) + "\n")
+            target.chmod(0o644)
+        except OSError:
+            return False
+        return True
+
+
+    # chairlift writes its 1 reason line and its log lines to stderr and only the
+    # dry-run previews to stdout (cli.go at v0.15.0). A send keeps both streams as
+    # 1 output; a dry run keeps stdout alone, so a log line never splits a preview.
+    BOTH_STREAMS = 'exec "$0" --send-pending-reports "$@" 2>&1'
+    STDOUT_ONLY = 'exec "$0" --send-pending-reports "$@" 2>/dev/null'
+    # The exact line chairlift prints when the consent is missing or off.
+    CLI_OFF = "problem reporting is off"
+
+
+    def run_sender(user, extra=(), script=BOTH_STREAMS):
+        """chairlift's windowless sender, in the user's own session and environment."""
+        return qa.problems_run(["systemd-run", "--machine=" + user + "@.host", "--user", "--wait",
+                                "--pipe", "--quiet", "--collect", "--", "/bin/sh", "-c", script, CLI]
+                               + list(extra), SEND_TIMEOUT)
+
+
+    def says_off(out):
+        """True when 1 output line is exactly chairlift's consent-off line."""
+        return CLI_OFF in [line.strip() for line in out.decode("utf-8", "replace").splitlines()]
+
+
+    def output_lines(out):
+        """Up to 20 bounded printable lines of the sender's own output."""
+        return [printable(line) for line in out.decode("utf-8", "replace").splitlines()[:OUTPUT_MAX]]
+
+
+    def cli_sent(home):
+        """chairlift's sent log: it records only the sends that succeeded."""
+        raw = read(Path(home) / SENT_LOG, SENT_FILE_MAX + 1)
+        if raw is None or len(raw) > SENT_FILE_MAX:
+            return []
+        try:
+            value = json.loads(raw)
+        except (ValueError, UnicodeError):
+            return []
+        entries = value.get("sent") if type(value) is dict else None
+        if type(entries) is not list:
+            return []
+        found = []
+        for entry in entries[:SENT_MAX]:
+            if type(entry) is not dict:
+                continue
+            problem = entry.get("problem_id")
+            report_id = entry.get("report_id")
+            # chairlift logs only successes, and no HTTP status: 0 means "not recorded".
+            found.append({"status": "accepted", "http_status": 0,
+                          "problem_id": problem if type(problem) is str and re.fullmatch(r"[0-9a-f]{16}", problem) else None,
+                          "kind": token(entry.get("kind")),
+                          "report_id": report_id if type(report_id) is str and UUID.fullmatch(report_id) else None})
+        return found
+
+
+    def previews(out):
+        """Every indented JSON preview of a dry run: they follow one another, not per line."""
+        body = out.decode("utf-8", "replace")
+        decoder = json.JSONDecoder()
+        found, index = [], 0
+        while len(found) < DOCUMENT_MAX:
+            while index < len(body) and body[index].isspace():
+                index += 1
+            if index >= len(body):
+                break
+            try:
+                document, index = decoder.raw_decode(body, index)
+            except ValueError:
+                break   # a preview that is not JSON is never guessed at
+            if type(document) is dict:
+                found.append(document)
+        return found
+
+
+    def desktop_lab(url, account, home):
+        """The desktop lab path: off, then the user's consent, then 1 send."""
+        user = account.pw_name
+        endpoint = url + "/v1/report"
+        mark(url, "off-begin")
+        injected = inject()
+        config = write_endpoint(endpoint)
+        # Off run 1: no consent file at all.
+        remove_consent(home)
+        first_rc, first_out = run_sender(user)
+        # Off run 2: a consent file that is stored and off.
+        save_consent(home, account, False)
+        second_rc, second_out = run_sender(user)
+        off_rc = [first_rc, second_rc]
+        # Both off runs must say why they sent nothing, in chairlift's own words.
+        off_consent = says_off(first_out) and says_off(second_out)
+        sent_absent = not cli_sent(home)
+        mark(url, "on-begin")
+        save_consent(home, account, True)
+        on_rc, out = run_sender(user)
+        mark(url, "on-end")
+        return {"injected": injected, "sent": cli_sent(home),
+                "cli": {"off_rc": off_rc, "off_consent": off_consent, "sent_absent": sent_absent,
+                        "config": config, "on_rc": on_rc, "output": output_lines(out)}}
+
+
+    def desktop_production(account, home):
+        """The desktop production path: 1 lab test report, and nothing else."""
+        user = account.pw_name
+        injected = inject()
+        # A dry run follows the same rules as a send, so it needs a consent that
+        # allows; it sends nothing and writes no state (spec rule 7).
+        save_consent(home, account, True)
+        on_rc, out = run_sender(user, ("--dry-run",), STDOUT_ONLY)
+        sent_absent = not cli_sent(home)
+        remove_consent(home)
+        chosen = [document for document in previews(out)
+                  if document.get("kind") == "app_problem" and type(document.get("detail")) is dict
+                  and document["detail"].get("code") == qa.PROBLEMS_APP_FIELDS["FROSTYARD_CODE"]]
+        # Exactly 1 injected preview: 2 would send 2 reports, none proves nothing.
+        qa.require(len(chosen) == 1, "production_document")
+        production = curl_post(chosen[0])
+        return injected, production, {"off_rc": [], "off_consent": False,
+                                      "sent_absent": sent_absent, "config": False,
+                                      "on_rc": on_rc, "output": output_lines(out)}
+
+
+    # --------------------------------------------------------------- the record
 
     def report(credentials):
         """The one report-probe record: identity, the sender, and what it sent."""
@@ -5313,13 +5616,33 @@ data:
         _, _, booted_digest, _, _, _ = qa.status_fields(qa.guest_status())
         intake = m["report_probe"]["intake"]
         record = dict(phase=phase, nonce=nonce, boot_id=boot_id, booted_digest=booted_digest,
-                      sender=Path(SENDER).is_file(), intake=intake, injected=None, off=None,
-                      consent=None, timer=None, sent=None, dry=None, production=None)
-        if record["sender"]:
-            if intake == "lab":
-                record.update(lab(intake_url()))
-            else:
-                record["production"] = production()
+                      sender=False, sender_version=None, intake=intake, session=None,
+                      injected=None, off=None, consent=None, timer=None, sent=None, dry=None,
+                      cli=None, production=None)
+        if m["product"] == "floe":
+            record["sender"] = Path(SENDER).is_file()
+            if record["sender"]:
+                if intake == "lab":
+                    record.update(lab(intake_url()))
+                else:
+                    record["production"] = production()
+        else:
+            # A desktop has no snosi sender: chairlift sends, from the user's session.
+            version = cli_version()
+            record["sender_version"] = version
+            record["sender"] = Path(CLI).is_file() and cli_new_enough(version)
+            if record["sender"]:
+                account = qa.login_account()
+                home = qa.login_home(account)
+                if home is not None:
+                    record["session"] = session(account)
+                if record["session"] is not None:
+                    if intake == "lab":
+                        record.update(desktop_lab(intake_url(), account, home))
+                    else:
+                        injected, production_record, cli = desktop_production(account, home)
+                        record["injected"], record["production"], record["cli"] = (
+                            injected, production_record, cli)
         qa.require(set(record) == REPORT_RECORD_FIELDS, "record_fields")
         encoded = base64.urlsafe_b64encode(qa.canonical(record).strip()).decode().rstrip("=")
         qa.require(len(encoded) <= qa.REPORT_TOKEN_MAX, "record_size")
@@ -5363,7 +5686,13 @@ data:
     from problems import SCHEMA, validate  # noqa: E402
 
     # The record the guest publishes, and the bounds of every field in it.
-    RECORD_FIELDS = set("phase nonce boot_id booted_digest sender intake injected off consent timer sent dry production".split())
+    RECORD_FIELDS = set("phase nonce boot_id booted_digest sender sender_version intake session injected off consent timer sent dry cli production".split())
+    # A desktop record: chairlift's version, the user's session and its windowless
+    # sender's own results. Floe keeps the snosi sender's off/consent/timer triples.
+    SESSION_FIELDS = set("type class state desktop".split())
+    CLI_FIELDS = set("off_rc off_consent sent_absent config on_rc output".split())
+    VERSION = r"[0-9A-Za-z.+~-]{1,64}"
+    LABEL = r"[ -~]{0,64}"
     OFF_FIELDS = set("conf_absent service_rc condition send_rc send_off status_rc endpoint again_rc again_result sent_absent dry_rc".split())
     CONSENT_FIELDS = set("on_rc enabled endpoint status".split())
     TIMER_FIELDS = set("triggered result waited enabled".split())
@@ -5374,6 +5703,8 @@ data:
     # The check names of the summary, in a fixed order: missing- plus all 10 is 65
     # characters, well inside the summary bound.
     CHECKS = ("off", "timer", "consent", "count", "app", "crash", "schema", "ip", "forward", "match")
+    # A desktop's sender has consent and timer checks of its own: 1 `cli` check.
+    DESKTOP_CHECKS = ("off", "cli", "count", "app", "crash", "schema", "ip", "forward", "match")
     INJECTED_CODE = "lab.injected_t857"
     # The headers a Cloudflare edge adds; the intake strips them for GlitchTip.
     EDGE = ("cf-connecting-ip", "x-forwarded-for", "true-client-ip")
@@ -5397,6 +5728,22 @@ data:
         require(full(r"[0-9a-f]{64}", record["booted_digest"]), "record_fields")
         require(boot_id_valid(record["boot_id"]), "boot_identity")
         require(type(record["sender"]) is bool, "record_fields")
+        version = record["sender_version"]
+        if version is not None:
+            require(full(VERSION, version), "record_sender")
+        session = record["session"]
+        if session is not None:
+            require(type(session) is dict and set(session) == SESSION_FIELDS, "record_session")
+            require(all(full(LABEL, value) for value in session.values()), "record_session")
+        cli = record["cli"]
+        if cli is not None:
+            require(type(cli) is dict and set(cli) == CLI_FIELDS, "record_cli")
+            require(type(cli["off_rc"]) is list and len(cli["off_rc"]) <= 2
+                    and all(type(rc) is int and -128 <= rc <= 255 for rc in cli["off_rc"]), "record_cli")
+            require(type(cli["on_rc"]) is int and -128 <= cli["on_rc"] <= 255, "record_cli")
+            require(all(type(cli[key]) is bool for key in ("off_consent", "sent_absent", "config")), "record_cli")
+            require(type(cli["output"]) is list and len(cli["output"]) <= 20
+                    and all(full(PRINTABLE, line) for line in cli["output"]), "record_cli")
         injected = record["injected"]
         if injected is not None:
             require(type(injected) is dict and set(injected) == INJECTED_FIELDS, "record_injected")
@@ -5438,13 +5785,20 @@ data:
             require(type(production) is dict and set(production) == PRODUCTION_FIELDS, "record_production")
             require(type(production["http_status"]) is int and 0 <= production["http_status"] <= 599, "record_production")
             require(production["report_id"] is None or full(UUID, production["report_id"]), "record_production")
+        if version is None:
+            # The snosi sender has no chairlift version, session or cli record.
+            require(session is None and cli is None, "record_fields")
+        else:
+            require(all(record[name] is None for name in ("off", "consent", "timer")), "record_fields")
         if record["intake"] == "production":
-            # The production path makes no mark and changes no consent.
-            require(all(record[name] is None for name in ("off", "consent", "timer", "sent", "dry", "injected")), "record_fields")
+            # The production path makes no mark and changes no consent; a desktop
+            # still keeps its injection and its dry-run results.
+            require(all(record[name] is None for name in ("off", "consent", "timer", "sent", "dry")), "record_fields")
         else:
             require(record["production"] is None, "record_fields")
         if not record["sender"]:
-            require(all(record[name] is None for name in ("off", "consent", "timer", "sent", "dry", "injected", "production")), "record_fields")
+            require(all(record[name] is None for name in ("off", "consent", "timer", "sent", "dry", "injected",
+                                                         "production", "session", "cli")), "record_fields")
 
 
     def record_count(raw):
@@ -5587,6 +5941,15 @@ data:
 
     # --------------------------------------------------------------- the checks
 
+    def desktop_off_clean(cli):
+        """The desktop off runs: no consent, then a stored off, and every run clean."""
+        if type(cli) is not dict:
+            return False
+        rcs = cli["off_rc"]
+        return (len(rcs) == 2 and all(rc == 0 for rc in rcs)
+                and cli["off_consent"] is True and cli["sent_absent"] is True)
+
+
     def off_clean(off):
         """The guest's off state: the sender never ran, and it says why."""
         return (type(off) is dict and off["conf_absent"] is True and off["condition"] == "no"
@@ -5682,13 +6045,11 @@ data:
         app = [document for entry, document in of_kind(forwarded, "app_problem")
                if type(document.get("detail")) is dict
                and document["detail"].get("code") == INJECTED_CODE]
-        timer, consent = record["timer"] or {}, record["consent"] or {}
+        timer, consent, cli = record["timer"] or {}, record["consent"] or {}, record["cli"] or {}
+        desktop = record["sender_version"] is not None
+        early = not any(type(entry.get("seq")) is int and entry["seq"] < found["on-begin"]
+                        for entry in posted(requests))
         checks = {
-            "off": off_clean(record["off"]) and not any(
-                type(entry.get("seq")) is int and entry["seq"] < found["on-begin"] for entry in posted(requests)),
-            "timer": timer.get("triggered") is True and timer.get("result") == "success",
-            "consent": consent.get("on_rc") == 0 and consent.get("enabled") is True
-                       and consent.get("endpoint") is True,
             "count": len(of_kind(forwarded, "count")) == 1,
             "app": bool(app),
             # A crash must never be sent, also not while reporting is on.
@@ -5698,7 +6059,17 @@ data:
             "forward": forward_clean(forwarded, envelopes),
             "match": match_clean(record, forwarded),
         }
-        failed = [name for name in CHECKS if not checks[name]]
+        if desktop:
+            checks["off"] = desktop_off_clean(cli) and early
+            checks["cli"] = cli.get("on_rc") == 0 and cli.get("config") is True
+            order = DESKTOP_CHECKS
+        else:
+            checks["off"] = off_clean(record["off"]) and early
+            checks["timer"] = timer.get("triggered") is True and timer.get("result") == "success"
+            checks["consent"] = consent.get("on_rc") == 0 and consent.get("enabled") is True
+            checks["consent"] = checks["consent"] and consent.get("endpoint") is True
+            order = CHECKS
+        failed = [name for name in order if not checks[name]]
         return "ok" if not failed else "missing-" + "+".join(failed)
 
 
@@ -5711,9 +6082,20 @@ data:
 
     # --------------------------------------------------------------- the report
 
+    def sender_lines(record):
+        """A desktop's sender: the user's session and chairlift's version."""
+        if record["sender_version"] is None:
+            return
+        session = record["session"] or {}
+        print("session type=%s desktop=%s" % (session.get("type") or "none",
+                                              session.get("desktop") or "none"))
+        print("sender version=%s" % record["sender_version"])
+
+
     def detail(record, requests, accepted_posts, envelopes):
         """The fixed detail lines: what the probe saw, bounded and printable."""
         print("intake=%s sender=%s" % (record["intake"], yes(record["sender"])))
+        sender_lines(record)
         if record["intake"] == "production":
             production = record["production"] or {}
             print("report_id=%s kind=app_problem" % (production.get("report_id") or "none"))
@@ -5731,17 +6113,24 @@ data:
                                                       first_id(of_kind(accepted_posts, "count"))))
         print("envelopes=%d bearer_ok=%s" % (
             len(envelopes), yes(all(entry.get("bearer_ok") is True for entry in envelopes))))
-        off = record["off"] or {}
-        print("off conf_absent=%s condition=%s send_off=%s sent_absent=%s dry=%d" % (
-            yes(off.get("conf_absent")), off.get("condition", "none"), yes(off.get("send_off")),
-            yes(off.get("sent_absent")), len(record["dry"] or [])))
-        consent = record["consent"] or {}
-        print("consent on_rc=%s enabled=%s endpoint=%s" % (
-            consent.get("on_rc", "none"), yes(consent.get("enabled")), yes(consent.get("endpoint"))))
-        timer = record["timer"] or {}
-        print("timer triggered=%s result=%s waited=%s enabled=%s" % (
-            yes(timer.get("triggered")), timer.get("result", "none"), timer.get("waited", "none"),
-            timer.get("enabled", "none")))
+        if record["sender_version"] is not None:
+            cli = record["cli"] or {}
+            print("cli off_rc=%s off_consent=%s sent_absent=%s config=%s on_rc=%s" % (
+                ",".join(str(rc) for rc in cli.get("off_rc") or []) or "none",
+                yes(cli.get("off_consent")), yes(cli.get("sent_absent")), yes(cli.get("config")),
+                cli.get("on_rc", "none")))
+        else:
+            off = record["off"] or {}
+            print("off conf_absent=%s condition=%s send_off=%s sent_absent=%s dry=%d" % (
+                yes(off.get("conf_absent")), off.get("condition", "none"), yes(off.get("send_off")),
+                yes(off.get("sent_absent")), len(record["dry"] or [])))
+            consent = record["consent"] or {}
+            print("consent on_rc=%s enabled=%s endpoint=%s" % (
+                consent.get("on_rc", "none"), yes(consent.get("enabled")), yes(consent.get("endpoint"))))
+            timer = record["timer"] or {}
+            print("timer triggered=%s result=%s waited=%s enabled=%s" % (
+                yes(timer.get("triggered")), timer.get("result", "none"), timer.get("waited", "none"),
+                timer.get("enabled", "none")))
         print("sent accepted=%d of %d" % (
             sum(1 for entry in record["sent"] or [] if entry["status"] == "accepted"),
             len(record["sent"] or [])))
@@ -5760,6 +6149,9 @@ data:
         root = json.loads(SCHEMA.read_bytes())
         if not record["sender"]:
             summary = "unproven-no-sender"
+        elif record["sender_version"] is not None and record["session"] is None:
+            # A desktop with no session sent nothing: nothing was proven either.
+            summary = "unproven-session"
         elif record["intake"] == "lab":
             summary = lab_summary(record, root, requests, envelopes)
         else:
