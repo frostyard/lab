@@ -67,6 +67,7 @@ Org-wide decisions binding this repo: [org-adrs.md](org-adrs.md).
 - [2026-11-04 — First-login probe on today's images (T843 t2)](plans/2026-11-04-first-login-probe-runs.md)
   — first-setup once on Snow and Snowfield, Sundog and Floe dev runs
 - [2026-11-05 — Lockdown proof for snosi#1214 on Snow and Snowfield](plans/2026-11-05-lockdown-1214-lifecycle-runs.md)
+- [2026-11-05 — Problems probe on the snosi-health images (T857 t7)](plans/2026-11-05-problems-probe-runs.md)
   — N before #1214 to N+1, per-boot lockdown and command line, bootc 1.17.1 to 1.17.3
 
 ### Uncategorized (indexed where they stand)
