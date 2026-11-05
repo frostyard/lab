@@ -13,6 +13,7 @@ import os
 import shlex
 import io
 import shutil
+import lzma
 import zlib
 from pathlib import Path
 
@@ -1268,7 +1269,7 @@ def guest_payload(tmp_path):
     assignment = re.search(r'(?m)^  guestunit="\[Unit\].*?^  gb=', script, re.S)
     assert assignment
     values = dict(phase="stage", nonce=NONCE, n=f"{REPO}@sha256:{N}", next=f"{REPO}@sha256:{NEXT}",
-                  target=f"{REPO}:qa-controlled", qa_b64=base64.b64encode(zlib.compress(b"x")).decode(),
+                  target=f"{REPO}:qa-controlled", qa_b64=base64.b64encode(lzma.compress(b"x")).decode(),
                   manifest_b64="e30=")
     unit = subprocess.run(["bash", "-c", assignment.group().rsplit("  gb=", 1)[0] + '\nprintf "%s" "$guestunit"'],
                           env={**os.environ, **values}, capture_output=True, check=True, text=True).stdout
@@ -1326,7 +1327,7 @@ def test_run_unit_survives_systemd_specifiers_and_delivers_guest_credentials(tmp
     assert assignment
     values = dict(phase="stage", nonce=NONCE, n=f"{REPO}@sha256:{N}",
                   next=f"{REPO}@sha256:{NEXT}", target=f"{REPO}:qa-controlled",
-                  qa_b64=base64.b64encode(zlib.compress(b"test payload")).decode(),
+                  qa_b64=base64.b64encode(lzma.compress(b"test payload")).decode(),
                   manifest_b64=base64.b64encode(b"{}").decode())
     # Execute precisely the shell assignment run.sh uses with safe sample values.
     extract = subprocess.run(["bash", "-c", assignment.group().rsplit("  gb=", 1)[0] +
@@ -2391,7 +2392,7 @@ def test_run_guest_unit_uses_manifest_phase_budget_without_systemd_specifiers(tm
     work.mkdir()
     (work / "normalized.json").write_text(json.dumps(manifest()))
     # Run the real phase budget selection and the actual unit assignment.
-    selection = re.search(r'(?m)^  case "\$phase" in installed-n\|login-1\).*?;; esac', script, re.S)
+    selection = re.search(r'(?m)^  case "\$phase" in installed-n\|login-1\|report\).*?;; esac', script, re.S)
     assert selection
     unit = subprocess.run(["bash", "-c", selection.group() + "\n" +
                            assignment.group().rsplit("  gb=", 1)[0] + '\nprintf "%s" "$guestunit"'],
@@ -2411,7 +2412,7 @@ def test_run_guest_unit_uses_manifest_phase_budget_without_systemd_specifiers(tm
 ])
 def test_host_wait_outlives_guest_unit_budget(tmp_path, phase, key):
     script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
-    selection = re.search(r'(?m)^  case "\$phase" in installed-n\|login-1\).*?;; esac', script, re.S)
+    selection = re.search(r'(?m)^  case "\$phase" in installed-n\|login-1\|report\).*?;; esac', script, re.S)
     assignment = re.search(r'(?m)^  guestunit="\[Unit\].*?^  gb=', script, re.S)
     # The wait sits in the shared boot body (2 or 3 levels deep with two modes).
     wait = re.search(r'(?m)^ +await SNOW_QA_V1 .*$', script)
@@ -2631,8 +2632,9 @@ def test_single_marker_rejects_noncanonical_pad_bits(qa, tmp_path, capsys):
 
 def test_guest_shell_requires_credentials_without_echoing_inputs(tmp_path):
     scripts = yaml.safe_load(SOURCE.read_text())["data"]
-    assert set(scripts) == {"guest.sh", "login-setup.sh", "problem-report-v1.json", "problems.py",
-                            "qa.py", "run.sh"}
+    assert set(scripts) == {"guest.sh", "intake-lab.py", "intake-setup.sh", "login-setup.sh",
+                            "problem-report-v1.json", "problems.py", "qa.py", "report-guest.py",
+                            "report.py", "run.sh"}
     guest = tmp_path / "guest.sh"
     guest.write_text(scripts["guest.sh"])
     no_creds = subprocess.run(["sh", str(guest)], capture_output=True, env={"PATH": "/usr/bin"}, check=False)
@@ -2861,7 +2863,8 @@ def test_manual_template_contract():
     outputs = entry["outputs"]["parameters"]
     assert {o["valueFrom"]["path"] for o in outputs} == {
         "/tmp/results/result-summary.txt", "/tmp/results/checks.txt", "/tmp/results/fsverity.txt",
-        "/tmp/results/first-login.txt", "/tmp/results/cmdline.txt", "/tmp/results/problems.txt"}
+        "/tmp/results/first-login.txt", "/tmp/results/cmdline.txt", "/tmp/results/problems.txt",
+        "/tmp/results/report.txt"}
     container = entry["container"]
     assert container["command"] == ["/bin/bash", "/opt/snow-qa/run.sh"]
     assert {v["name"] for v in container["volumeMounts"]} == {"scripts", "incus-bin", "incus-sock", "incus-pools", "iso-cache", "evidence", "results"}
@@ -4620,10 +4623,10 @@ def test_run_script_wires_the_sysext_boots_into_the_shared_body():
 def test_qa_payload_stays_below_the_smbios_credential_bound():
     # A proxy bound on qa.py with its comments: what travels is the stripped
     # program, and test_guest_unit_stays_under_the_smbios_bound holds the real
-    # 54000 bound on the whole guest unit. The problems probe (T857 t7) took the
-    # proxy to about 49000 without changing the unit bound.
+    # 54000 bound on the whole guest unit. The report probe (T857 t21) keeps the
+    # bound and compresses the payload with xz, like the lane does.
     payload = yaml.safe_load(SOURCE.read_text())["data"]["qa.py"]
-    assert len(base64.b64encode(zlib.compress(payload.encode(), 9))) < 50000
+    assert len(base64.b64encode(lzma.compress(payload.encode(), preset=9 | lzma.PRESET_EXTREME))) < 50000
 
 
 def test_sysext_reboot_host_codes_come_only_from_manifest_units_and_valid_names(qa, tmp_path, capsys):
@@ -5030,12 +5033,18 @@ def test_run_records_the_channel_of_every_accepted_phase_record():
     write = ('printf \'phase=%s %s\\n\' "$phase" "$(cat "$WORK/serial-channel" 2>/dev/null)"'
              ' >> "$OUT/serial-channel.txt" || true')
     persist = 'persist "$OUT/serial-channel.txt" "$EVIDENCE/serial-channel.txt" || true'
-    # Every branch of the phase case: the attestation, sysext, first-login and
-    # problems boots.
-    assert loop.count(write) == 4 and loop.count(persist) == 4
+    # Every branch of the phase case: the attestation, sysext, first-login,
+    # problems and report boots.
+    assert loop.count(write) == 5 and loop.count(persist) == 5
     for marker in ("printf 'phase=%s boot_id=%s kernel=", "printf 'phase=%s boot_id=%s sysext_failures=",
-                   "printf 'phase=%s boot_id=%s session=", "printf 'phase=%s boot_id=%s\\n'"):
+                   "printf 'phase=%s boot_id=%s session="):
         start = loop.index(marker)
+        assert loop.index('persist "$OUT/checks.txt"', start) < loop.index(write, start)
+        assert loop.index(write, start) < loop.index(persist, start) < loop.index(";;", start)
+    # The problems and the report boots share the plain summary line: both arms
+    # write and persist their channel, in order, before their arm ends.
+    marker = "printf 'phase=%s boot_id=%s\\n'"
+    for start in (loop.index(marker), loop.index(marker, loop.index(marker) + 1)):
         assert loop.index('persist "$OUT/checks.txt"', start) < loop.index(write, start)
         assert loop.index(write, start) < loop.index(persist, start) < loop.index(";;", start)
     # Best effort only: the file never shapes checks.txt, the verdict or the reason.

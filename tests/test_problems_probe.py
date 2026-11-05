@@ -758,7 +758,7 @@ def test_run_script_problems_report_fails_closed_on_a_bad_summary(tmp_path, stdo
 def test_run_script_carries_the_problems_error_and_record_needles():
     script = run_script()
     assert "problems_guest_error" in script and "SNOW_PROBLEMS_ERR" in script
-    assert '"$needle" == SNOW_PROBLEMS_V1 ]] && vm_stopped' in script
+    assert '"$needle" == SNOW_PROBLEMS_V1 || "$needle" == SNOW_REPORT_V1 ]] && vm_stopped' in script
     # The phase error parser never reads a chunk carrier line as a code.
     assert "b'SNOW_PROBLEMS_ERR' in line and b'SNOW_QA_KMSG1' not in line" in script
     # The report is persisted best effort, like the first-login report.

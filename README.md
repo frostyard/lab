@@ -610,6 +610,41 @@ summary ends `PASS` with `verified_problems_probe;problems=<summary>`. The probe
 never fails the run for a product finding
 ([ADR-0017](docs/adr/0017-problems-probe-is-a-report-only-lane-mode.md)).
 
+The optional manifest key `report_probe` replaces the five-boot plan with a
+report-only report probe of the installed image's snosi problem-report sender
+(snosi ADR-0030). It is an object with exactly `{"intake": "lab"}` or
+`{"intake": "production"}`, never present with `sysext_probe`,
+`first_login_probe` or `problems_probe`, and valid only for product `floe` in
+this commit (a desktop product is refused with `report_product`). It never
+stages N+1, so its rule is `version_distinct`, its budget is `installed_boot`,
+and its plan is the one `report` boot of the installed N. Its guest code travels
+in its own `snow-report.z` credential, because it does not fit in `qa.py`. With
+`intake: lab` the run first creates a throwaway Incus **container** with the real
+frostyard/problem-intake Worker under `wrangler dev` and a mock GlitchTip, on the
+container's own address, with a proxy that adds the 3 headers a Cloudflare edge
+adds; the run starts and deletes that container through the mounted Incus socket
+and never keeps it, because it holds the run's random bearer. The guest marks
+`off-begin`, injects 1 app problem and 1 crash, runs the collector twice, and
+proves the off state: no `/etc/snosi-health` before the consent change, a
+sender start that its condition skips, a `send` that answers "problem reporting
+is off", no `sent.jsonl`, and what `send --dry-run` would send. It writes the
+`endpoint=` line of `reporting.conf` as an administrator would, marks `on-begin`,
+turns reporting on (which must keep that endpoint), restarts the timer and waits,
+bounded, for 1 send, marks `on-end`, and reads the sender's own `sent.jsonl`. The
+run pulls the intake's 2 JSON line logs as evidence. With `intake: production`
+there is no container and no consent change: the guest sends exactly 1 lab test
+report (`app_problem`, code `lab.injected_t857`) with `curl`, over `https` only.
+The host validates the record and the intake's logs and prints one
+`report=<summary>` line in `checks.txt` and `report.txt`: `ok`,
+`unproven-no-sender`, `unproven-intake`, `production-accepted`,
+`missing-production`, or `missing-` plus the failed checks (`off`, `timer`,
+`consent`, `count`, `app`, `crash`, `schema`, `ip`, `forward`, `match`). A
+summary that starts with `unproven-` ends `BLOCKED` with `report_<summary>`
+([ADR-0003](docs/adr/0003-unproven-is-distinct-from-failed.md)); every other
+summary ends `PASS` with `verified_report_probe;report=<summary>`. The run's
+bearer and DSN key are random per run and never leave the lab container
+([ADR-0018](docs/adr/0018-report-probe-is-a-report-only-lane-mode.md)).
+
 On failure, private evidence may also include `install-diagnostic.txt` (a
 bounded, redacted installer diagnostic or `unavailable`/`unparsed`) and
 `serial-redacted.log` (best-effort, bounded redacted console snapshot; never

@@ -13,7 +13,7 @@ import re
 import subprocess
 import sys
 import types
-import zlib
+import lzma
 from pathlib import Path
 
 import pytest
@@ -1237,7 +1237,7 @@ def test_guest_unit_stays_under_the_smbios_bound(tmp_path, phase):
 
 def test_qa_payload_is_the_same_program_without_comments(tmp_path):
     payload, _ = real_qa_payload(tmp_path)
-    source = zlib.decompress(payload).decode()
+    source = lzma.decompress(payload).decode()
     original = scripts()["qa.py"]
     # Comments and blank lines go, the program stays: the AST must be identical,
     # the text must be shorter, and the module must still load and refuse a

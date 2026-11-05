@@ -497,6 +497,28 @@ secure-boot or fs-verity check; the `update` path keeps those checks of its
 `installed-n` and `stage` boots and adds none to the `problems` boot
 ([ADR-0017](adr/0017-problems-probe-is-a-report-only-lane-mode.md)).
 
+The optional `report_probe` mode is report-only evidence about the snosi
+problem-report sender (snosi ADR-0030), on Floe only in this commit. Its 1
+`report` boot keeps its `SNOW_REPORT_V1` record as `report.json` and one
+`report.txt` report in the results and in the private evidence directory. With
+`intake: lab` the run also creates a throwaway Incus container with the real
+frostyard/problem-intake Worker under `wrangler dev` and a mock GlitchTip, pulls
+its request and envelope logs as `intake-requests.jsonl` and
+`intake-glitchtip.jsonl`, and deletes it again; with `intake: production` the
+guest sends exactly 1 lab test report to `https://report.frostyard.org/v1/report`.
+The report holds one summary line (`ok`, `production-accepted`,
+`unproven-no-sender`, `unproven-intake`, `missing-production`, or `missing-` plus
+the failed checks: `off`, `timer`, `consent`, `count`, `app`, `crash`, `schema`,
+`ip`, `forward`, and `match`) and the fixed detail lines with the posted kinds,
+the report ids, the envelope count, the off-check values and the timer values. It
+proves that reporting off sends nothing, that reporting on sends the injected
+problem and 1 weekly count, and that no client IP reaches GlitchTip. A summary
+that starts with `unproven-` ends `BLOCKED`, never `FAILED`, and every other one
+ends `PASS`, so a sender that sends nothing is recorded and not judged. The mode
+runs no update, rollback, secure-boot or fs-verity check, and its bearer and DSN
+key are random per run and stay in the lab container
+([ADR-0018](adr/0018-report-probe-is-a-report-only-lane-mode.md)).
+
 ## Evidence expected by change
 
 | Changed area | Expected evidence |
