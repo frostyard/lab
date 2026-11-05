@@ -315,6 +315,10 @@ Snowfield is accepted with offline contract tests and a
 [`dev-snow-bootc-lifecycle-v4cgb`](plans/2026-11-04-snowfield-bootc-lifecycle-run.md)
 fixed lockdown by snosi#1214, then ended `FAILED: fsverity_errors` on
 linux-surface ([snosi#1130](https://github.com/frostyard/snosi/issues/1130)).
+The [snosi#1214 lockdown proof](plans/2026-11-05-lockdown-1214-lifecycle-runs.md)
+updated an N from before #1214 to N+1 and back: Snow `rj697` PASS (bootc
+1.17.1 to 1.17.3), Snowfield `dm5bp` `FAILED: fsverity_errors` from a dev-only
+lane copy, with `lockdown=integrity` on every N+1 boot.
 Offline mocked tests cannot establish published ISO/OCI availability or
 Snowfield hardware qualification.
 Submission includes the JSON in the `argo` process argv; workflow/pod parameters

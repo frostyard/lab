@@ -1,0 +1,5 @@
+phase=installed-n cmdline=rw composefs=?<hex> console=uart,io,0x3f8 console=tty0
+phase=stage cmdline=rw composefs=?<hex> console=uart,io,0x3f8 console=tty0
+phase=boot-n-plus-1 cmdline=rw composefs=?<hex> lockdown=integrity console=uart,io,0x3f8 console=tty0
+phase=rollback cmdline=rw composefs=?<hex> lockdown=integrity console=uart,io,0x3f8 console=tty0
+phase=boot-n cmdline=rw composefs=?<hex> console=uart,io,0x3f8 console=tty0

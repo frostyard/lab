@@ -1,0 +1,15 @@
+manifest_sha256=de244723f55821fc10efb970158c6f5d34f4d0716e817c718b040f376c3e6674
+tag=before-install timestamp=2026-11-05T04:16:09.642644+00:00
+tag=before-installed-n timestamp=2026-11-05T04:22:20.146911+00:00
+phase=installed-n boot_id=81fa1bf4-9226-4cbc-a5e8-a0cb099edc5a kernel=7.2.15-1-surface fsverity_errors=2 lockdown=none cmdline_lockdown=absent
+tag=before-stage timestamp=2026-11-05T04:24:41.988409+00:00
+phase=stage boot_id=bd782b38-be69-41fb-bf46-a44991623811 kernel=7.2.15-1-surface fsverity_errors=0 lockdown=none cmdline_lockdown=absent
+tag=after-stage timestamp=2026-11-05T04:25:51.292263+00:00
+tag=before-boot-n-plus-1 timestamp=2026-11-05T04:26:27.200944+00:00
+phase=boot-n-plus-1 boot_id=ab957b1c-0543-4f1c-b5d0-38e61a49743b kernel=7.2.15-1-surface fsverity_errors=0 lockdown=integrity cmdline_lockdown=integrity
+tag=after-boot-n-plus-1 timestamp=2026-11-05T04:27:04.909062+00:00
+tag=before-rollback timestamp=2026-11-05T04:27:45.841173+00:00
+phase=rollback boot_id=4747c728-670c-4d55-a169-5a8d5f069570 kernel=7.2.15-1-surface fsverity_errors=0 lockdown=integrity cmdline_lockdown=integrity
+tag=after-rollback timestamp=2026-11-05T04:28:18.365752+00:00
+tag=before-boot-n timestamp=2026-11-05T04:29:04.305153+00:00
+phase=boot-n boot_id=c0ac8564-72e0-4249-b0f2-fe4bb88049b7 kernel=7.2.15-1-surface fsverity_errors=0 lockdown=none cmdline_lockdown=absent
