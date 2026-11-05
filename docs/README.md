@@ -53,6 +53,8 @@ Org-wide decisions binding this repo: [org-adrs.md](org-adrs.md).
   — selected inputs, known causes, dev-run phases
 - [2026-11-03 — First Snowfield bootc N → N+1 update and rollback run](plans/2026-11-03-snowfield-bootc-lifecycle-run.md)
   — selected inputs, linux-surface fs-verity finding, preflight runbook
+- [2026-11-04 — Snowfield rerun with lockdown fixed](plans/2026-11-04-snowfield-bootc-lifecycle-run.md)
+  — lockdown fixed, `FAILED: fsverity_errors` finding, rerun record
 - [2026-10-29 — Sundog fresh-install rerun with console capture (snosi#1123)](plans/2026-10-29-sundog-fresh-install-rerun.md)
   — runs, the ffbw7 serial stall and the kernel-log marker fix
 - [2026-10-29 — incus, coder and nix sysext activation on an installed Snow (lab#142)](plans/2026-10-29-snow-sysext-probe-lab142.md)

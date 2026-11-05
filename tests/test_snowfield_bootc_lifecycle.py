@@ -19,6 +19,7 @@ from test_floe_bootc_lifecycle import (  # noqa: F401  (qa is a fixture)
 SNOWFIELD = "ghcr.io/frostyard/snowfield"
 SUNDOG = "ghcr.io/frostyard/sundog"
 RUN_RECORD = ROOT / "docs/plans/snowfield-bootc-lifecycle-run-2026-11-03/manifest.json"
+RERUN_RECORD = ROOT / "docs/plans/snowfield-bootc-lifecycle-run-2026-11-04/manifest.json"
 
 
 def snowfield_manifest():
@@ -137,6 +138,44 @@ def test_committed_snowfield_manifest_validates(qa):
     text = RUN_RECORD.read_text()
     assert SNOW + "@" not in text and FLOE not in text and SUNDOG not in text
     assert qa.normalize(dict(manifest)) == manifest
+
+
+def test_committed_snowfield_rerun_manifest_validates(qa):
+    manifest = json.loads(RERUN_RECORD.read_text())
+    match = re.search(r'FIELDS = set\("([a-z0-9_ ]+)"\.split\(\)\)', SOURCE.read_text())
+    assert match and set(manifest) == set(match.group(1).split())
+    assert manifest["family"] == manifest["product"] == "snowfield"
+    assert manifest["target_ref"] == f"{SNOWFIELD}:qa-controlled"
+    assert manifest["image_n"] == f"{SNOWFIELD}@sha256:4c92f9aa345de1a82df3b5b9e8ab878dd67ac8c6013a2ba64cd5b800769a3db0"
+    assert manifest["image_n_plus_1"] == f"{SNOWFIELD}@sha256:e7b09eb5a75cae19feee363f6ea36607ebd276a03ef19e9d1c24eb693c1fb4e4"
+    assert manifest["version_n"] == "20261104172603"
+    assert manifest["version_n_plus_1"] == "20261104190408"
+    text = RERUN_RECORD.read_text()
+    assert SNOW + "@" not in text and FLOE not in text and SUNDOG not in text
+    assert qa.normalize(dict(manifest)) == manifest
+
+
+RERUN_PLAN = ROOT / "docs/plans/2026-11-04-snowfield-bootc-lifecycle-run.md"
+
+
+def test_rerun_plan_attributes_each_phase_to_the_image_the_lane_boots():
+    # The lane checks booted_digest == N+1 in the phases of its `newer` tuple
+    # (rollback is recorded in N+1, before the rollback takes effect). The run
+    # record must not attribute a phase's fs-verity errors to the wrong image.
+    newer = re.search(r'newer = phase in \(([^)]*)\)', SOURCE.read_text())
+    assert newer
+    newer_phases = set(re.findall(r'"([a-z0-9-]+)"', newer.group(1)))
+    assert newer_phases == {"boot-n-plus-1", "rollback"}
+    text = RERUN_PLAN.read_text()
+    rows = re.findall(r"^\| `([a-z0-9-]+)` \| (N|N\+1) \| `[0-9a-f-]{36}` \| `[^`]+` \| (\d+) \| (\d+) \|$",
+                      text, re.M)
+    phases = ["installed-n", "stage", "boot-n-plus-1", "rollback", "boot-n"]
+    assert [row[0] for row in rows] == phases
+    counts = dict(re.findall(r"^phase=([a-z0-9-]+) boot_id=\S+ kernel=\S+ fsverity_errors=(\d+)$", text, re.M))
+    assert set(counts) == set(phases)
+    for phase, booted, errors, kept in rows:
+        assert booted == ("N+1" if phase in newer_phases else "N"), phase
+        assert errors == kept == counts[phase], phase
 
 
 @pytest.mark.skipif(subprocess.run(["which", "jq"], capture_output=True).returncode != 0, reason="jq not installed")

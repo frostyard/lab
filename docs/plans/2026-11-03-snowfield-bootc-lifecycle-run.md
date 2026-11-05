@@ -142,6 +142,9 @@ a line.
   `preflight.json`, `result-summary.txt` and `serial-redacted.log`. The lease
   is released.
 
+The rerun [`dev-snow-bootc-lifecycle-v4cgb`](2026-11-04-snowfield-bootc-lifecycle-run.md)
+fixed the lockdown gate and recorded `FAILED: fsverity_errors` after all five boots.
+
 ## References
 
 - Implements: [README — Manual Snow bootc lifecycle](../../README.md#manual-snow-bootc-lifecycle),
