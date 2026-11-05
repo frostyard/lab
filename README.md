@@ -348,12 +348,14 @@ inputs and its first dev-run PASS (`dev-snow-bootc-lifecycle-rs6sh`,
 2026-10-30, from the unmerged lane branch); no main-lane Sundog run yet.
 Snowfield is the GNOME image for Microsoft Surface hardware, with the
 linux-surface kernel. The
-[Snowfield run plan](docs/plans/2026-11-03-snowfield-bootc-lifecycle-run.md)
-holds the N and N+1 inputs and its first dev run (`dev-snow-bootc-lifecycle-pnljz`,
-2026-11-04): `BLOCKED` in `installed-n`, because the Snowfield kernel boots with
-Secure Boot on and kernel lockdown `none`
-([snosi#1213](https://github.com/frostyard/snosi/issues/1213)). Snowfield hardware
-qualification is outside this VM lane.
+[first Snowfield run plan](docs/plans/2026-11-03-snowfield-bootc-lifecycle-run.md)
+holds the initial N and N+1 inputs and run `dev-snow-bootc-lifecycle-pnljz`
+(2026-11-04): `BLOCKED` in `installed-n` because kernel lockdown was `none`
+([snosi#1213](https://github.com/frostyard/snosi/issues/1213)). The rerun
+[`dev-snow-bootc-lifecycle-v4cgb`](docs/plans/2026-11-04-snowfield-bootc-lifecycle-run.md)
+fixed lockdown by snosi#1214, then ended `FAILED: fsverity_errors` on
+linux-surface ([snosi#1130](https://github.com/frostyard/snosi/issues/1130)).
+Snowfield hardware qualification is outside this VM lane.
 The lane's first manual main-lane PASS (Snow,
 `run-snow-bootc-lifecycle-tbjnp`, 2026-10-26, bootc 1.16.8 N → N+1) is
 recorded in the [run plan](docs/plans/2026-10-26-snow-bootc-lifecycle-run.md#result-2026-10-26-pass). It instantiates the

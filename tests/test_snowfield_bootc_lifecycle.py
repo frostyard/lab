@@ -19,6 +19,7 @@ from test_floe_bootc_lifecycle import (  # noqa: F401  (qa is a fixture)
 SNOWFIELD = "ghcr.io/frostyard/snowfield"
 SUNDOG = "ghcr.io/frostyard/sundog"
 RUN_RECORD = ROOT / "docs/plans/snowfield-bootc-lifecycle-run-2026-11-03/manifest.json"
+RERUN_RECORD = ROOT / "docs/plans/snowfield-bootc-lifecycle-run-2026-11-04/manifest.json"
 
 
 def snowfield_manifest():
@@ -135,6 +136,21 @@ def test_committed_snowfield_manifest_validates(qa):
     assert manifest["image_n"] == f"{SNOWFIELD}@sha256:b40995ef197bfccf34d8c205bf633fa56262bd145db3dad4581a7e2c4665dea4"
     assert manifest["image_n_plus_1"] == f"{SNOWFIELD}@sha256:88e8136f79bed1271913ffe2cc5fba363bd818bf7d764992a4785fbd555e8ab3"
     text = RUN_RECORD.read_text()
+    assert SNOW + "@" not in text and FLOE not in text and SUNDOG not in text
+    assert qa.normalize(dict(manifest)) == manifest
+
+
+def test_committed_snowfield_rerun_manifest_validates(qa):
+    manifest = json.loads(RERUN_RECORD.read_text())
+    match = re.search(r'FIELDS = set\("([a-z0-9_ ]+)"\.split\(\)\)', SOURCE.read_text())
+    assert match and set(manifest) == set(match.group(1).split())
+    assert manifest["family"] == manifest["product"] == "snowfield"
+    assert manifest["target_ref"] == f"{SNOWFIELD}:qa-controlled"
+    assert manifest["image_n"] == f"{SNOWFIELD}@sha256:4c92f9aa345de1a82df3b5b9e8ab878dd67ac8c6013a2ba64cd5b800769a3db0"
+    assert manifest["image_n_plus_1"] == f"{SNOWFIELD}@sha256:e7b09eb5a75cae19feee363f6ea36607ebd276a03ef19e9d1c24eb693c1fb4e4"
+    assert manifest["version_n"] == "20261104172603"
+    assert manifest["version_n_plus_1"] == "20261104190408"
+    text = RERUN_RECORD.read_text()
     assert SNOW + "@" not in text and FLOE not in text and SUNDOG not in text
     assert qa.normalize(dict(manifest)) == manifest
 
