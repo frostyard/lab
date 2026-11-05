@@ -232,8 +232,11 @@ time, so `clean` is strong evidence of a fix).
 `/proc/sys/kernel/osrelease`) to its attested `SNOW_QA_V1` record, with the
 count read after the stage or rollback action so the whole boot is counted.
 `checks.txt` lines become
-`phase=<phase> boot_id=<id> kernel=<release> fsverity_errors=<N>`. The runner
-judges after all five boots were recorded, so a failure keeps every phase's
+`phase=<phase> boot_id=<id> kernel=<release> fsverity_errors=<N> lockdown=<mode> cmdline_lockdown=<value|absent>`.
+Each phase record also keeps the kernel lockdown mode and bounded `/proc/cmdline` evidence.
+`cmdline.txt` keeps `phase=<phase> cmdline=<tokens>` beside `checks.txt`.
+These fields and `cmdline.txt` are evidence only: they do not add a phase gate or
+change a PASS or FAIL result. The runner judges after all five boots were recorded, so a failure keeps every phase's
 evidence: it fails with reason `fsverity_errors` when any phase has errors on a
 kernel that is not on the known-defect list. Errors only on listed kernels pass
 with `fsverity_known_defect=<kernels>` in `checks.txt` and in the PASS reason.

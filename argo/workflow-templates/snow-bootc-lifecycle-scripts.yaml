@@ -79,6 +79,11 @@ data:
         if [[ -f "$OUT/first-login.txt" ]]; then
           persist "$OUT/first-login.txt" "$EVIDENCE/first-login.txt" || true
         fi
+        # Best effort, like fsverity.txt: the per-boot command lines never change
+        # STATE, REASON or rc.
+        if [[ -f "$OUT/cmdline.txt" ]]; then
+          persist "$OUT/cmdline.txt" "$EVIDENCE/cmdline.txt" || true
+        fi
         if [[ -n "$summary_source" ]]; then
           printf '%s: %s\n' "$STATE" "$REASON" > "$summary_source" || true
           persist "$summary_source" "$EVIDENCE/result-summary.txt" || { rc=1; STATE=FAILED; REASON=evidence_write; }
@@ -182,6 +187,9 @@ data:
     # lab#174: the kept fs-verity kernel lines. It always exists after collection,
     # empty when no line was kept, and it never shapes checks.txt or the reason.
     : > "$OUT/fsverity.txt" || true
+    # The command line is evidence from this boot. It never shapes checks.txt or
+    # the verdict, and it is empty when no valid line was collected.
+    : > "$OUT/cmdline.txt" || true
     # The first-login probe report. It exists from the start, empty when this mode
     # did not run, like fsverity.txt, and it never shapes the reason either.
     : > "$OUT/first-login.txt" || true
@@ -1124,20 +1132,33 @@ data:
           [[ -s "$WORK/boot-id" ]] || fail phase_mismatch
           prior=$(head -n 1 "$WORK/boot-id")
           # Lines 2 and 3 are the attested fs-verity corruption count and kernel
-          # release (frostyard/snosi#1130).
+          # release (frostyard/snosi#1130). Line 4 records lockdown evidence.
           fsverity=$(sed -n '2s/^fsverity_errors=\([0-9]\{1,10\}\)$/\1/p' "$WORK/boot-id")
           [[ -n "$fsverity" ]] || fail phase_mismatch
           kernel=$(sed -n '3s/^kernel=\([0-9A-Za-z._+~-]\{1,64\}\)$/\1/p' "$WORK/boot-id")
           [[ -n "$kernel" ]] || fail phase_mismatch
+          lockdown=$(sed -n '4s/^lockdown=\(integrity\|confidentiality\) cmdline_lockdown=\(absent\|[a-z]\{1,16\}\)$/\1/p' "$WORK/boot-id")
+          cmdline_lockdown=$(sed -n '4s/^lockdown=\(integrity\|confidentiality\) cmdline_lockdown=\(absent\|[a-z]\{1,16\}\)$/\2/p' "$WORK/boot-id")
+          [[ -n "$lockdown" && -n "$cmdline_lockdown" ]] || fail phase_mismatch
           [[ "$seen_boot_ids" != *":$prior:"* ]] || fail reused_boot_id
           seen_boot_ids+="$prior:"
-          printf 'phase=%s boot_id=%s kernel=%s fsverity_errors=%s\n' "$phase" "$prior" "$kernel" "$fsverity" >> "$OUT/checks.txt"
+          printf 'phase=%s boot_id=%s kernel=%s fsverity_errors=%s lockdown=%s cmdline_lockdown=%s\n' "$phase" "$prior" "$kernel" "$fsverity" "$lockdown" "$cmdline_lockdown" >> "$OUT/checks.txt"
           # lab#174: the kept lines of this phase, one per line, bounded at 32.
-          # Best effort: this file never shapes checks.txt, the judge or the reason.
-          sed -n '4,$p' "$WORK/boot-id" \
+          # The command line is separate best-effort evidence; it never shapes checks.txt.
+          sed -n '6,$p' "$WORK/boot-id" \
             | grep -E '^seq=([1-9]|[12][0-9]|3[0-2]) device=[A-Za-z0-9._-]{1,32} inode=[0-9]{1,20} pos=[0-9]{1,20} level=-?[0-9]{1,2}$' \
             | head -n 32 | sed "s/^/phase=$phase /" >> "$OUT/fsverity.txt" || true
           persist "$OUT/fsverity.txt" "$EVIDENCE/fsverity.txt" || true
+          cmdline=$(sed -n '5s/^cmdline=\(.*\)$/\1/p' "$WORK/boot-id")
+          if [[ ${#cmdline} -ge 1 && ${#cmdline} -le 4096 ]] && grep -qE '^[!-~ ]{1,4096}$' <<<"$cmdline"; then
+            prefix="phase=$phase cmdline="
+            max=$((4096 - ${#prefix}))
+            if (( max > 0 )); then
+              printf -v truncated '%.*s' "$max" "$cmdline"
+              printf '%s%s\n' "$prefix" "$truncated" >> "$OUT/cmdline.txt" || true
+            fi
+          fi
+          persist "$OUT/cmdline.txt" "$EVIDENCE/cmdline.txt" || true
           if (( 10#$fsverity > 0 )); then
             if [[ " $known_defect_kernels " == *" $kernel "* ]]; then
               [[ " $fsverity_known " == *" $kernel "* ]] || fsverity_known+="${fsverity_known:+ }$kernel"
@@ -1399,7 +1420,7 @@ data:
     # Every guest file the probe reads is below this prefix; tests point it at a
     # temporary tree instead, like SYSEXT_ROOT.
     LOGIN_ROOT = Path("/")
-    RECORD_FIELDS = set("phase nonce boot_id spec_image spec_transport booted_digest booted_version staged_digest rollback_digest policy_sha256 policy_ok pull_ok pull_digest secure_boot uki_type2 lockdown root_luks root_btrfs tpm_pcr11_tokens kernel fsverity_errors fsverity_lines action marker_digest".split())
+    RECORD_FIELDS = set("phase nonce boot_id spec_image spec_transport booted_digest booted_version staged_digest rollback_digest policy_sha256 policy_ok pull_ok pull_digest secure_boot uki_type2 lockdown lockdown_mode cmdline_lockdown cmdline root_luks root_btrfs tpm_pcr11_tokens kernel fsverity_errors fsverity_lines action marker_digest".split())
     GUEST_MANIFEST = Path("/opt/snow-qa/normalized.json")
     GUEST_PATHS = {"boot_id": Path("/proc/sys/kernel/random/boot_id"),
                    "uptime": Path("/proc/uptime"),
@@ -1408,6 +1429,7 @@ data:
                    "update_policy": Path("/usr/lib/snosi/containers/bootc-policy.json"),
                    "key": Path("/usr/lib/snosi/cosign.pub"),
                    "lockdown": Path("/sys/kernel/security/lockdown"),
+                   "cmdline": Path("/proc/cmdline"),
                    "esp": Path("/run/task3-esp"),
                    "update_check": Path("/run/snosi/update-check"),
                    "update_staged": Path("/run/snosi/update-staged")}
@@ -1889,6 +1911,19 @@ data:
                     for entry in kept), "fsverity_lines")
         require(full(r"[0-9A-Za-z._+~-]{1,64}", record["kernel"]), "kernel_field")
         require(record["action"] == ("staged" if phase == "stage" else "rolled-back" if phase == "rollback" else None), "action")
+        require(record["lockdown_mode"] in ("integrity", "confidentiality"), "lockdown_field")
+        cmdline = record["cmdline"]
+        require(type(cmdline) is list and 1 <= len(cmdline) <= 32
+                and all(type(token) is str and 1 <= len(token) <= 128
+                        and full(r"[!-~]+", token)
+                        and re.search(r"[0-9a-fA-F]{32,}", token) is None
+                        for token in cmdline), "cmdline_field")
+        lockdown_tokens = [token.split("=", 1)[1] for token in cmdline if token.startswith("lockdown=")]
+        require(len(lockdown_tokens) <= 1
+                and all(full(r"[a-z]{1,16}", value) for value in lockdown_tokens), "cmdline_field")
+        cmdline_lockdown = record["cmdline_lockdown"]
+        require((cmdline_lockdown is None or full(r"[a-z]{1,16}", cmdline_lockdown)), "cmdline_field")
+        require(cmdline_lockdown == (lockdown_tokens[0] if lockdown_tokens else None), "cmdline_field")
         require(record["marker_digest"] == (m["image_n_plus_1"].rsplit(":", 1)[-1] if phase == "stage" else None), "stage_marker")
         return record["boot_id"]
 
@@ -2393,6 +2428,37 @@ data:
         return b"[integrity]" in GUEST_PATHS["lockdown"].read_bytes() or b"[confidentiality]" in GUEST_PATHS["lockdown"].read_bytes()
 
 
+    def lockdown_field():
+        lockdown_text = GUEST_PATHS["lockdown"].read_text()
+        lockdown_modes = re.findall(r"\[([^]]+)\]", lockdown_text)
+        require(len(lockdown_modes) == 1 and lockdown_modes[0] in ("none", "integrity", "confidentiality"), "lockdown_field")
+        lockdown_mode = lockdown_modes[0]
+        require(lockdown_mode in ("integrity", "confidentiality"), "lockdown_field")
+        return lockdown_mode
+
+
+    def cmdline_field():
+        with GUEST_PATHS["cmdline"].open("rb") as source:
+            cmdline_raw = source.read(4097)
+        require(len(cmdline_raw) <= 4096, "cmdline_field")
+        try:
+            cmdline_text = cmdline_raw.decode("ascii")
+        except UnicodeDecodeError as exc:
+            raise GateError("cmdline_field") from exc
+        raw_tokens = cmdline_text.split()
+        require(1 <= len(raw_tokens) <= 32
+                and all(full(r"[!-~]+", token) for token in raw_tokens), "cmdline_field")
+        lockdown_tokens = [token.split("=", 1)[1] for token in raw_tokens if token.startswith("lockdown=")]
+        require(len(lockdown_tokens) <= 1
+                and all(full(r"[a-z]{1,16}", value) for value in lockdown_tokens), "cmdline_field")
+        cmdline_lockdown = lockdown_tokens[0] if lockdown_tokens else None
+        cmdline = [re.sub(r"[0-9a-fA-F]{32,}", "<hex>", token) for token in raw_tokens]
+        require(all(1 <= len(token) <= 128 and full(r"[!-~]+", token)
+                    and re.search(r"[0-9a-fA-F]{32,}", token) is None
+                    for token in cmdline), "cmdline_field")
+        return cmdline_lockdown, cmdline
+
+
     def guest_status():
         return guest_json(["bootc", "status", "--format", "json"], "bootc_status")
 
@@ -2625,6 +2691,8 @@ data:
         require(pulled == "sha256:" + m["image_n_plus_1"].rsplit(":", 1)[-1], "pull_digest")
         require(b"enabled" in guest_command(["mokutil", "--sb-state"], "secure_boot").lower(), "secure_boot")
         require(guest_lockdown(), "lockdown")
+        lockdown_mode = lockdown_field()
+        cmdline_lockdown, cmdline = cmdline_field()
         luks_status = guest_command(["cryptsetup", "status", "root"], "root_luks")
         require(b"/dev/mapper/root is active" in luks_status, "root_luks")
         devices = re.findall(rb"(?m)^\s*device:\s+(/dev/[a-zA-Z0-9/_-]+)\s*$", luks_status)
@@ -2675,7 +2743,9 @@ data:
                       booted_digest=booted, booted_version=version, staged_digest=staged,
                       rollback_digest=rollback, policy_sha256=sha(key), policy_ok=True,
                       pull_ok=True, pull_digest=pulled.removeprefix("sha256:"), secure_boot=True,
-                      uki_type2=True, lockdown=True, root_luks=True, root_btrfs=True,
+                      uki_type2=True, lockdown=True, lockdown_mode=lockdown_mode,
+                      cmdline_lockdown=cmdline_lockdown, cmdline=cmdline,
+                      root_luks=True, root_btrfs=True,
                       tpm_pcr11_tokens=1, kernel=kernel, fsverity_errors=fsverity_error_count(kernel_log),
                       fsverity_lines=fsverity_lines(kernel_log),
                       action=action, marker_digest=marker)
@@ -3544,6 +3614,10 @@ data:
                 print(attested["boot_id"])
                 print("fsverity_errors=" + str(attested["fsverity_errors"]))
                 print("kernel=" + attested["kernel"])
+                print("lockdown=%s cmdline_lockdown=%s" %
+                      (attested["lockdown_mode"],
+                       attested["cmdline_lockdown"] if attested["cmdline_lockdown"] is not None else "absent"))
+                print("cmdline=" + " ".join(attested["cmdline"]))
                 # lab#174: the kept lines follow as plain text, for the runner's
                 # fsverity.txt. They are not part of the record's verdict.
                 for index, entry in enumerate(attested["fsverity_lines"], 1):

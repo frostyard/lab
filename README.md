@@ -197,7 +197,9 @@ On a listed kernel a positive count is recorded with
 `kernel_btrfs_verity_canary=defect|clean|skipped` never fails a cell. The bootc
 install lane and the Snow lifecycle lane judge `fsverity_errors` and `kernel`
 the same way, and keep the matching kernel lines (never the hashes) in
-`fsverity.txt` next to `checks.txt` (see
+`fsverity.txt` next to `checks.txt`. The lifecycle lane also records its
+lockdown mode and command-line evidence in `checks.txt` and `cmdline.txt`.
+These fields are evidence only and do not add a lifecycle gate (see
 [kept kernel lines](docs/quality.md#kept-kernel-lines-fsveritytxt-lab174)).
 Details:
 [quality evidence](docs/quality.md#fs-verity-regression-checks-snosi1130).

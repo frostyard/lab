@@ -171,7 +171,7 @@ def test_rerun_plan_attributes_each_phase_to_the_image_the_lane_boots():
                       text, re.M)
     phases = ["installed-n", "stage", "boot-n-plus-1", "rollback", "boot-n"]
     assert [row[0] for row in rows] == phases
-    counts = dict(re.findall(r"^phase=([a-z0-9-]+) boot_id=\S+ kernel=\S+ fsverity_errors=(\d+)$", text, re.M))
+    counts = dict(re.findall(r"^phase=([a-z0-9-]+) boot_id=\S+ kernel=\S+ fsverity_errors=(\d+)(?: lockdown=(?:integrity|confidentiality) cmdline_lockdown=(?:absent|[a-z]{1,16}))?$", text, re.M))
     assert set(counts) == set(phases)
     for phase, booted, errors, kept in rows:
         assert booted == ("N+1" if phase in newer_phases else "N"), phase
