@@ -768,3 +768,17 @@ def test_manual_template_publishes_the_problems_output():
     outputs = {o["name"]: o for o in entry["outputs"]["parameters"]}
     assert outputs["problems"]["valueFrom"]["path"] == "/tmp/results/problems.txt"
     assert outputs["problems"]["valueFrom"]["default"] == "evidence unavailable"
+
+
+@pytest.mark.parametrize("pattern,expected", [
+    ("|/usr/lib/systemd/systemd-coredump %P %u %g %s %t %c %h %d %F\n", True),
+    # A kernel with coredump sockets: systemd-coredump.socket gets the core.
+    ("@@/run/systemd/coredump\n", True),
+    ("@/run/systemd/coredump\n", True),
+    ("core\n", False),
+    ("|/usr/bin/other-handler %P\n", False),
+])
+def test_guest_problems_accepts_the_coredump_pipe_and_socket(qa, tmp_path, monkeypatch, pattern, expected):
+    _, credentials, root, _ = guest_environment(qa, tmp_path, monkeypatch)
+    (root / "proc/sys/kernel/core_pattern").write_text(pattern)
+    assert payload(qa.problems(credentials))["core_pattern"] is expected

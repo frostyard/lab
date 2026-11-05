@@ -481,8 +481,9 @@ with the boot timing and each injected problem. The record is validated against
 a pinned byte copy of core's `problem-report/v1` schema, and the boot timing is
 evidence only. A summary that starts with `unproven-` ends `BLOCKED`, never
 `FAILED`, and every other one ends `PASS`, so a collector that records nothing
-is recorded and not judged: no update, rollback, secure-boot or fs-verity check
-runs in this mode
+is recorded and not judged. The `fresh` path runs no update, rollback,
+secure-boot or fs-verity check; the `update` path keeps those checks of its
+`installed-n` and `stage` boots and adds none to the `problems` boot
 ([ADR-0017](adr/0017-problems-probe-is-a-report-only-lane-mode.md)).
 
 ## Evidence expected by change

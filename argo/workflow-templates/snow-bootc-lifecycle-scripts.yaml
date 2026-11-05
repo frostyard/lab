@@ -1518,6 +1518,9 @@ data:
     PROBLEMS_UNIT_BODY = ("[Unit]\nDescription=snow-qa: injected local failure (T857 t7)\n"
                           "[Service]\nType=oneshot\nExecStart=/bin/false\n")
     # snosi-health (snosi ADR-0029) reads these 2 system journal message ids.
+    # systemd-coredump receives a core through its pipe, or, on a kernel with
+    # coredump sockets, through /run/systemd/coredump (Floe run ttncz).
+    PROBLEMS_CORE_PATTERNS = (b"|/usr/lib/systemd/systemd-coredump", b"@/run/systemd/coredump", b"@@/run/systemd/coredump")
     PROBLEMS_CRASH_ID = "fc2e22bc6ee647b6b90729ab34a250b1"
     PROBLEMS_APP_ID = "8915bdd215c84cbab0c31c05a1a33e7e"
     PROBLEMS_APP_FIELDS = {"FROSTYARD_SCHEMA": "frostyard.problem/1", "FROSTYARD_APP_ID": "org.frostyard.nsl",
@@ -3835,7 +3838,7 @@ data:
                       path=m["problems_probe"]["path"], boot=boot, collector=collector, timer=timer,
                       preset_reconcile=problems_token(preset.partition("=")[2]),
                       coredump_user=coredump, journal_dir=journal.is_dir() and not journal.is_symlink(),
-                      core_pattern=pattern is not None and pattern.startswith(b"|/usr/lib/systemd/systemd-coredump"),
+                      core_pattern=pattern is not None and pattern.startswith(PROBLEMS_CORE_PATTERNS),
                       injected=injected, collector_runs=runs, problems=document, details=details,
                       listing=listing)
         require(set(record) == PROBLEMS_RECORD_FIELDS, "record_fields")
