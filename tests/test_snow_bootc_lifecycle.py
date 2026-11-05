@@ -823,11 +823,43 @@ def test_guest_cmdline_records_duplicate_or_malformed_lockdown_tokens(qa, tmp_pa
     assert value == expected
 
 
-def test_guest_lockdown_field_never_adds_a_bracket_gate(qa, tmp_path, monkeypatch):
+@pytest.mark.parametrize(("text", "expected"), [
+    ("none integrity [confidentiality]\n", "confidentiality"),
+    ("none [integrity] confidentiality\n", "integrity"),
+    ("none integrity confidentiality\n", "unavailable"),
+    ("[none] integrity confidentiality\n", "unavailable"),
+    (None, "unavailable"),
+])
+def test_guest_lockdown_field_never_guesses_or_gates(qa, tmp_path, monkeypatch, text, expected):
+    # Evidence only: a mode the read cannot see is "unavailable", never another mode.
     lockdown = tmp_path / "lockdown"
-    lockdown.write_text("none integrity confidentiality\n")
+    if text is not None:
+        lockdown.write_text(text)
     monkeypatch.setattr(qa, "GUEST_PATHS", {"lockdown": lockdown})
-    assert qa.lockdown_field() == "confidentiality"
+    assert qa.lockdown_field() == expected
+
+
+def test_guest_oversized_cmdline_keeps_no_secret_fragment(qa, tmp_path, monkeypatch):
+    # A 64-hex secret that straddles the read bound must not leave a short
+    # fragment below the redaction bound in the record.
+    secret = "0123456789abcdef" * 4
+    cmdline = tmp_path / "cmdline"
+    cmdline.write_text(" " * 4080 + "secret=" + secret)
+    monkeypatch.setattr(qa, "GUEST_PATHS", {"cmdline": cmdline})
+    value, tokens = qa.cmdline_field()
+    assert (value, tokens) == ("unavailable", ["<oversized>"])
+    assert not any(secret[:9] in token for token in tokens)
+    cmdline.write_text(" " * 4000 + "rw lockdown=integrity")
+    assert qa.cmdline_field() == ("integrity", ["rw", "lockdown=integrity"])
+
+
+def test_verdict_accepts_unavailable_lockdown_evidence(qa):
+    record = phase_record("stage")
+    record["lockdown_mode"] = "unavailable"
+    qa.verdict(manifest(), "stage", NONCE, "none", record)
+    record["lockdown_mode"] = "none"
+    with pytest.raises(qa.GateError, match="^lockdown_field$"):
+        qa.verdict(manifest(), "stage", NONCE, "none", record)
 
 
 def test_guest_missing_cmdline_returns_unavailable(qa, tmp_path, monkeypatch):

@@ -1137,8 +1137,8 @@ data:
           [[ -n "$fsverity" ]] || fail phase_mismatch
           kernel=$(sed -n '3s/^kernel=\([0-9A-Za-z._+~-]\{1,64\}\)$/\1/p' "$WORK/boot-id")
           [[ -n "$kernel" ]] || fail phase_mismatch
-          lockdown=$(sed -n '4s/^lockdown=\(integrity\|confidentiality\) cmdline_lockdown=\(absent\|[a-z]\{1,16\}\)$/\1/p' "$WORK/boot-id")
-          cmdline_lockdown=$(sed -n '4s/^lockdown=\(integrity\|confidentiality\) cmdline_lockdown=\(absent\|[a-z]\{1,16\}\)$/\2/p' "$WORK/boot-id")
+          lockdown=$(sed -n '4s/^lockdown=\(integrity\|confidentiality\|unavailable\) cmdline_lockdown=\(absent\|[a-z]\{1,16\}\)$/\1/p' "$WORK/boot-id")
+          cmdline_lockdown=$(sed -n '4s/^lockdown=\(integrity\|confidentiality\|unavailable\) cmdline_lockdown=\(absent\|[a-z]\{1,16\}\)$/\2/p' "$WORK/boot-id")
           [[ -n "$lockdown" && -n "$cmdline_lockdown" ]] || fail phase_mismatch
           [[ "$seen_boot_ids" != *":$prior:"* ]] || fail reused_boot_id
           seen_boot_ids+="$prior:"
@@ -1912,7 +1912,7 @@ data:
                     for entry in kept), "fsverity_lines")
         require(full(r"[0-9A-Za-z._+~-]{1,64}", record["kernel"]), "kernel_field")
         require(record["action"] == ("staged" if phase == "stage" else "rolled-back" if phase == "rollback" else None), "action")
-        require(record["lockdown_mode"] in ("integrity", "confidentiality"), "lockdown_field")
+        require(record["lockdown_mode"] in ("integrity", "confidentiality", "unavailable"), "lockdown_field")
         cmdline = record["cmdline"]
         require(type(cmdline) is list and 1 <= len(cmdline) <= 32
                 and all(type(token) is str and 1 <= len(token) <= 128
@@ -2427,19 +2427,28 @@ data:
 
 
     def lockdown_field():
+        # Evidence only, read after the lockdown gate: a mode this read cannot
+        # see is "unavailable", never a guess.
         try:
             lockdown_text = GUEST_PATHS["lockdown"].read_bytes()
         except OSError:
-            return "confidentiality"
-        return "integrity" if b"[integrity]" in lockdown_text else "confidentiality"
+            return "unavailable"
+        for mode in ("integrity", "confidentiality"):
+            if b"[" + mode.encode() + b"]" in lockdown_text:
+                return mode
+        return "unavailable"
 
 
     def cmdline_field():
         try:
             with GUEST_PATHS["cmdline"].open("rb") as source:
-                cmdline_raw = source.read(4096)
+                cmdline_raw = source.read(4097)
         except OSError:
             return "unavailable", ["<unavailable>"]
+        # A cut read could split a secret below the 32-hex redaction bound, so an
+        # oversized command line is not recorded at all (x86 allows 2048 bytes).
+        if len(cmdline_raw) > 4096:
+            return "unavailable", ["<oversized>"]
         cmdline_text = cmdline_raw.decode("ascii", "replace")
         cleaned = "".join(ch if ch.isspace() or (ord(ch) >= 33 and ord(ch) <= 126) else "?"
                           for ch in cmdline_text)
