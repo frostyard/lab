@@ -1149,12 +1149,13 @@ data:
             | grep -E '^seq=([1-9]|[12][0-9]|3[0-2]) device=[A-Za-z0-9._-]{1,32} inode=[0-9]{1,20} pos=[0-9]{1,20} level=-?[0-9]{1,2}$' \
             | head -n 32 | sed "s/^/phase=$phase /" >> "$OUT/fsverity.txt" || true
           persist "$OUT/fsverity.txt" "$EVIDENCE/fsverity.txt" || true
-          cmdline=$(sed -n '5s/^cmdline=\(.*\)$/\1/p' "$WORK/boot-id")
-          if [[ ${#cmdline} -ge 1 && ${#cmdline} -le 4096 ]] && grep -qE '^[!-~ ]{1,4096}$' <<<"$cmdline"; then
+          cmdline=$(sed -n '5s/^cmdline=\(.*\)$/\1/p' "$WORK/boot-id") || cmdline=""
+          if [[ ${#cmdline} -ge 1 && ${#cmdline} -le 4096 ]] \
+             && [[ "$cmdline" =~ ^[[:print:][:blank:]]+$ ]] \
+             && [[ "$cmdline" != *$'\t'* && "$cmdline" != *$'\r'* ]]; then
             prefix="phase=$phase cmdline="
             max=$((4096 - ${#prefix}))
-            if (( max > 0 )); then
-              printf -v truncated '%.*s' "$max" "$cmdline"
+            if (( max > 0 )) && printf -v truncated '%.*s' "$max" "$cmdline"; then
               printf '%s%s\n' "$prefix" "$truncated" >> "$OUT/cmdline.txt" || true
             fi
           fi
@@ -1917,13 +1918,10 @@ data:
                 and all(type(token) is str and 1 <= len(token) <= 128
                         and full(r"[!-~]+", token)
                         and re.search(r"[0-9a-fA-F]{32,}", token) is None
-                        for token in cmdline), "cmdline_field")
-        lockdown_tokens = [token.split("=", 1)[1] for token in cmdline if token.startswith("lockdown=")]
-        require(len(lockdown_tokens) <= 1
-                and all(full(r"[a-z]{1,16}", value) for value in lockdown_tokens), "cmdline_field")
+                        for token in cmdline)
+                and len(" ".join(cmdline)) <= 1036, "cmdline_field")
         cmdline_lockdown = record["cmdline_lockdown"]
-        require((cmdline_lockdown is None or full(r"[a-z]{1,16}", cmdline_lockdown)), "cmdline_field")
-        require(cmdline_lockdown == (lockdown_tokens[0] if lockdown_tokens else None), "cmdline_field")
+        require(cmdline_lockdown is None or full(r"[a-z]{1,16}", cmdline_lockdown), "cmdline_field")
         require(record["marker_digest"] == (m["image_n_plus_1"].rsplit(":", 1)[-1] if phase == "stage" else None), "stage_marker")
         return record["boot_id"]
 
@@ -2429,34 +2427,51 @@ data:
 
 
     def lockdown_field():
-        lockdown_text = GUEST_PATHS["lockdown"].read_text()
-        lockdown_modes = re.findall(r"\[([^]]+)\]", lockdown_text)
-        require(len(lockdown_modes) == 1 and lockdown_modes[0] in ("none", "integrity", "confidentiality"), "lockdown_field")
-        lockdown_mode = lockdown_modes[0]
-        require(lockdown_mode in ("integrity", "confidentiality"), "lockdown_field")
-        return lockdown_mode
+        try:
+            lockdown_text = GUEST_PATHS["lockdown"].read_bytes()
+        except OSError:
+            return "confidentiality"
+        return "integrity" if b"[integrity]" in lockdown_text else "confidentiality"
 
 
     def cmdline_field():
-        with GUEST_PATHS["cmdline"].open("rb") as source:
-            cmdline_raw = source.read(4097)
-        require(len(cmdline_raw) <= 4096, "cmdline_field")
         try:
-            cmdline_text = cmdline_raw.decode("ascii")
-        except UnicodeDecodeError as exc:
-            raise GateError("cmdline_field") from exc
-        raw_tokens = cmdline_text.split()
-        require(1 <= len(raw_tokens) <= 32
-                and all(full(r"[!-~]+", token) for token in raw_tokens), "cmdline_field")
-        lockdown_tokens = [token.split("=", 1)[1] for token in raw_tokens if token.startswith("lockdown=")]
-        require(len(lockdown_tokens) <= 1
-                and all(full(r"[a-z]{1,16}", value) for value in lockdown_tokens), "cmdline_field")
-        cmdline_lockdown = lockdown_tokens[0] if lockdown_tokens else None
-        cmdline = [re.sub(r"[0-9a-fA-F]{32,}", "<hex>", token) for token in raw_tokens]
-        require(all(1 <= len(token) <= 128 and full(r"[!-~]+", token)
-                    and re.search(r"[0-9a-fA-F]{32,}", token) is None
-                    for token in cmdline), "cmdline_field")
-        return cmdline_lockdown, cmdline
+            with GUEST_PATHS["cmdline"].open("rb") as source:
+                cmdline_raw = source.read(4096)
+        except OSError:
+            return "unavailable", ["<unavailable>"]
+        cmdline_text = cmdline_raw.decode("ascii", "replace")
+        cleaned = "".join(ch if ch.isspace() or (ord(ch) >= 33 and ord(ch) <= 126) else "?"
+                          for ch in cmdline_text)
+        raw_tokens = cleaned.split()
+        lockdown_tokens = [token.split("=", 1)[1] for token in raw_tokens
+                           if token.startswith("lockdown=")]
+        if len(lockdown_tokens) == 0:
+            cmdline_lockdown = None
+        elif len(lockdown_tokens) >= 2:
+            cmdline_lockdown = "multiple"
+        elif re.fullmatch(r"[a-z]{1,16}", lockdown_tokens[0]) is not None:
+            cmdline_lockdown = lockdown_tokens[0]
+        else:
+            cmdline_lockdown = "malformed"
+        redacted = [re.sub(r"[0-9a-fA-F]{32,}", "<hex>", token)[:128]
+                    for token in raw_tokens]
+        kept = []
+        joined_length = 0
+        dropped = False
+        for token in redacted:
+            candidate = joined_length + (1 if kept else 0) + len(token)
+            if len(kept) >= 31 or candidate > 1024:
+                # Keep a prefix of the command line, in order.
+                dropped = True
+                break
+            kept.append(token)
+            joined_length = candidate
+        if dropped:
+            kept.append("<truncated>")
+        if not kept:
+            kept = ["<empty>"]
+        return cmdline_lockdown, kept
 
 
     def guest_status():

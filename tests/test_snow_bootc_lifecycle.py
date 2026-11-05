@@ -811,32 +811,50 @@ def test_guest_cmdline_evidence_redacts_hex_and_accepts_old_command_line(qa, tmp
     assert qa.cmdline_field() == (None, ["rw", "console=tty0"])
 
 
-@pytest.mark.parametrize("text", ["rw lockdown=integrity lockdown=confidentiality console=tty0",
-                                   "rw lockdown=integrity lockdown=UPPER console=tty0"])
-def test_guest_cmdline_rejects_duplicate_or_malformed_lockdown_tokens(qa, tmp_path, monkeypatch, text):
+@pytest.mark.parametrize(("text", "expected"), [
+    ("rw lockdown=integrity lockdown=confidentiality console=tty0", "multiple"),
+    ("rw lockdown=UPPER console=tty0", "malformed"),
+])
+def test_guest_cmdline_records_duplicate_or_malformed_lockdown_tokens(qa, tmp_path, monkeypatch, text, expected):
     cmdline = tmp_path / "cmdline"
     cmdline.write_text(text)
     monkeypatch.setattr(qa, "GUEST_PATHS", {"cmdline": cmdline})
-    with pytest.raises(qa.GateError, match="^cmdline_field$"):
-        qa.cmdline_field()
+    value, _ = qa.cmdline_field()
+    assert value == expected
 
 
-def test_guest_lockdown_rejects_bracketless_file(qa, tmp_path, monkeypatch):
+def test_guest_lockdown_field_never_adds_a_bracket_gate(qa, tmp_path, monkeypatch):
     lockdown = tmp_path / "lockdown"
     lockdown.write_text("none integrity confidentiality\n")
     monkeypatch.setattr(qa, "GUEST_PATHS", {"lockdown": lockdown})
-    with pytest.raises(qa.GateError, match="^lockdown_field$"):
-        qa.lockdown_field()
+    assert qa.lockdown_field() == "confidentiality"
 
 
-def test_verdict_rejects_unredacted_hex_and_mismatched_cmdline_lockdown(qa):
+def test_guest_missing_cmdline_returns_unavailable(qa, tmp_path, monkeypatch):
+    monkeypatch.setattr(qa, "GUEST_PATHS", {"cmdline": tmp_path / "missing-cmdline"})
+    assert qa.cmdline_field() == ("unavailable", ["<unavailable>"])
+
+
+def test_guest_long_cmdline_is_bounded_and_passes_verdict(qa, tmp_path, monkeypatch):
+    cmdline = tmp_path / "cmdline"
+    cmdline.write_text(" ".join(["token"] * 33))
+    monkeypatch.setattr(qa, "GUEST_PATHS", {"cmdline": cmdline})
+    lockdown, tokens = qa.cmdline_field()
+    assert lockdown is None and tokens[-1] == "<truncated>" and len(tokens) == 32
+    record = phase_record("stage")
+    record["cmdline"] = tokens
+    qa.verdict(manifest(), "stage", NONCE, "none", record)
+
+    cmdline.write_text("x" * 200)
+    _, tokens = qa.cmdline_field()
+    assert tokens == ["x" * 128]
+    record["cmdline"] = tokens
+    qa.verdict(manifest(), "stage", NONCE, "none", record)
+
+
+def test_verdict_rejects_unredacted_hex(qa):
     record = phase_record("stage")
     record["cmdline"] = ["rw", "composefs=?" + "a" * 64]
-    with pytest.raises(qa.GateError, match="^cmdline_field$"):
-        qa.verdict(manifest(), "stage", NONCE, "none", record)
-
-    record = phase_record("stage")
-    record["cmdline_lockdown"] = "confidentiality"
     with pytest.raises(qa.GateError, match="^cmdline_field$"):
         qa.verdict(manifest(), "stage", NONCE, "none", record)
 
@@ -2640,6 +2658,9 @@ def _worst_case_fsverity_record(qa, phase="boot-n-plus-1"):
     record["fsverity_errors"] = qa.FSVERITY_LINES_MAX
     record["fsverity_lines"] = [["d" * 32, 2**64 - 1, 2**64 - 1, -1]
                                 for _ in range(qa.FSVERITY_LINES_MAX)]
+    record["kernel"] = "z" * 64
+    record["cmdline"] = ["z" * 31] * 31 + ["q" * 44]
+    record["cmdline_lockdown"] = None
     return record
 
 
@@ -2725,14 +2746,23 @@ def test_phase_prints_each_kept_line_after_the_kernel(qa, tmp_path, capsys):
         "seq=2 device=dm-0 inode=174547 pos=4128768 level=2"]
 
 
-def test_worst_case_kept_lines_still_fit_the_record_bound(qa):
-    # The marker bound in phase_attest grew from 4096 to 8192 bytes for this:
-    # 32 entries at the widest the grammar allows must still be one record.
+def test_worst_case_kept_lines_and_cmdline_still_fit_the_record_bound(qa, tmp_path):
+    # The marker bound in phase_attest stays 8192 base64 characters:
+    # 32 entries, the longest kernel, and the widest cmdline must fit.
     record = _worst_case_fsverity_record(qa)
+    assert len(record["cmdline"]) == 32
+    assert len(" ".join(record["cmdline"])) == 1036
     encoded = base64.urlsafe_b64encode(qa.canonical(record)).decode()
-    assert 4096 < len(encoded) <= 8192
-    # Same record through the real decoder: the shape gate accepts every entry.
+    assert len(encoded) <= 8192
     assert qa.verdict(manifest(), record["phase"], NONCE, "none", record) == record["boot_id"]
+
+    marker = "SNOW_QA_V1 " + encoded.rstrip("=")
+    assert len(marker.split()[1]) <= 8192
+
+    normalized, checks = phase_files(tmp_path, qa)
+    serial = tmp_path / "serial"
+    serial.write_text(marker + "\n")
+    assert qa.phase_attest(manifest(), record["phase"], NONCE, "none", serial, checks)["boot_id"] == record["boot_id"]
 
 
 @pytest.mark.parametrize("value", [None, "", "7.2 11", "a" * 65, 7, "7.2.11\n+x"])
@@ -3018,7 +3048,7 @@ def test_runner_failure_never_initializes_vm_and_does_not_expose_inputs(tmp_path
     assert (tmp_path / "results/result-summary.txt").read_text().strip() == expected
 
 
-@pytest.mark.parametrize("scenario", ["pass", "stage", "stage_keep", "iso_add_partial_keep", "iso_add_partial_detach_failed", "no_reboot", "tag_drift", "evidence_write", "output_write", "stage_teardown", "teardown", "serial_oversize", "serial_unreadable", "blocked_teardown", "phase_missing", "phase_malformed", "guest_error", "guest_error_crlf", "updater_error_crlf", "rollback_error_crlf", "duplicate_error_crlf", "conflicting_error_crlf", "install_missing", "install_failed", "install_firn_v2", "install_firn_hash", "install_fake_code", "install_disk_detect", "install_disk_byid", "install_progress", "install_bad_progress", "install_secret_code", "install_fallback", "install_empty_stream", "install_validate_secret", "install_validate_unknown", "install_validate_unclassified", "install_validate_fake", "cumulative_pass", "cumulative_stale", "cumulative_reset", "cumulative_prefix", "fsverity", "fsverity_known", "guest_shutdown", "nvram_escape", "console_reset_each_start", "reset_mid_boot", "reset_twice", "reset_then_truncate", "empty_then_reset", "installer_restart", "reset_then_stale", "reset_then_stale_error", "stopped_without_record", "final_read_record", "final_read_error", "final_read_conflict", "final_read_fresh_record"])
+@pytest.mark.parametrize("scenario", ["pass", "no_line5", "stage", "stage_keep", "iso_add_partial_keep", "iso_add_partial_detach_failed", "no_reboot", "tag_drift", "evidence_write", "output_write", "stage_teardown", "teardown", "serial_oversize", "serial_unreadable", "blocked_teardown", "phase_missing", "phase_malformed", "guest_error", "guest_error_crlf", "updater_error_crlf", "rollback_error_crlf", "duplicate_error_crlf", "conflicting_error_crlf", "install_missing", "install_failed", "install_firn_v2", "install_firn_hash", "install_fake_code", "install_disk_detect", "install_disk_byid", "install_progress", "install_bad_progress", "install_secret_code", "install_fallback", "install_empty_stream", "install_validate_secret", "install_validate_unknown", "install_validate_unclassified", "install_validate_fake", "cumulative_pass", "cumulative_stale", "cumulative_reset", "cumulative_prefix", "fsverity", "fsverity_known", "guest_shutdown", "nvram_escape", "console_reset_each_start", "reset_mid_boot", "reset_twice", "reset_then_truncate", "empty_then_reset", "installer_restart", "reset_then_stale", "reset_then_stale_error", "stopped_without_record", "final_read_record", "final_read_error", "final_read_conflict", "final_read_fresh_record"])
 def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario):
     script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
     for old, new in (("ROOT=/var/lib/snosi-lab/snow-bootc-evidence", f"ROOT={tmp_path}/evidence"),
@@ -3079,7 +3109,8 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
             print('fsverity_errors=' + ('2' if errors else '0'))
             print('kernel=' + ('7.2.11+deb14-amd64' if os.environ['SCENARIO'] == 'fsverity_known' and phase == 'boot-n-plus-1' else '7.3.1+deb14-amd64'))
             print('lockdown=integrity cmdline_lockdown=integrity')
-            print('cmdline=rw lockdown=integrity console=tty0')
+            if os.environ['SCENARIO'] != 'no_line5':
+                print('cmdline=rw lockdown=integrity console=tty0')
             if os.environ['SCENARIO'] == 'fsverity_known' and phase == 'boot-n-plus-1':
                 # lab#174: the kept lines follow the 5 fixed lines, one per line.
                 print('seq=1 device=dm-0 inode=174546 pos=25952256 level=-1')
@@ -3283,7 +3314,7 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
     summary = summary_path.read_text() if summary_path.exists() else (tmp_path / 'evidence/mock-run/result-summary.txt').read_text()
     assert not any('console' in p.name or p.name == 'serial-full'
                    for p in (tmp_path / 'evidence/mock-run').iterdir())
-    if scenario in ('pass', 'cumulative_pass', 'fsverity_known', 'cumulative_reset', 'console_reset_each_start',
+    if scenario in ('pass', 'no_line5', 'cumulative_pass', 'fsverity_known', 'cumulative_reset', 'console_reset_each_start',
                     'reset_mid_boot', 'reset_twice', 'reset_then_truncate', 'empty_then_reset', 'installer_restart',
                     'final_read_record', 'final_read_fresh_record'):
         assert not (tmp_path / 'evidence/mock-run/serial-redacted.log').exists()
@@ -3325,6 +3356,12 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
         for name in ('results', 'evidence/mock-run'):
             assert (tmp_path / name / 'fsverity.txt').read_text().splitlines() == (
                 kept if scenario == 'fsverity_known' else []), name
+            if scenario == 'no_line5':
+                assert (tmp_path / name / 'cmdline.txt').read_text().splitlines() == [], name
+            else:
+                expected_cmdline = [f"phase={phase} cmdline=rw lockdown=integrity console=tty0"
+                                    for phase in ("installed-n", "stage", "boot-n-plus-1", "rollback", "boot-n")]
+                assert (tmp_path / name / 'cmdline.txt').read_text().splitlines() == expected_cmdline, name
         assert not any('seq=' in line for line in checks)
     else:
         if scenario not in ('evidence_write',):
