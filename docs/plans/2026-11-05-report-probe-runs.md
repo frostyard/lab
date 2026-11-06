@@ -6,8 +6,8 @@ of snosi ADR-0030 (`/usr/libexec/snosi-health-report`, the
 on Floe, and chairlift v0.15.0's windowless sender
 (`chairlift --send-pending-reports`, chairlift
 `docs/specs/problem-reporting.md`) on Snow, Snowfield and Sundog. Neither sender
-sends while reporting is off, neither loses the client's IP when it sends, and
-the real frostyard/problem-intake Worker accepts their reports as
+sends while reporting is off, neither sender lets the client's IP reach
+GlitchTip, and the real frostyard/problem-intake Worker accepts their reports as
 `frostyard.problem/1`. It uses the report-only
 [report probe](../adr/0018-report-probe-is-a-report-only-lane-mode.md) of the
 [bootc lifecycle lane](../../README.md#manual-snow-bootc-lifecycle). The probe

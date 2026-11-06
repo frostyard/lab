@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -205,10 +206,26 @@ def sent_line(report_id, kind, status="accepted", http_status=202, problem_id="0
                        "report": {"kind": kind, "report_id": report_id}}) + "\n"
 
 
+COLLECTOR_CRASH = {"format": 1, "problems": [
+    {"id": "0123456789abcdef", "kind": "crash", "detail": {"exe": "sleep", "signal": "SIGSEGV"}},
+    {"id": "0123456789abcdee", "kind": "app_problem", "detail": {}}]}
+
+
+def collector_document(crash=True, app=True):
+    """A problems.json the collector could write after the 2 injections."""
+    entries = []
+    if crash:
+        entries.append({"id": "0123456789abcdef", "kind": "crash",
+                        "detail": {"exe": "sleep", "signal": "SIGSEGV"}})
+    if app:
+        entries.append({"id": "0123456789abcdee", "kind": "app_problem", "detail": {}})
+    return json.dumps({"format": 1, "problems": entries}).encode()
+
+
 def guest_environment(qa, monkeypatch, module, tmp_path, *, intake="lab", sender=True,
                       condition="no", off_message=True, on=True, enabled=True, endpoint=True,
                       triggered=True, result="success", sent_lines=(), documents=(),
-                      status=202, intake_credential=INTAKE_URL):
+                      status=202, intake_credential=INTAKE_URL, crash=True):
     """One installed Floe VM: its tree, its credentials and its commands, stubbed."""
     m = probe_manifest(intake)
     credentials = tmp_path / "credentials"
@@ -230,6 +247,9 @@ def guest_environment(qa, monkeypatch, module, tmp_path, *, intake="lab", sender
     monkeypatch.setattr(module, "CONF", conf)
     monkeypatch.setattr(module, "SENT", tmp_path / "sent.jsonl")
     monkeypatch.setattr(module, "BODY", str(tmp_path / "snow-report.json"))
+    problems = tmp_path / "problems.json"
+    problems.write_bytes(collector_document(crash=crash))
+    monkeypatch.setattr(module, "PROBLEMS", str(problems))
     credential = tmp_path / "snow-intake"
     credential.write_text(intake_credential + "\n")
     monkeypatch.setattr(module, "INTAKE_CREDENTIAL", str(credential))
@@ -408,7 +428,7 @@ def test_guest_report_records_the_production_status_it_saw(qa, monkeypatch, gues
 def full_record(**overrides):
     record = dict(phase="report", nonce=NONCE, boot_id=BOOT_ID, booted_digest=N, sender=True,
                   sender_version=None, intake="lab", session=None,
-                  injected={"app": True, "crash": True},
+                  injected={"app": True, "crash": True}, crash_collected=True,
                   off={"conf_absent": True, "service_rc": 1, "condition": "no", "send_rc": 1,
                        "send_off": True, "status_rc": 0, "endpoint": True, "again_rc": 1,
                        "again_result": "success", "sent_absent": True, "dry_rc": 0},
@@ -424,8 +444,8 @@ def full_record(**overrides):
 
 
 def production_record(**overrides):
-    record = full_record(sender=True, intake="production", injected=None, off=None, consent=None,
-                         timer=None, sent=None, dry=None,
+    record = full_record(sender=True, intake="production", injected=None, crash_collected=None,
+                         off=None, consent=None, timer=None, sent=None, dry=None,
                          production={"http_status": 202, "report_id": APP_ID})
     record.update(overrides)
     return record
@@ -526,8 +546,8 @@ def test_report_of_a_full_lab_pass_is_ok(report, qa, tmp_path, capsys):
 
 
 def test_report_of_a_pre_t857_image_is_unproven(report, qa, tmp_path, capsys):
-    record = full_record(sender=False, injected=None, off=None, consent=None, timer=None,
-                         sent=None, dry=None)
+    record = full_record(sender=False, injected=None, crash_collected=None, off=None,
+                         consent=None, timer=None, sent=None, dry=None)
     summary, detail = run_report(report, qa, tmp_path, record, capsys=capsys)
     assert summary == "report=unproven-no-sender"
     assert detail[0] == "intake=lab sender=no"
@@ -849,7 +869,7 @@ def test_run_script_reads_the_report_intake_from_the_manifest(tmp_path, intake, 
     # The lab intake container is created and deleted only for the lab value.
     block = report_intake_block()
     assert 'if [[ "$report_intake" == lab ]]; then' in block
-    assert 'incus launch images:debian/trixie "$INTAKE" --ephemeral' in block
+    assert 'incus launch images:debian/trixie "$intake_name" --ephemeral' in block
     assert 'blocked intake_unavailable' in block and 'blocked intake_setup' in block
     assert "timeout 300 incus launch" in block and "timeout 1200 incus exec" in block
     assert 'incus file push /opt/snow-qa/intake-lab.py "$INTAKE/opt/intake/lab.py"' in block
@@ -1064,11 +1084,14 @@ class Upstream(BaseHTTPRequestHandler):
     """A stand-in for the Worker: it keeps the one request it saw."""
 
     seen = []
+    delay = 0
 
     def log_message(self, *args):
         pass
 
     def answer(self):
+        # A slow Worker: the proxy must have numbered the request on arrival.
+        time.sleep(Upstream.delay)
         length = int(self.headers.get("Content-Length") or 0)
         data = self.rfile.read(length) if length else b""
         Upstream.seen.append({"method": self.command, "path": self.path,
@@ -1362,7 +1385,9 @@ class Desktop:
 
 def desktop_environment(qa, monkeypatch, module, tmp_path, *, intake="lab", product="snow",
                         version="0.15.0", session=SESSION, documents=(),
-                        status=202, layout=SHIPPED, admin=None, account=True):
+                        status=202, layout=SHIPPED, admin=None, account=True,
+                        dry_rc=0, dry_sent=False, crash=True, sent_lines=None,
+                        sender_output=b"sent 2 reports\n"):
     """1 installed desktop: chairlift, its config, the user's home and its commands."""
     m = probe_manifest(intake, product)
     credentials = tmp_path / "credentials"
@@ -1388,6 +1413,9 @@ def desktop_environment(qa, monkeypatch, module, tmp_path, *, intake="lab", prod
         admin_path.write_text(admin)
     monkeypatch.setattr(module, "CLI_ADMIN", str(admin_path))
     monkeypatch.setattr(module, "BODY", str(tmp_path / "snow-report.json"))
+    problems = tmp_path / "problems.json"
+    problems.write_bytes(collector_document(crash=crash))
+    monkeypatch.setattr(module, "PROBLEMS", str(problems))
     credential = tmp_path / "snow-intake"
     credential.write_text(INTAKE_URL + "\n")
     monkeypatch.setattr(module, "INTAKE_CREDENTIAL", str(credential))
@@ -1401,6 +1429,7 @@ def desktop_environment(qa, monkeypatch, module, tmp_path, *, intake="lab", prod
     monkeypatch.setattr(qa, "problems_crash", lambda: True)
     monkeypatch.setattr(qa.time, "sleep", lambda seconds: None)
     calls, posts = [], []
+    entries = sent_log_entries() if sent_lines is None else list(sent_lines)
 
     def consent_text():
         try:
@@ -1419,14 +1448,20 @@ def desktop_environment(qa, monkeypatch, module, tmp_path, *, intake="lab", prod
             consent = consent_text()
             allowed = consent is not None and '"enabled":true' in consent
             if "--dry-run" in args:
-                return (0, preview_text(documents).encode()) if allowed else (0, b"")
+                if dry_sent:
+                    # Evidence that this run sent something: chairlift's log entry.
+                    state = home / ".local/state/chairlift"
+                    state.mkdir(parents=True, exist_ok=True)
+                    (state / "reports.json").write_text(
+                        json.dumps({"format": 1, "sent": sent_log_entries()}))
+                return (dry_rc, preview_text(documents).encode()) if allowed else (dry_rc, b"")
             if not allowed:
                 return 0, b"problem reporting is off\n"
             state = home / ".local/state/chairlift"
             state.mkdir(parents=True, exist_ok=True)
             (state / "reports.json").write_text(
-                json.dumps({"format": 1, "sent": sent_log_entries(), "count_week": WEEK}))
-            return 0, b"sent 2 reports\n"
+                json.dumps({"format": 1, "sent": entries, "count_week": WEEK}))
+            return 0, sender_output
         if args[0] == "curl":
             return 0, str(status).encode()
         return 0, b""
@@ -1710,8 +1745,8 @@ def test_the_endpoint_edit_leaves_a_nested_endpoint_alone(guest_module, tmp_path
 # ------------------------------------------------- report.py on a desktop
 
 def desktop_record(**overrides):
-    record = full_record(sender_version="0.15.0", session=dict(SESSION), off=None, consent=None,
-                         timer=None, dry=None,
+    record = full_record(sender_version="0.15.0", session=dict(SESSION), crash_collected=True,
+                         off=None, consent=None, timer=None, dry=None,
                          cli={"off_rc": [0, 0], "off_consent": True, "sent_absent": True,
                               "config": True, "on_rc": 0, "output": ["sent 2 reports"]},
                          sent=[{"status": "accepted", "http_status": 0,
@@ -2052,3 +2087,260 @@ def test_the_intake_creates_both_logs_before_any_request(tmp_path, monkeypatch, 
         lab.serve()
     assert (state / "requests.jsonl").read_text() == ""
     assert (state / "glitchtip.jsonl").read_text() == ""
+
+
+# ------------------------------------------- cross-review fixes (lab#191, T857 t21)
+# Every test here fails without its fix: the judge used to accept vacuous evidence.
+
+def test_a_desktop_dry_run_that_wrote_a_sent_entry_posts_nothing(qa, monkeypatch, guest_module, tmp_path):
+    # Point 1: a sent log entry is evidence that the dry run sent more than 1
+    # report, so the production path must post nothing and the host says so.
+    m, credentials, desktop, posts, published = desktop_environment(
+        qa, monkeypatch, guest_module, tmp_path, intake="production", dry_sent=True,
+        documents=(guest_document("app_problem", APP_ID), guest_document("count", COUNT_ID)))
+    assert guest_module.main(credentials) == 0
+    record = payload(published[0])
+    assert record["production"] == {"http_status": 0, "report_id": None}
+    assert record["cli"]["sent_absent"] is False and record["cli"]["on_rc"] == 0
+    assert not any(args[0] == "curl" for args in desktop.calls)
+
+
+def test_a_desktop_production_record_with_a_sent_entry_is_missing_production(report, qa, tmp_path, capsys):
+    record = desktop_record(intake="production", sent=None, dry=None,
+                            production={"http_status": 202, "report_id": APP_ID},
+                            cli={"off_rc": [], "off_consent": False, "sent_absent": False,
+                                 "config": False, "on_rc": 0, "output": []})
+    summary, _ = run_report(report, qa, tmp_path, record, capsys=capsys)
+    assert summary == "report=missing-production"
+
+
+def test_a_desktop_dry_run_that_failed_posts_nothing(qa, monkeypatch, guest_module, tmp_path):
+    # Point 1: a dry run that exited non-zero proves nothing about the report.
+    m, credentials, desktop, posts, published = desktop_environment(
+        qa, monkeypatch, guest_module, tmp_path, intake="production", dry_rc=1,
+        documents=(guest_document("app_problem", APP_ID),))
+    assert guest_module.main(credentials) == 0
+    record = payload(published[0])
+    assert record["production"] == {"http_status": 0, "report_id": None}
+    assert record["cli"]["on_rc"] == 1
+    assert not any(args[0] == "curl" for args in desktop.calls)
+
+
+def test_a_desktop_production_record_with_a_failed_dry_run_is_missing_production(report, qa, tmp_path, capsys):
+    record = desktop_record(intake="production", sent=None, dry=None,
+                            production={"http_status": 202, "report_id": APP_ID},
+                            cli={"off_rc": [], "off_consent": False, "sent_absent": True,
+                                 "config": False, "on_rc": 1, "output": []})
+    summary, _ = run_report(report, qa, tmp_path, record, capsys=capsys)
+    assert summary == "report=missing-production"
+
+
+def test_the_guest_records_the_crash_the_collector_kept(qa, monkeypatch, guest_module, tmp_path):
+    # Point 2: the crash check needs a crash to exclude; the record says whether
+    # the collector wrote 1.
+    m, credentials, desktop, posts, published = desktop_environment(qa, monkeypatch, guest_module, tmp_path)
+    assert guest_module.main(credentials) == 0
+    assert payload(published[0])["crash_collected"] is True
+
+
+def test_the_guest_records_a_missing_crash(qa, monkeypatch, guest_module, tmp_path):
+    m, credentials, desktop, posts, published = desktop_environment(
+        qa, monkeypatch, guest_module, tmp_path, crash=False)
+    assert guest_module.main(credentials) == 0
+    assert payload(published[0])["crash_collected"] is False
+
+
+def test_the_floe_path_records_the_crash_the_collector_kept(qa, monkeypatch, guest_module, tmp_path):
+    for name, expected in (("with", True), ("without", False)):
+        folder = tmp_path / name
+        folder.mkdir()
+        m, credentials, calls, posts, published = guest_environment(
+            qa, monkeypatch, guest_module, folder, crash=expected)
+        assert guest_module.main(credentials) == 0
+        assert payload(published[0])["crash_collected"] is expected
+
+
+@pytest.mark.parametrize("change", [
+    lambda r: r["injected"].update(crash=False),
+    lambda r: r.update(crash_collected=False),
+    lambda r: r.update(crash_collected=None),
+])
+def test_the_crash_check_fails_without_an_injected_and_collected_crash(report, qa, tmp_path, capsys, change):
+    record = full_record()
+    change(record)
+    summary, _ = run_report(report, qa, tmp_path, record, capsys=capsys)
+    assert summary == "report=missing-crash"
+
+
+def malformed_envelopes():
+    """Each point-3 case: a body that is not 1 whole Sentry event envelope."""
+    import itertools
+
+    def body(*lines):
+        return "\n".join(lines) + "\n"
+
+    header = json.dumps({"event_id": APP_ID.replace("-", "")})
+    item = json.dumps({"type": "event", "length": 1})
+    event = json.dumps({"event_id": APP_ID.replace("-", ""), "message": "a report"})
+    return {
+        "header-only": body(header),
+        "missing-payload": body(header, item),
+        "malformed-item-header": body(header, "{not json", event),
+        "item-not-event": body(header, json.dumps({"type": "attachment"}), event),
+        "conflicting-ids": body(header, item, json.dumps({"event_id": "f" * 32})),
+        "2-items": body(header, item, event, item, event),
+    }
+
+
+@pytest.mark.parametrize("name", sorted(malformed_envelopes()))
+def test_forwarding_needs_a_whole_envelope(report, qa, tmp_path, capsys, name):
+    # Point 3: a header alone, a missing payload, a foreign item header or a
+    # second item is no envelope, so the forward check must fail.
+    entries = [envelope(APP_ID, body=malformed_envelopes()[name])]
+    requests = requests_log(after_posts=(guest_document("app_problem", APP_ID),
+                                         guest_document("count", COUNT_ID)))
+    summary, _ = run_report(report, qa, tmp_path, full_record(),
+                            logs=lab_logs(tmp_path, requests, entries), capsys=capsys)
+    assert "forward" in summary.split("missing-", 1)[1].split("+")
+    assert report.envelope_parts(entries[0]) == (None, None)
+
+
+def test_a_whole_envelope_is_still_one_event(report, qa, tmp_path, capsys):
+    entry = envelope(APP_ID)
+    event_id, event = report.envelope_parts(entry)
+    assert event_id == APP_ID.replace("-", "")
+    assert event["event_id"] == event_id
+
+
+def test_no_lab_secret_is_written_in_the_envelope_log(intake):
+    # Point 4: the DSN key and the bearer reach the mock in the body and the
+    # Authorization header; neither may appear anywhere in the log line.
+    lab = intake["lab"]
+    bearer = lab.SECRETS[0]
+    body = (json.dumps({"event_id": "a" * 32}) + "\n" + json.dumps({"type": "event"}) + "\n"
+            + json.dumps({"event_id": "a" * 32, "dsn": "https://" + "b" * 32 + "@127.0.0.1:8443/1",
+                          "note": bearer}) + "\n")
+    status, _ = request(intake["mock"] + "/api/1/envelope/", data=body.encode(),
+                        headers={"Authorization": "Bearer " + bearer})
+    assert status == 200
+    line = (intake["state"] / "glitchtip.jsonl").read_text().splitlines()[-1]
+    assert bearer not in line and "b" * 32 not in line
+    assert line.count("<redacted>") >= 2
+    assert lab.scrub("/api/" + bearer + "/envelope/") == "/api/<redacted>/envelope/"
+
+
+def test_the_proxy_numbers_a_request_when_it_arrives(intake):
+    # Point 5: a slow Worker must not move an off-state request behind a later mark.
+    import time
+    lab = intake["lab"]
+    Upstream.delay = 1.5
+    try:
+        worker = threading.Thread(target=request,
+                                  args=(intake["proxy"] + "/v1/report", b'{"kind":"count"}'))
+        worker.start()
+        time.sleep(0.3)   # the POST arrived, its forward is still running
+        assert request(intake["proxy"] + "/lab/mark/on-begin")[0] == 204
+        worker.join(10)
+    finally:
+        Upstream.delay = 0
+    entries = lines(intake["state"] / "requests.jsonl")
+    posted_entry = next(entry for entry in entries if entry["type"] == "request")
+    mark = next(entry for entry in entries if entry["name"] == "on-begin")
+    assert posted_entry["seq"] < mark["seq"]
+    # The log line order is the completion order: the mark is written first.
+    assert entries.index(mark) < entries.index(posted_entry)
+
+
+def test_report_counts_a_post_that_finished_after_the_mark_as_off(report, qa, tmp_path, capsys):
+    # Point 5, on the host: the judge orders by the arrival number, never by the
+    # line order of the log.
+    document_app = guest_document("app_problem", APP_ID)
+    document_count = guest_document("count", COUNT_ID)
+    entries = [{"type": "mark", "name": "off-begin", "seq": 1, "peer": PEER, "status": 204,
+                "method": "POST", "path": "/lab/mark/off-begin", "body": ""},
+               {"type": "mark", "name": "on-begin", "seq": 3, "peer": PEER, "status": 204,
+                "method": "POST", "path": "/lab/mark/on-begin", "body": ""},
+               {"type": "request", "method": "POST", "path": "/v1/report", "peer": PEER,
+                "status": 202, "name": None, "seq": 2, "body": json.dumps(document_app)},
+               {"type": "request", "method": "POST", "path": "/v1/report", "peer": PEER,
+                "status": 202, "name": None, "seq": 4, "body": json.dumps(document_count)},
+               {"type": "mark", "name": "on-end", "seq": 5, "peer": PEER, "status": 204,
+                "method": "POST", "path": "/lab/mark/on-end", "body": ""}]
+    summary, detail = run_report(report, qa, tmp_path, full_record(),
+                                 logs=lab_logs(tmp_path, entries, [envelope(APP_ID)]), capsys=capsys)
+    assert summary == "report=missing-off"
+    # posted() is in arrival order, not file order.
+    assert [entry["seq"] for entry in report.posted(entries)] == [2, 4]
+
+
+def chairlift_entries(count=32):
+    """Chairlift's own log entries: only successes, no HTTP status."""
+    return [{"report_id": "%08x-1111-4111-8111-%012x" % (number, number),
+             "kind": "app_problem", "problem_id": "%016x" % number, "week": WEEK,
+             "sent_at": "2026-11-05T04:10:00Z"} for number in range(count)]
+
+
+def heavy_output(count=20):
+    """The worst output the record can carry: 160 characters full of " and \\."""
+    return ("\n".join(['"' * 80 + "\\" * 80] * count) + "\n").encode()
+
+
+def test_the_worst_case_record_is_trimmed_to_fit_and_keeps_every_send(qa, monkeypatch, guest_module, tmp_path):
+    # Point 6: the record is 1 marker line with its own bound. The diagnostics go
+    # first; a sent entry never goes.
+    m, credentials, desktop, posts, published = desktop_environment(
+        qa, monkeypatch, guest_module, tmp_path, sent_lines=chairlift_entries(),
+        sender_output=heavy_output())
+    assert guest_module.main(credentials) == 0
+    line = published[0]
+    assert line.startswith("SNOW_REPORT_V1 ")
+    assert len(line.split(" ", 1)[1]) <= qa.REPORT_TOKEN_MAX
+    record = payload(line)
+    assert len(record["sent"]) == 32
+    assert len(record["cli"]["output"]) < guest_module.OUTPUT_MAX
+
+
+def test_a_record_that_cannot_fit_keeps_the_record_size_error(qa, monkeypatch, guest_module, tmp_path):
+    # Point 6: trimming the diagnostics is not a licence to send a huge record.
+    m, credentials, desktop, posts, published = desktop_environment(
+        qa, monkeypatch, guest_module, tmp_path, sent_lines=chairlift_entries(),
+        sender_output=heavy_output())
+    monkeypatch.setattr(qa, "REPORT_TOKEN_MAX", 1000)
+    assert guest_module.main(credentials) == 1
+    assert published == ["SNOW_REPORT_ERR record_size"]
+
+
+def intake_launch_block():
+    return re.search(r'(?ms)^    intake_name="\$\{VM\}-intake"\n.*?^    fi\n',
+                     run_script()).group()
+
+
+def run_intake_launch(tmp_path, exists):
+    """The real launch fragment with a stub incus: (state, reason, INTAKE)."""
+    harness = ("set -Eeuo pipefail\n"
+               'incus() { case "$1" in launch) return 1;; delete) return 1;; info) return "$EXISTS";; '
+               'esac; }\n'
+               'timeout() { shift; "$@"; }\n'
+               'blocked() { printf "BLOCKED:%s intake=%s\\n" "$1" "${INTAKE:-none}"; exit 0; }\n'
+               f"VM=snow-qa-test EXISTS={exists}\n"
+               'INTAKE=""\n'
+               + intake_launch_block() +
+               '\nprintf "launched intake=%s\\n" "$INTAKE"\n')
+    result = subprocess.run(["bash", "-c", harness], capture_output=True, text=True,
+                            env={"PATH": "/usr/bin:/bin"})
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    return result.stdout.strip(), result.stderr.strip()
+
+
+def test_a_failed_intake_launch_reports_no_teardown_failure(tmp_path):
+    # Point 7: nothing was created, so there is nothing to delete and no reason
+    # to say the teardown failed.
+    stdout, _ = run_intake_launch(tmp_path, exists=1)
+    assert stdout == "BLOCKED:intake_unavailable intake=none"
+
+
+def test_an_intake_that_still_exists_after_a_failed_launch_stays_a_teardown_task(tmp_path):
+    # Point 7: a timed-out launch can leave the instance behind; then the name must
+    # survive, so finish() can delete it or report it.
+    stdout, _ = run_intake_launch(tmp_path, exists=0)
+    assert stdout == "BLOCKED:intake_unavailable intake=snow-qa-test-intake"

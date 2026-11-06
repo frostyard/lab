@@ -1144,8 +1144,21 @@ data:
         intake_commit=572fdd876d0f358f8b36a6f292a7a938b01ebc32
         node_version=v24.22.1
         node_sha256=6c172a9ab6718f7b801fb5a7bd486af2ee5e32758086a04b84fcce2aa77095e6
-        INTAKE="${VM}-intake"
-        timeout 300 incus launch images:debian/trixie "$INTAKE" --ephemeral >/dev/null 2>&1 || blocked intake_unavailable
+        intake_name="${VM}-intake"
+        # The teardown name is set only after the launch succeeded, so a launch that
+        # failed before it created anything cannot report a false teardown failure.
+        # A timed-out launch may still have created the instance: delete the candidate,
+        # and keep it as a teardown task only while `incus info` says it exists.
+        if timeout 300 incus launch images:debian/trixie "$intake_name" --ephemeral >/dev/null 2>&1; then
+          INTAKE="$intake_name"
+        else
+          if ! timeout 120 incus delete --force "$intake_name" >/dev/null 2>&1; then
+            if timeout 30 incus info "$intake_name" >/dev/null 2>&1; then
+              INTAKE="$intake_name"
+            fi
+          fi
+          blocked intake_unavailable
+        fi
         intake_end=$((SECONDS + 120))
         while :; do
           INTAKE_IP=$(timeout 30 incus list "$INTAKE" -c4 -f csv 2>/dev/null | head -n 1 | cut -d' ' -f1) || INTAKE_IP=""
@@ -5083,12 +5096,13 @@ data:
     from pathlib import Path
 
     # The record this probe publishes: fixed keys, every value bounded by report.py.
-    REPORT_RECORD_FIELDS = set("phase nonce boot_id booted_digest sender sender_version intake session injected off consent timer sent dry cli production".split())
+    REPORT_RECORD_FIELDS = set("phase nonce boot_id booted_digest sender sender_version intake session injected crash_collected off consent timer sent dry cli production".split())
     # Floe: the snosi sender, its consent file and its own sent log.
     SENDER = "/usr/libexec/snosi-health-report"
     CONF_DIR = "/etc/snosi-health"
     CONF = "/etc/snosi-health/reporting.conf"
     SENT = "/var/lib/snosi-health/sent.jsonl"
+    PROBLEMS = "/var/lib/snosi-health/problems.json"
     HEALTH_URL = "/usr/bin/snosi-health"
     REPORT_UNIT = "snosi-health-report.service"
     REPORT_TIMER = "snosi-health-report.timer"
@@ -5315,6 +5329,25 @@ data:
                 "enabled": token(qa.problems_show(["systemctl", "is-enabled", REPORT_TIMER]))}
 
 
+    def collector_crash():
+        """True when the collector recorded at least 1 crash, None when unreadable.
+
+        The crash check needs a crash to exclude: without this, an injection that
+        failed and a sender that never sent both looked like a pass.
+        """
+        raw = read(PROBLEMS, 65537)
+        if raw is None or len(raw) > 65536:
+            return None
+        try:
+            document = json.loads(raw)
+        except (ValueError, UnicodeError):
+            return None
+        entries = document.get("problems") if type(document) is dict else None
+        if type(entries) is not list:
+            return None
+        return any(type(entry) is dict and entry.get("kind") == "crash" for entry in entries[:200])
+
+
     def inject():
         """The 2 problems that a real host could report, and their 2 collector runs."""
         injected = {"app": qa.problems_app(), "crash": qa.problems_crash()}
@@ -5322,21 +5355,21 @@ data:
         # full run after the injections.
         for _ in (1, 2):
             qa.problems_run(["systemctl", "start", "snosi-health.service"], 400)
-        return injected
+        return injected, collector_crash()
 
 
     def lab(url):
         """The Floe lab intake path: off, then consent, then the timer's own send."""
         endpoint = url + "/v1/report"
         mark(url, "off-begin")
-        injected = inject()
+        injected, crash_collected = inject()
         off, dry = off_checks(endpoint)
         mark(url, "on-begin")
         consent = consent_on(endpoint)
         timer = trigger()
         mark(url, "on-end")
-        return {"injected": injected, "off": off, "dry": dry, "consent": consent,
-                "timer": timer, "sent": sent_entries()}
+        return {"injected": injected, "crash_collected": crash_collected, "off": off, "dry": dry,
+                "consent": consent, "timer": timer, "sent": sent_entries()}
 
 
     def documents():
@@ -5579,7 +5612,7 @@ data:
         user = account.pw_name
         endpoint = url + "/v1/report"
         mark(url, "off-begin")
-        injected = inject()
+        injected, crash_collected = inject()
         config = write_endpoint(endpoint)
         # Off run 1: no consent file at all.
         remove_consent(home)
@@ -5595,7 +5628,7 @@ data:
         save_consent(home, account, True)
         on_rc, out = run_sender(user)
         mark(url, "on-end")
-        return {"injected": injected, "sent": cli_sent(home),
+        return {"injected": injected, "crash_collected": crash_collected, "sent": cli_sent(home),
                 "cli": {"off_rc": off_rc, "off_consent": off_consent, "sent_absent": sent_absent,
                         "config": config, "on_rc": on_rc, "output": output_lines(out)}}
 
@@ -5603,22 +5636,27 @@ data:
     def desktop_production(account, home):
         """The desktop production path: 1 lab test report, and nothing else."""
         user = account.pw_name
-        injected = inject()
+        injected, crash_collected = inject()
         # A dry run follows the same rules as a send, so it needs a consent that
         # allows; it sends nothing and writes no state (spec rule 7).
         save_consent(home, account, True)
         on_rc, out = run_sender(user, ("--dry-run",), STDOUT_ONLY)
         sent_absent = not cli_sent(home)
         remove_consent(home)
-        chosen = [document for document in previews(out)
-                  if document.get("kind") == "app_problem" and type(document.get("detail")) is dict
-                  and document["detail"].get("code") == qa.PROBLEMS_APP_FIELDS["FROSTYARD_CODE"]]
-        # Exactly 1 injected preview: 2 would send 2 reports, none proves nothing.
-        qa.require(len(chosen) == 1, "production_document")
-        production = curl_post(chosen[0])
-        return injected, production, {"off_rc": [], "off_consent": False,
-                                      "sent_absent": sent_absent, "config": False,
-                                      "on_rc": on_rc, "output": output_lines(out)}
+        # A failed dry run, or a sent log that shows a send, is evidence that this run
+        # sent more than 1 report: then nothing is posted and the host says
+        # missing-production.
+        production = {"http_status": 0, "report_id": None}
+        if on_rc == 0 and sent_absent:
+            chosen = [document for document in previews(out)
+                      if document.get("kind") == "app_problem" and type(document.get("detail")) is dict
+                      and document["detail"].get("code") == qa.PROBLEMS_APP_FIELDS["FROSTYARD_CODE"]]
+            # Exactly 1 injected preview: 2 would send 2 reports, none proves nothing.
+            qa.require(len(chosen) == 1, "production_document")
+            production = curl_post(chosen[0])
+        return injected, crash_collected, production, {"off_rc": [], "off_consent": False,
+                                                       "sent_absent": sent_absent, "config": False,
+                                                       "on_rc": on_rc, "output": output_lines(out)}
 
 
     # --------------------------------------------------------------- the record
@@ -5646,8 +5684,8 @@ data:
         intake = m["report_probe"]["intake"]
         record = dict(phase=phase, nonce=nonce, boot_id=boot_id, booted_digest=booted_digest,
                       sender=False, sender_version=None, intake=intake, session=None,
-                      injected=None, off=None, consent=None, timer=None, sent=None, dry=None,
-                      cli=None, production=None)
+                      injected=None, crash_collected=None, off=None, consent=None, timer=None,
+                      sent=None, dry=None, cli=None, production=None)
         if m["product"] == "floe":
             record["sender"] = Path(SENDER).is_file()
             if record["sender"]:
@@ -5669,11 +5707,18 @@ data:
                     if intake == "lab":
                         record.update(desktop_lab(intake_url(), account, home))
                     else:
-                        injected, production_record, cli = desktop_production(account, home)
-                        record["injected"], record["production"], record["cli"] = (
-                            injected, production_record, cli)
+                        injected, crash_collected, production_record, cli = desktop_production(
+                            account, home)
+                        record["injected"], record["crash_collected"] = injected, crash_collected
+                        record["production"], record["cli"] = production_record, cli
         qa.require(set(record) == REPORT_RECORD_FIELDS, "record_fields")
         encoded = base64.urlsafe_b64encode(qa.canonical(record).strip()).decode().rstrip("=")
+        # The record is 1 marker line with its own bound. The output lines are
+        # diagnostics only, so they go from the end first; a sent entry never goes.
+        while len(encoded) > qa.REPORT_TOKEN_MAX and type(record["cli"]) is dict \
+                and record["cli"]["output"]:
+            record["cli"]["output"].pop()
+            encoded = base64.urlsafe_b64encode(qa.canonical(record).strip()).decode().rstrip("=")
         qa.require(len(encoded) <= qa.REPORT_TOKEN_MAX, "record_size")
         return "SNOW_REPORT_V1 " + encoded
 
@@ -5715,7 +5760,7 @@ data:
     from problems import SCHEMA, validate  # noqa: E402
 
     # The record the guest publishes, and the bounds of every field in it.
-    RECORD_FIELDS = set("phase nonce boot_id booted_digest sender sender_version intake session injected off consent timer sent dry cli production".split())
+    RECORD_FIELDS = set("phase nonce boot_id booted_digest sender sender_version intake session injected crash_collected off consent timer sent dry cli production".split())
     # A desktop record: chairlift's version, the user's session and its windowless
     # sender's own results. Floe keeps the snosi sender's off/consent/timer triples.
     SESSION_FIELDS = set("type class state desktop".split())
@@ -5777,6 +5822,9 @@ data:
         if injected is not None:
             require(type(injected) is dict and set(injected) == INJECTED_FIELDS, "record_injected")
             require(all(type(injected[key]) is bool for key in ("app", "crash")), "record_injected")
+        # The collector's own verdict on the crash: None when its document was unreadable.
+        require(record["crash_collected"] is None or type(record["crash_collected"]) is bool,
+                "record_injected")
         off = record["off"]
         if off is not None:
             require(type(off) is dict and set(off) == OFF_FIELDS, "record_off")
@@ -5827,7 +5875,8 @@ data:
             require(record["production"] is None, "record_fields")
         if not record["sender"]:
             require(all(record[name] is None for name in ("off", "consent", "timer", "sent", "dry", "injected",
-                                                         "production", "session", "cli")), "record_fields")
+                                                         "crash_collected", "production", "session", "cli")),
+                    "record_fields")
 
 
     def record_count(raw):
@@ -5911,11 +5960,21 @@ data:
         return found
 
 
+    def sequence(entry):
+        """The arrival number the intake gave 1 log line."""
+        value = entry.get("seq")
+        return value if type(value) is int else 0
+
+
     def posted(requests):
-        """Every POST /v1/report the proxy forwarded, in log order."""
-        return [entry for entry in requests
-                if entry.get("type") == "request" and entry.get("method") == "POST"
-                and entry.get("path") == "/v1/report"]
+        """Every POST /v1/report the proxy forwarded, in arrival order.
+
+        The intake numbers a request when it arrives and writes its line when it
+        finishes, so the file order is not the arrival order.
+        """
+        return sorted((entry for entry in requests
+                       if entry.get("type") == "request" and entry.get("method") == "POST"
+                       and entry.get("path") == "/v1/report"), key=sequence)
 
 
     def document_of(entry):
@@ -5949,23 +6008,37 @@ data:
         return [(entry, document) for entry, document in entries if document.get("kind") == kind]
 
 
+    def json_value(raw):
+        """1 JSON object of a line group, or None."""
+        try:
+            value = json.loads(raw)
+        except (ValueError, UnicodeError):
+            return None
+        return value if type(value) is dict else None
+
+
     def envelope_parts(entry):
-        """(event_id, event) of one GlitchTip envelope: its header, then its payload."""
+        """(event_id, event) of 1 complete Sentry envelope, or (None, None).
+
+        Sentry defines the body as 1 envelope header line, then pairs of item header
+        and payload. This lane's mock always forwards exactly 1 event item, so a
+        header without a payload, a malformed or non-event item header, an event id
+        that contradicts the header, or a second item is no envelope at all.
+        """
         body = entry.get("body")
         lines = body.splitlines() if type(body) is str else []
-        header = event = None
-        for index, line in enumerate(lines[:8]):
-            try:
-                value = json.loads(line)
-            except (ValueError, UnicodeError):
-                continue
-            if type(value) is not dict:
-                continue
-            if index == 0:
-                header = value
-            event = value
-        event_id = header.get("event_id") if type(header) is dict else None
-        return (event_id if type(event_id) is str else None), event
+        if len(lines) < 3:
+            return None, None
+        header, item = json_value(lines[0]), json_value(lines[1])
+        event = json_value("\n".join(lines[2:]))
+        if header is None or item is None or event is None:
+            return None, None
+        event_id = header.get("event_id")
+        if type(event_id) is not str or full(r"[0-9a-fA-F]{32}", event_id) is None:
+            return None, None
+        if item.get("type") != "event" or event.get("event_id") != event_id:
+            return None, None
+        return event_id, event
 
 
     # --------------------------------------------------------------- the checks
@@ -6009,6 +6082,7 @@ data:
         if not peers:
             return False
         for entry in envelopes:
+            # The header and every payload of the envelope, as the mock stored them.
             blob = json.dumps(entry, sort_keys=True)
             if any(peer in blob for peer in peers):
                 return False
@@ -6078,11 +6152,15 @@ data:
         desktop = record["sender_version"] is not None
         early = not any(type(entry.get("seq")) is int and entry["seq"] < found["on-begin"]
                         for entry in posted(requests))
+        injected = record["injected"] if type(record["injected"]) is dict else {}
         checks = {
             "count": len(of_kind(forwarded, "count")) == 1,
             "app": bool(app),
-            # A crash must never be sent, also not while reporting is on.
-            "crash": not any((document_of(entry) or {}).get("kind") == "crash" for entry in posted(requests)),
+            # A crash must be recorded by the collector, must never be sent, and the
+            # injection must have worked: with no crash there is nothing to exclude.
+            "crash": (injected.get("crash") is True and record["crash_collected"] is True
+                      and not any((document_of(entry) or {}).get("kind") == "crash"
+                                  for entry in posted(requests))),
             "schema": schema_clean(requests, root),
             "ip": ip_clean(requests, envelopes),
             "forward": forward_clean(forwarded, envelopes),
@@ -6104,6 +6182,12 @@ data:
 
     def production_summary(record):
         production = record["production"]
+        if record["sender_version"] is not None:
+            # A desktop dry run that failed, or a sent log that shows a send, is
+            # evidence of more than the 1 report: the run proves nothing.
+            cli = record["cli"] or {}
+            if cli.get("on_rc") != 0 or cli.get("sent_absent") is not True:
+                return "missing-production"
         if production is not None and production["http_status"] == 202 and production["report_id"] is not None:
             return "production-accepted"
         return "missing-production"
@@ -6271,11 +6355,23 @@ data:
     SECRETS = secrets()
 
 
-    def append(path, entry):
-        """Append 1 JSON line, numbered and fsynced, under the one lock."""
+    def next_seq():
+        """The arrival number of 1 request, taken under the one lock.
+
+        The number is taken when the request arrives, not when its line is written:
+        a slow forward must not reorder an off-state request behind a later mark.
+        """
         with LOCK:
             SEQUENCE[0] += 1
-            body = json.dumps(dict(entry, seq=SEQUENCE[0]), sort_keys=True) + "\n"
+            return SEQUENCE[0]
+
+
+    def append(path, entry):
+        """Append 1 JSON line at the number the request arrived with, and fsync it."""
+        seq = entry.get("seq")
+        body = json.dumps(dict(entry, seq=seq if type(seq) is int else next_seq()),
+                          sort_keys=True) + "\n"
+        with LOCK:
             with path.open("a", encoding="utf-8") as stream:
                 stream.write(body)
                 stream.flush()
@@ -6293,13 +6389,18 @@ data:
         return bool(bearer) and values == ["Bearer " + bearer]
 
 
+    def scrub(value):
+        """1 logged value with both lab secrets replaced: neither is ever written."""
+        for secret in SECRETS:
+            value = value.replace(secret, "<redacted>")
+        return value
+
+
     def redacted(name, value):
         """A header value for the log: no lab secret is ever written to it."""
         if name.lower() == "authorization":
             return "bearer_ok: true" if bearer_ok({name: value}) else "bearer_ok: false"
-        for secret in SECRETS:
-            value = value.replace(secret, "<redacted>")
-        return value
+        return scrub(value)
 
 
     def event_id(text):
@@ -6348,6 +6449,8 @@ data:
         sys_version = ""
 
         def forward(self, method, data):
+            # Numbered on arrival: the answer of a slow Worker must not move it.
+            seq = next_seq()
             peer = self.client_address[0]
             headers = {name: value for name, value in self.headers.items()
                        if name.lower() in FORWARD}
@@ -6365,9 +6468,9 @@ data:
                 status = exc.code
             except (urllib.error.URLError, OSError, ValueError):
                 status = 502
-            append(REQUESTS, {"type": "request", "method": method, "path": self.path, "peer": peer,
-                              "status": status, "name": None,
-                              "body": data[:BODY_MAX].decode("utf-8", "replace")})
+            append(REQUESTS, {"type": "request", "method": method, "path": scrub(self.path),
+                              "peer": peer, "status": status, "name": None, "seq": seq,
+                              "body": scrub(data[:BODY_MAX].decode("utf-8", "replace"))})
             self.answer(status, body)
 
         def do_GET(self):
@@ -6381,9 +6484,9 @@ data:
                 return self.forward("POST", data)
             match = MARK.fullmatch(self.path)
             if match:
-                append(REQUESTS, {"type": "mark", "method": "POST", "path": self.path,
+                append(REQUESTS, {"type": "mark", "method": "POST", "path": scrub(self.path),
                                   "peer": self.client_address[0], "status": 204,
-                                  "name": match[1], "body": ""})
+                                  "name": match[1], "body": "", "seq": next_seq()})
                 return self.answer(204)
             return self.answer(404, b'{"error":"not found"}')
 
@@ -6401,7 +6504,9 @@ data:
                 return self.answer(404, b'{"error":"not found"}')
             body = data.decode("utf-8", "replace")
             headers = {name: redacted(name, value) for name, value in self.headers.items()}
-            append(GLITCHTIP, {"path": self.path, "headers": headers, "bearer_ok": ok, "body": body})
+            # The body and the path carry secrets too: the envelope holds the DSN.
+            append(GLITCHTIP, {"path": scrub(self.path), "headers": headers, "bearer_ok": ok,
+                               "body": scrub(body)})
             if not ok:
                 return self.answer(404, b'{"error":"not found"}')
             return self.answer(200, json.dumps({"id": event_id(body)}).encode())
