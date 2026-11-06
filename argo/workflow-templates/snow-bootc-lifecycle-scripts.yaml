@@ -1148,12 +1148,19 @@ data:
         # The teardown name is set only after the launch succeeded, so a launch that
         # failed before it created anything cannot report a false teardown failure.
         # A timed-out launch may still have created the instance: delete the candidate,
-        # and keep it as a teardown task only while `incus info` says it exists.
+        # and then ask the instance list. Absence is proven only by a query that
+        # answers and does not list the name; a query that fails or times out proves
+        # nothing, so the name stays a teardown task for the exit trap.
         if timeout 300 incus launch images:debian/trixie "$intake_name" --ephemeral >/dev/null 2>&1; then
           INTAKE="$intake_name"
         else
           if ! timeout 120 incus delete --force "$intake_name" >/dev/null 2>&1; then
-            if timeout 30 incus info "$intake_name" >/dev/null 2>&1; then
+            if intake_names=$(timeout 30 incus list --format csv -c n 2>/dev/null); then
+              # The query answered: the name is absent only when it is not listed.
+              if [[ $'\n'"$intake_names"$'\n' == *$'\n'"$intake_name"$'\n'* ]]; then
+                INTAKE="$intake_name"
+              fi
+            else
               INTAKE="$intake_name"
             fi
           fi
@@ -6024,13 +6031,20 @@ data:
         and payload. This lane's mock always forwards exactly 1 event item, so a
         header without a payload, a malformed or non-event item header, an event id
         that contradicts the header, or a second item is no envelope at all.
+
+        The item header's `length`, when it is there, must be the UTF-8 byte length
+        of the payload: the payload is the bytes after the item header line up to the
+        next newline (a trailing newline after it is allowed). This runs on the body
+        the intake logged, so a secret redaction that changed the length fails the
+        envelope too, and that is right: a secret in a report body is a defect.
         """
         body = entry.get("body")
-        lines = body.splitlines() if type(body) is str else []
+        # Split on newlines only: the byte length of the payload line is what counts.
+        lines = body.split("\n") if type(body) is str else []
         if len(lines) < 3:
             return None, None
-        header, item = json_value(lines[0]), json_value(lines[1])
-        event = json_value("\n".join(lines[2:]))
+        header, item, payload = json_value(lines[0]), json_value(lines[1]), lines[2]
+        event = json_value(payload)
         if header is None or item is None or event is None:
             return None, None
         event_id = header.get("event_id")
@@ -6038,6 +6052,15 @@ data:
             return None, None
         if item.get("type") != "event" or event.get("event_id") != event_id:
             return None, None
+        # Exactly 1 item: nothing but the payload and 1 trailing newline follows it.
+        if any(line for line in lines[3:]):
+            return None, None
+        if "length" in item:
+            length = item["length"]
+            if type(length) is not int or length < 0:
+                return None, None
+            if len(payload.encode("utf-8")) != length:
+                return None, None
         return event_id, event
 
 

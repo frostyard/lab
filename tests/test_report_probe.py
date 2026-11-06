@@ -451,14 +451,21 @@ def production_record(**overrides):
     return record
 
 
-def envelope(report_id, *, bearer=True, event=None, body=None, headers=None):
-    """One GlitchTip envelope as the mock writes it: header, item header, event."""
+def envelope(report_id, *, bearer=True, event=None, body=None, headers=None,
+             payload=None, length=None):
+    """One GlitchTip envelope as the mock writes it: header, item header, event.
+
+    The item header's `length` is the UTF-8 byte length of the payload, as Sentry
+    defines it; a test can override the payload, the length, or both.
+    """
     event = event if event is not None else {"event_id": report_id.replace("-", ""),
                                              "message": "a report", "user": {"ip_address": None}}
+    payload = json.dumps(event) if payload is None else payload
     body = body if body is not None else "\n".join([
         json.dumps({"event_id": report_id.replace("-", "")}),
-        json.dumps({"type": "event", "length": 1}),
-        json.dumps(event)]) + "\n"
+        json.dumps({"type": "event", "content_type": "application/json",
+                    "length": len(payload.encode("utf-8")) if length is None else length}),
+        payload]) + "\n"
     return {"seq": 9, "path": "/api/1/envelope/", "bearer_ok": bearer,
             "headers": headers if headers is not None else
             {"Content-Type": "application/x-sentry-envelope", "Authorization": "bearer_ok: true"},
@@ -2315,32 +2322,158 @@ def intake_launch_block():
                      run_script()).group()
 
 
-def run_intake_launch(tmp_path, exists):
-    """The real launch fragment with a stub incus: (state, reason, INTAKE)."""
+def run_intake_launch(tmp_path, *, listed, query_rc=0):
+    """The real launch fragment with a stub incus: its stdout and stderr.
+
+    The stub fails the launch and the delete; `incus list` answers with `listed`
+    (1 name per line) and exit code `query_rc`.
+    """
     harness = ("set -Eeuo pipefail\n"
-               'incus() { case "$1" in launch) return 1;; delete) return 1;; info) return "$EXISTS";; '
+               'incus() { case "$1" in launch) return 1;; delete) return 1;; '
+               'list) [[ "$QUERY_RC" == 0 ]] || return 1; printf "%s" "$LISTED"; return 0;; '
                'esac; }\n'
                'timeout() { shift; "$@"; }\n'
-               'blocked() { printf "BLOCKED:%s intake=%s\\n" "$1" "${INTAKE:-none}"; exit 0; }\n'
-               f"VM=snow-qa-test EXISTS={exists}\n"
+               'blocked() { printf "BLOCKED:%s intake=%s\n" "$1" "${INTAKE:-none}"; exit 0; }\n'
+               'VM=snow-qa-test\n'
+               'QUERY_RC=0 LISTED=""\n'
+               + "QUERY_RC=%d LISTED='%s'\n" % (query_rc, listed) +
                'INTAKE=""\n'
                + intake_launch_block() +
-               '\nprintf "launched intake=%s\\n" "$INTAKE"\n')
+               '\nprintf "launched intake=%s\n" "$INTAKE"\n')
     result = subprocess.run(["bash", "-c", harness], capture_output=True, text=True,
                             env={"PATH": "/usr/bin:/bin"})
     assert result.returncode == 0, (result.stdout, result.stderr)
     return result.stdout.strip(), result.stderr.strip()
 
 
-def test_a_failed_intake_launch_reports_no_teardown_failure(tmp_path):
-    # Point 7: nothing was created, so there is nothing to delete and no reason
-    # to say the teardown failed.
-    stdout, _ = run_intake_launch(tmp_path, exists=1)
+def test_a_confirmed_absent_intake_leaves_no_teardown_task(tmp_path):
+    # R2: nothing was created, so there is nothing to delete, no teardown failure
+    # and no intake_left. Absence is proven by a query that answered without it.
+    stdout, _ = run_intake_launch(tmp_path, listed="snow-qa-other\nsnow-qa-a-intakeX\n")
     assert stdout == "BLOCKED:intake_unavailable intake=none"
 
 
-def test_an_intake_that_still_exists_after_a_failed_launch_stays_a_teardown_task(tmp_path):
-    # Point 7: a timed-out launch can leave the instance behind; then the name must
-    # survive, so finish() can delete it or report it.
-    stdout, _ = run_intake_launch(tmp_path, exists=0)
+def test_a_listed_intake_after_a_failed_launch_stays_a_teardown_task(tmp_path):
+    # R2: the query lists the name: it exists, so finish() must try again.
+    stdout, _ = run_intake_launch(tmp_path, listed="snow-qa-other\nsnow-qa-test-intake\n")
     assert stdout == "BLOCKED:intake_unavailable intake=snow-qa-test-intake"
+
+
+def test_an_intake_list_query_that_fails_keeps_the_teardown_task(tmp_path):
+    # R2: a query that fails or times out proves nothing about the instance, so
+    # the name must survive; a delete that fails again then reports intake_left.
+    stdout, _ = run_intake_launch(tmp_path, listed="", query_rc=1)
+    assert stdout == "BLOCKED:intake_unavailable intake=snow-qa-test-intake"
+
+
+def intake_teardown_block():
+    return re.search(r"(?ms)^  # The lab intake holds this run's bearer.*?^  fi\n",
+                     run_script()).group()
+
+
+def test_a_left_intake_is_reported_in_the_reason(tmp_path):
+    # R2: the exit trap's delete fails too, so the reason carries intake_left and
+    # the run is FAILED, never a silent BLOCKED with a container behind it.
+    harness = ("set -Eeuo pipefail\n"
+               'incus() { return 1; }\n'
+               'timeout() { shift; "$@"; }\n'
+               'STATE=BLOCKED REASON=intake_unavailable rc=1 intake_left="" teardown_failed=0\n'
+               'vm_kept_suffix="" ISO_HOST="" VM=snow-qa-test INTAKE=snow-qa-test-intake\n'
+               'cleanup_error() { rc=1\n'
+               '  if [[ "$STATE" == PASS ]]; then STATE=FAILED; REASON="$1"\n'
+               '  elif [[ "$STATE" == BLOCKED ]]; then REASON="cleanup_after_blocked:${REASON};$1"; STATE=FAILED\n'
+               '  elif [[ "$REASON" != *";$1"* ]]; then STATE=FAILED; REASON="${REASON};$1"; fi; }\n'
+               + intake_teardown_block() +
+               '\nprintf "%s:%s\n" "$STATE" "$REASON"\n')
+    result = subprocess.run(["bash", "-c", harness], capture_output=True, text=True,
+                            env={"PATH": "/usr/bin:/bin"})
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    state, _, reason = result.stdout.strip().partition(":")
+    assert state == "FAILED"
+    assert "teardown_failed" in reason and "intake_left=snow-qa-test-intake" in reason
+
+
+# round 2 of the cross-review (lab#191): the item header's length is a contract.
+
+def test_a_whole_envelope_is_still_one_event(report, qa, tmp_path, capsys):
+    entry = envelope(APP_ID)
+    # The fixture's item header carries the real byte length of its payload.
+    item = json.loads(entry["body"].split("\n")[1])
+    payload = entry["body"].split("\n")[2]
+    assert item["length"] == len(payload.encode("utf-8"))
+    event_id, event = report.envelope_parts(entry)
+    assert event_id == APP_ID.replace("-", "")
+    assert event["event_id"] == event_id
+
+
+def lab_envelope(report_id, payload, length):
+    """One envelope with a chosen payload and a chosen item `length`."""
+    return envelope(APP_ID, payload=payload, length=length)
+
+
+def test_the_length_of_the_lab_run_envelope_is_checked(report):
+    # The real envelope of a lab run carried {"type":"event",
+    # "content_type":"application/json","length":722} and a 722-byte payload
+    # (dev-snow-bootc-lifecycle runs); this is that shape, exactly.
+    payload = json.dumps({"event_id": APP_ID.replace("-", ""), "message": "m" * 660,
+                          "user": {"ip_address": None}})
+    entry = lab_envelope(APP_ID, payload, len(payload.encode("utf-8")))
+    assert report.envelope_parts(entry)[0] == APP_ID.replace("-", "")
+    assert len(payload.encode("utf-8")) > 700
+
+
+def test_a_length_that_does_not_match_the_payload_is_no_envelope(report):
+    payload = json.dumps({"event_id": APP_ID.replace("-", "")})
+    for length in (len(payload) - 1, len(payload) + 1, 0):
+        entry = lab_envelope(APP_ID, payload, length)
+        assert report.envelope_parts(entry) == (None, None), length
+
+
+@pytest.mark.parametrize("length", [True, "10", 10.0, -1, None])
+def test_a_length_that_is_not_a_whole_number_is_no_envelope(report, length):
+    # The item header always carries the `length` key here, also as null.
+    payload = json.dumps({"event_id": APP_ID.replace("-", "")})
+    body = (json.dumps({"event_id": APP_ID.replace("-", "")}) + "\n"
+            + json.dumps({"type": "event", "length": length}) + "\n" + payload + "\n")
+    assert report.envelope_parts(envelope(APP_ID, body=body)) == (None, None)
+
+
+def test_a_length_counts_bytes_not_characters(report):
+    # 1 non-ASCII character is more than 1 byte: a character count must not pass.
+    payload = json.dumps({"event_id": APP_ID.replace("-", ""), "message": "grüße"},
+                         ensure_ascii=False)
+    as_bytes = len(payload.encode("utf-8"))
+    assert as_bytes > len(payload)
+    assert report.envelope_parts(lab_envelope(APP_ID, payload, as_bytes))[0] is not None
+    assert report.envelope_parts(lab_envelope(APP_ID, payload, len(payload))) == (None, None)
+
+
+@pytest.mark.parametrize("name", ["wrong-length", "cut-short", "non-integer-length"])
+def test_forwarding_fails_when_the_length_does_not_hold(report, qa, tmp_path, capsys, name):
+    payload = json.dumps({"event_id": APP_ID.replace("-", ""), "message": "a report"})
+    length = {"wrong-length": len(payload) + 3, "cut-short": len(payload) + 3,
+              "non-integer-length": "many"}[name]
+    entry = lab_envelope(APP_ID, payload, length)
+    requests = requests_log(after_posts=(guest_document("app_problem", APP_ID),
+                                         guest_document("count", COUNT_ID)))
+    summary, _ = run_report(report, qa, tmp_path, full_record(),
+                            logs=lab_logs(tmp_path, requests, [entry]), capsys=capsys)
+    assert "forward" in summary.split("missing-", 1)[1].split("+")
+
+
+def test_a_redacted_secret_in_the_body_fails_the_envelope(report, monkeypatch, intake):
+    # The mock replaces both lab secrets before it logs the body. A shorter or
+    # longer body no longer matches the item's length, so the envelope fails:
+    # that is right, a secret in a report body is a defect.
+    lab = intake["lab"]
+    bearer = lab.SECRETS[0]
+    payload = json.dumps({"event_id": "a" * 32, "note": bearer})
+    body = (json.dumps({"event_id": "a" * 32}) + "\n"
+            + json.dumps({"type": "event", "length": len(payload.encode())}) + "\n"
+            + payload + "\n")
+    status, _ = request(intake["mock"] + "/api/1/envelope/", data=body.encode(),
+                        headers={"Authorization": "Bearer " + bearer})
+    assert status == 200
+    logged = json.loads((intake["state"] / "glitchtip.jsonl").read_text().splitlines()[-1])
+    assert bearer not in logged["body"]
+    assert report.envelope_parts(logged) == (None, None)
