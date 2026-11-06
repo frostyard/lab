@@ -88,10 +88,23 @@ report (`app_problem`, code `lab.injected_t857`) to
 - `9x87t` (2026-11-06 00:49 UTC): `PASS: verified_report_probe;report=production-accepted`,
   HTTP 202. 1 lab test report through the production Worker and caddy into
   GlitchTip: report id `bda364d0-a159-416e-a764-05fc7374e590`, event
-  `bda364d0a159416ea76405fc7374e590`, project `system`. Its deletion by report id
-  (`scripts/glitchtip-delete-report.sh` in frostyard/problem-intake, as root on
-  TrueNAS) follows the desktop proofs below; the event stays in GlitchTip until
-  then.
+  `bda364d0a159416ea76405fc7374e590`, project `system`.
+- Deletion by report id (2026-11-06 04:38 to 04:42 UTC, after the desktop proofs
+  below): `scripts/glitchtip-delete-report.sh` of frostyard/problem-intake at
+  [`f061bc2b`](https://github.com/frostyard/problem-intake/blob/f061bc2b7444561a3941334eba916d6e855e49c2/scripts/glitchtip-delete-report.sh)
+  (sha256 checked after the download), run as root on TrueNAS, as its runbook
+  "Delete 1 report" says:
+
+  | Step | Output | Exit |
+  | --- | --- | --- |
+  | `--check bda364d0-a159-416e-a764-05fc7374e590` | `mode=check events=1 tag_rows=0 issues_deleted=0` | 0 |
+  | delete (no `--check`) | `mode=delete events=1 tag_rows=0 issues_deleted=1` | 0 |
+  | `--check` again | `mode=check events=0 tag_rows=0 issues_deleted=0`, `no event with this report_id` | 3 |
+
+  The 1 event was found by its report id and deleted with its issue (no other
+  event was in it), no tag row held the report id, and afterwards no event has
+  that report id. Snapshots of the GlitchTip dataset keep it up to 7 more days,
+  inside the retention the privacy page states.
 
 
 ## Phase 4 — Desktops (chairlift), lane mode
