@@ -83,15 +83,15 @@ report (`app_problem`, code `lab.injected_t857`) to
 
 - `gwdpl` (2026-11-05 22:53 UTC): `report=missing-production`, HTTP 502. The
   Worker could not forward: class `config` in Analytics Engine (its secrets).
-  Nothing reached GlitchTip. Brian re-applied `INTAKE_BEARER` and
-  `GLITCHTIP_DSNS` (T920c).
+  Nothing reached GlitchTip. The Worker secrets `INTAKE_BEARER` and
+  `GLITCHTIP_DSNS` were then set again.
 - `9x87t` (2026-11-06 00:49 UTC): `PASS: verified_report_probe;report=production-accepted`,
   HTTP 202. 1 lab test report through the production Worker and caddy into
   GlitchTip: report id `bda364d0-a159-416e-a764-05fc7374e590`, event
   `bda364d0a159416ea76405fc7374e590`, project `system`. Its deletion by report id
   (`scripts/glitchtip-delete-report.sh` in frostyard/problem-intake, as root on
-  TrueNAS) is Brian's step; he chose to keep the event until the desktops are
-  proven (T920d).
+  TrueNAS) follows the desktop proofs below; the event stays in GlitchTip until
+  then.
 
 
 ## Phase 4 — Desktops (chairlift), lane mode
