@@ -51,7 +51,8 @@ spec:
         valueFrom:
           path: /tmp/results/first-login.txt
           default: "evidence unavailable"
-      # The problems-probe report: one summary line, then the 6 fixed detail lines.
+      # The problems-probe report: one summary line, then the 6 fixed detail lines
+      # (7 on the update path: the 2nd N+1 boot's timer line).
       - name: problems
         valueFrom:
           path: /tmp/results/problems.txt

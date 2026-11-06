@@ -277,12 +277,12 @@ def stub_problems(qa, monkeypatch, *, failed_unit=True, stage="network", crash=T
 
 def guest_environment(qa, tmp_path, monkeypatch, *, path="fresh", collector=True,
                       problems_file=True, details_file=True, document=None, details=None,
-                      problems_mode=0o644, details_gid=None, accounts=(), **stubs):
+                      problems_mode=0o644, details_gid=None, accounts=(), phase="problems", **stubs):
     """The installed VM's tree, its credentials and its boot id, below a temporary root."""
     m = probe_manifest(path)
     credentials = tmp_path / "credentials"
     credentials.mkdir()
-    for name, value in {"phase": "problems", "nonce": NONCE, "image_n": m["image_n"],
+    for name, value in {"phase": phase, "nonce": NONCE, "image_n": m["image_n"],
                         "image_n_plus_1": m["image_n_plus_1"],
                         "target_ref": m["target_ref"]}.items():
         (credentials / name).write_text(value + "\n")
@@ -544,11 +544,17 @@ def test_phase_main_prints_only_a_bounded_code_on_error(problems, qa, tmp_path, 
 
 # --------------------------------------------------------------- the report
 
-def run_report(problems, qa, tmp_path, record, product="snow", capsys=None):
+def run_report(problems, qa, tmp_path, record, product="snow", capsys=None, reboot=None):
     path = tmp_path / "problems.json"
     path.write_bytes(problems.canonical(record))
-    manifest_path = normalized(tmp_path, probe_manifest("fresh", product), qa)
-    assert problems.main(["report", str(manifest_path), str(path)]) == 0
+    paths = [str(path)]
+    if reboot is not None:
+        # The update path: the 2nd N+1 boot's record goes with the first (T893d).
+        reboot_path = tmp_path / "problems-reboot.json"
+        reboot_path.write_bytes(problems.canonical(reboot))
+        paths.append(str(reboot_path))
+    manifest_path = normalized(tmp_path, probe_manifest(record["path"], product), qa)
+    assert problems.main(["report", str(manifest_path), *paths]) == 0
     out = capsys.readouterr().out.splitlines()
     return out[0], out[1:]
 
@@ -693,7 +699,7 @@ def plan_block():
 
 
 def test_run_script_plan_for_both_paths(tmp_path):
-    for path, plan in (("fresh", "problems"), ("update", "installed-n stage problems")):
+    for path, plan in (("fresh", "problems"), ("update", "installed-n stage problems problems-reboot")):
         work = tmp_path / path
         work.mkdir()
         (work / "normalized.json").write_bytes(
@@ -710,7 +716,7 @@ def report_block():
     return re.search(r'(?ms)^if \[\[ "\$problems_mode" == 1 \]\]; then\n.*?^fi\n', run_script()).group()
 
 
-def run_report_block(tmp_path, stdout):
+def run_report_block(tmp_path, stdout, path="fresh"):
     block = report_block().replace("/opt/snow-qa/problems.py", str(tmp_path / "problems.py"))
     (tmp_path / "problems.py").write_text(stdout)
     work, out, evidence = tmp_path / "work", tmp_path / "results", tmp_path / "evidence"
@@ -722,7 +728,7 @@ def run_report_block(tmp_path, stdout):
         'fail() { printf "FAIL:%s\\n" "$1"; exit 9; }\n'
         'blocked() { printf "BLOCKED:%s\\n" "$1"; exit 0; }\n'
         'persist() { cp -- "$1" "$2"; }\n'
-        f'WORK={work} OUT={out} EVIDENCE={evidence} problems_mode=1\n' + block)
+        f'WORK={work} OUT={out} EVIDENCE={evidence} problems_mode=1 problems_path={path}\n' + block)
     result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
     return result, work, out, evidence
 
@@ -892,3 +898,158 @@ def test_report_of_a_null_collector_document_is_a_schema_finding(problems, qa, t
     # The test tree is not owned by root, so file and details fail here too.
     assert summary.startswith("problems=missing-") and "schema" in summary.split("-", 1)[1].split("+")
     assert "unproven" not in summary and "schema=invalid" in detail[1]
+
+
+# ------------------------------------- the 2nd N+1 boot of the update path (T893d)
+
+def reboot_record(**overrides):
+    """The problems-reboot record: the static facts of the 2nd N+1 boot, no injections."""
+    record = full_record(phase="problems-reboot", nonce="e" * 32, boot_id=SECOND_BOOT_ID, path="update",
+                         booted_digest=NEXT, injected=None, collector_runs=None, problems=None,
+                         details=None, listing=None)
+    record.update(overrides)
+    return record
+
+
+def update_record(**overrides):
+    return full_record(path="update", booted_digest=NEXT, **overrides)
+
+
+def test_report_update_passes_a_timer_that_starts_on_the_2nd_boot(problems, qa, tmp_path, capsys):
+    # Brian, T893d (snosi#1229): preset-reconcile enables the timer on the 1st N+1
+    # boot and it starts on the next boot. Without the fix this is missing-timer.
+    record = update_record(timer={"enabled": "enabled", "active": "inactive"})
+    summary, detail = run_report(problems, qa, tmp_path, record, capsys=capsys, reboot=reboot_record())
+    assert summary == "problems=ok"
+    assert detail[0].startswith("path=update collector=yes timer=enabled/inactive ")
+    assert len(detail) == 7
+    assert detail[6] == "reboot timer=enabled/active preset_reconcile=success"
+
+
+def test_report_update_passes_a_timer_active_on_both_boots(problems, qa, tmp_path, capsys):
+    summary, _ = run_report(problems, qa, tmp_path, update_record(), capsys=capsys, reboot=reboot_record())
+    assert summary == "problems=ok"
+
+
+@pytest.mark.parametrize("first,second", [
+    # Inactive on the 2nd boot is a finding, whatever the 1st boot said.
+    ({"enabled": "enabled", "active": "inactive"}, {"enabled": "enabled", "active": "inactive"}),
+    ({"enabled": "enabled", "active": "active"}, {"enabled": "enabled", "active": "inactive"}),
+    ({"enabled": "enabled", "active": "inactive"}, {"enabled": "disabled", "active": "active"}),
+    ({"enabled": "enabled", "active": "inactive"}, {"enabled": "enabled", "active": "failed"}),
+    # The 1st boot may be inactive only when the unit is enabled.
+    ({"enabled": "disabled", "active": "inactive"}, {"enabled": "enabled", "active": "active"}),
+    ({"enabled": "masked", "active": "inactive"}, {"enabled": "enabled", "active": "active"}),
+    ({"enabled": "enabled", "active": "failed"}, {"enabled": "enabled", "active": "active"}),
+])
+def test_report_update_requires_the_timer_active_on_the_2nd_boot(problems, qa, tmp_path, capsys, first, second):
+    summary, _ = run_report(problems, qa, tmp_path, update_record(timer=first), capsys=capsys,
+                            reboot=reboot_record(timer=second))
+    assert summary == "problems=missing-timer"
+
+
+def test_report_fresh_path_still_requires_the_timer_active(problems, qa, tmp_path, capsys):
+    # The fresh path does not change: one boot, and the timer active on it.
+    record = full_record(timer={"enabled": "enabled", "active": "inactive"})
+    summary, detail = run_report(problems, qa, tmp_path, record, capsys=capsys)
+    assert summary == "problems=missing-timer"
+    assert len(detail) == 6 and not any(line.startswith("reboot ") for line in detail)
+
+
+def test_report_needs_exactly_the_records_of_its_path(problems, qa, tmp_path, capsys):
+    first, second = tmp_path / "problems.json", tmp_path / "problems-reboot.json"
+    first.write_bytes(problems.canonical(update_record()))
+    second.write_bytes(problems.canonical(reboot_record()))
+    update = normalized(tmp_path, probe_manifest("update"), qa)
+    # The update path without its 2nd N+1 boot proves nothing about the timer.
+    assert problems.main(["report", str(update), str(first)]) == 1
+    assert capsys.readouterr().err.strip() == "qa_failed:usage"
+    # A fresh record never takes a 2nd boot, and the records never swap places.
+    fresh_record = tmp_path / "fresh.json"
+    fresh_record.write_bytes(problems.canonical(full_record()))
+    fresh = tmp_path / "fresh-manifest"
+    fresh.mkdir()
+    fresh = normalized(fresh, probe_manifest("fresh"), qa)
+    assert problems.main(["report", str(fresh), str(fresh_record), str(second)]) == 1
+    assert problems.main(["report", str(update), str(second), str(first)]) == 1
+    # The 2nd boot is a different boot of the same image.
+    second.write_bytes(problems.canonical(reboot_record(boot_id=BOOT_ID)))
+    assert problems.main(["report", str(update), str(first), str(second)]) == 1
+    second.write_bytes(problems.canonical(reboot_record(booted_digest=N)))
+    assert problems.main(["report", str(update), str(first), str(second)]) == 1
+    capsys.readouterr()
+
+
+def test_phase_accepts_the_reboot_record_only_on_the_update_path(problems, tmp_path):
+    serial = tmp_path / "serial"
+    serial.write_text(serial_with(problems, reboot_record()))
+    out = tmp_path / "problems-reboot.json"
+    problems.phase(probe_manifest("update"), "problems-reboot", "e" * 32, BOOT_ID, str(serial), str(out))
+    assert json.loads(out.read_text()) == reboot_record()
+    # The 2nd boot is never the fresh path's, never the installed N, never the 1st boot again.
+    with pytest.raises(problems.GateError, match="^probed_path$"):
+        problems.phase(probe_manifest("fresh"), "problems-reboot", "e" * 32, BOOT_ID, str(serial), str(out))
+    serial.write_text(serial_with(problems, reboot_record(booted_digest=N)))
+    with pytest.raises(problems.GateError, match="^booted_image$"):
+        problems.phase(probe_manifest("update"), "problems-reboot", "e" * 32, BOOT_ID, str(serial), str(out))
+    serial.write_text(serial_with(problems, reboot_record()))
+    with pytest.raises(problems.GateError, match="^boot_identity$"):
+        problems.phase(probe_manifest("update"), "problems-reboot", "e" * 32, SECOND_BOOT_ID, str(serial),
+                       str(out))
+    # A record of the other phase never answers this boot's nonce.
+    serial.write_text(serial_with(problems, update_record(nonce="e" * 32)))
+    with pytest.raises(problems.GateError, match="^record_identity$"):
+        problems.phase(probe_manifest("update"), "problems-reboot", "e" * 32, BOOT_ID, str(serial), str(out))
+
+
+@pytest.mark.parametrize("change,code", [
+    (lambda r: r.update(path="fresh"), "record_identity"),
+    (lambda r: r.update(injected={"unit": True, "stage": {"outcome": "failed", "error_class": "network"},
+                                  "crash": True, "app": True}), "record_fields"),
+    (lambda r: r.update(collector_runs=[0, 0]), "record_fields"),
+    (lambda r: r.update(listing={"rc": 0, "unit": True, "stage": True, "crash": True, "app": True}),
+     "record_fields"),
+])
+def test_phase_refuses_a_reboot_record_that_injected_or_left_its_path(problems, tmp_path, change, code):
+    record = reboot_record()
+    change(record)
+    serial = tmp_path / "serial"
+    serial.write_text(serial_with(problems, record))
+    with pytest.raises(problems.GateError, match="^%s$" % code):
+        problems.phase(probe_manifest("update"), "problems-reboot", "e" * 32, BOOT_ID, str(serial),
+                       str(tmp_path / "out.json"))
+
+
+def test_guest_problems_reboot_reads_the_timer_and_injects_nothing(qa, tmp_path, monkeypatch):
+    m, credentials, root, calls = guest_environment(qa, tmp_path, monkeypatch, path="update",
+                                                   phase="problems-reboot")
+    record = payload(qa.problems(credentials))
+    assert record["phase"] == "problems-reboot" and record["path"] == "update"
+    assert record["collector"] is True
+    assert record["timer"] == {"enabled": "enabled", "active": "active"}
+    assert record["preset_reconcile"] == "success"
+    assert record["injected"] is None and record["collector_runs"] is None
+    assert record["problems"] is None and record["details"] is None and record["listing"] is None
+    assert not (root / "etc/systemd/system" / UNIT).exists()
+    assert ["systemctl", "start", "snosi-health.service"] not in calls
+    assert ["unshare", "--net", "--", "/usr/libexec/bootc-update-stage"] not in calls
+    assert not any(call[0] in ("kill", "runuser") for call in calls)
+
+
+def test_run_script_update_report_reads_both_boots(tmp_path):
+    # The stub prints its arguments: the update path passes the 2nd N+1 boot's record.
+    stub = 'import sys\nprint("problems=ok")\nprint(" ".join(a.rsplit("/", 1)[-1] for a in sys.argv[2:]))\n'
+    for path, files in (("fresh", "normalized.json problems.json"),
+                        ("update", "normalized.json problems.json problems-reboot.json")):
+        folder = tmp_path / path
+        folder.mkdir()
+        result, _, out, _ = run_report_block(folder, stub, path=path)
+        assert result.returncode == 0, result.stderr
+        assert (out / "problems.txt").read_text().splitlines()[1] == files
+
+
+def test_run_script_runs_the_reboot_phase_as_a_problems_boot():
+    loop = run_script()
+    assert 'problems|problems-reboot) guest_mode=problems; guest_after=" multi-user.target";;' in loop
+    assert '"$WORK/serial" "$WORK/$phase.json" > "$WORK/problems-id"' in loop
+    assert 'persist "$WORK/$phase.json" "$EVIDENCE/$phase.json" || fail evidence_write' in loop

@@ -482,19 +482,22 @@ update, rollback, secure-boot or fs-verity check runs in this mode
 The optional `problems_probe` mode is report-only evidence about the
 snosi-health collector (snosi ADR-0029) and systemd-coredump. Its `fresh` path
 boots the installed image once and its `update` path adds the unchanged
-`installed-n` and `stage` boots plus one `problems` boot of N+1; that boot keeps
-its `SNOW_PROBLEMS_V1` record as `problems.json` and one `problems.txt` report in
-the results and in the private evidence directory. The report holds one summary
+`installed-n` and `stage` boots plus the `problems` and `problems-reboot` boots
+of N+1. Each probed boot keeps its `SNOW_PROBLEMS_V1` record (`problems.json`,
+`problems-reboot.json`), and the run writes one `problems.txt` report in the
+results and in the private evidence directory. The report holds one summary
 line (`ok`, `unproven-no-collector`, `unproven-too-large`, or `missing-` plus the
 failed checks: `file`, `schema`, `timer`, `coredump`, `journal`, `details`,
 `unit`, `stage`, `crash`, `app`, and `list` on Floe) and 6 fixed detail lines
-with the boot timing and each injected problem. The record is validated against
+with the boot timing and each injected problem; the `update` path adds a 7th,
+`reboot timer=…`, because its `timer` check requires `snosi-health.timer` active
+on the second N+1 boot and accepts it enabled but inactive on the first. The record is validated against
 a pinned byte copy of core's `problem-report/v1` schema, and the boot timing is
 evidence only. A summary that starts with `unproven-` ends `BLOCKED`, never
 `FAILED`, and every other one ends `PASS`, so a collector that records nothing
 is recorded and not judged. The `fresh` path runs no update, rollback,
 secure-boot or fs-verity check; the `update` path keeps those checks of its
-`installed-n` and `stage` boots and adds none to the `problems` boot
+`installed-n` and `stage` boots and adds none to the `problems` boots
 ([ADR-0017](adr/0017-problems-probe-is-a-report-only-lane-mode.md)).
 
 The optional `report_probe` mode is report-only evidence about the image's
