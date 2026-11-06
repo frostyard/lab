@@ -1,5 +1,5 @@
 {
-  "generated": "2026-11-06T16:30:19Z",
+  "generated": "2026-11-06T17:00:21Z",
   "lanes": [
     {
       "laneKey": "run-firn-install-tests",
@@ -75,9 +75,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1793982600",
+        "name": "publish-results-1793984400",
         "phase": "Running",
-        "started": "2026-11-06T16:30:00Z",
+        "started": "2026-11-06T17:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -248,11 +248,28 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1793982600",
+      "name": "publish-results-1793984400",
       "phase": "Running",
-      "started": "2026-11-06T16:30:00Z",
+      "started": "2026-11-06T17:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": null,
+      "checks": [],
+      "fsverity": []
+    },
+    {
+      "name": "publish-results-1793982600",
+      "phase": "Succeeded",
+      "started": "2026-11-06T16:30:00Z",
+      "finished": "2026-11-06T16:30:32Z",
+      "durationSeconds": 32,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -363,23 +380,6 @@
       "trigger": "scheduled",
       "result": "22 passed, 5 skipped",
       "digest": "sha256:2c391edc42f5652986add394f4e99169c0c0109dbf4dfe2e040d848051940ebb",
-      "checks": [],
-      "fsverity": []
-    },
-    {
-      "name": "publish-results-1793977200",
-      "phase": "Succeeded",
-      "started": "2026-11-06T15:00:00Z",
-      "finished": "2026-11-06T15:00:35Z",
-      "durationSeconds": 35,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": null,
       "checks": [],
       "fsverity": []
     },
