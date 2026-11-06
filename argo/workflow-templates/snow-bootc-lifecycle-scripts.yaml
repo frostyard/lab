@@ -41,7 +41,7 @@ data:
     finish() {
       local rc=$?
       local vm_kept_suffix=""
-      local teardown_failed=0 failure_suffix=""
+      local teardown_failed=0 failure_suffix="" intake_left=""
       trap - EXIT
       cleanup_error() {
         rc=1
@@ -84,6 +84,11 @@ data:
         if [[ -f "$OUT/problems.txt" ]]; then
           persist "$OUT/problems.txt" "$EVIDENCE/problems.txt" || true
         fi
+        # Best effort too: a missing report-probe report never changes STATE,
+        # REASON or rc.
+        if [[ -f "$OUT/report.txt" ]]; then
+          persist "$OUT/report.txt" "$EVIDENCE/report.txt" || true
+        fi
         # Best effort, like fsverity.txt: the per-boot command lines never change
         # STATE, REASON or rc.
         if [[ -f "$OUT/cmdline.txt" ]]; then
@@ -117,10 +122,22 @@ data:
           timeout 90 incus delete --force "$VM" >/dev/null 2>&1 || { teardown_failed=1; cleanup_error teardown_failed; }
         fi
       fi
+      # The lab intake holds this run's bearer, so it is never kept: not with a
+      # kept VM and not after a failure. A container left behind is a cleanup error.
+      if [[ -n "${INTAKE:-}" ]]; then
+        if timeout 120 incus delete --force "$INTAKE" >/dev/null 2>&1; then
+          INTAKE=""
+        else
+          intake_left="${INTAKE}"
+          cleanup_error teardown_failed
+          REASON="${REASON};intake_left=${intake_left}"
+        fi
+      fi
       if [[ "$teardown_failed" == 1 ]]; then
         # A VM left behind may still reference this ISO; keep both for manual cleanup.
         REASON="${REASON};vm_left=${VM}"
         failure_suffix=";teardown_failed${vm_kept_suffix};vm_left=${VM}"
+        if [[ -n "$intake_left" ]]; then failure_suffix="${failure_suffix};intake_left=${intake_left}"; fi
       else
         failure_suffix="$vm_kept_suffix"
         if [[ -n "${ISO_HOST:-}" ]]; then
@@ -200,6 +217,8 @@ data:
     : > "$OUT/first-login.txt" || true
     # The problems-probe report, empty when this mode did not run, like fsverity.txt.
     : > "$OUT/problems.txt" || true
+    # The report-probe report, empty when this mode did not run, like fsverity.txt.
+    : > "$OUT/report.txt" || true
     install -d -m 0700 "$ROOT" || fail evidence_directory
     [[ ! -L "$ROOT" && -d "$ROOT" ]] || fail evidence_directory
     chmod 0700 "$ROOT" || fail evidence_directory
@@ -472,6 +491,30 @@ data:
             ) || fail problems_guest_error
             fail "problems_guest_error:$code"
           fi
+          if [[ "$observed_failure" == SNOW_REPORT_ERR ]]; then
+            # The report probe reports what it saw inside its record; this marker
+            # is a fatal gate error (credentials, manifest, I/O), never a probe
+            # result.
+            code=$(python3 - "$WORK/serial" <<'PY'
+    import re, sys
+    from pathlib import Path
+    lines = Path(sys.argv[1]).read_bytes().split(b'\n')
+    def token(line):
+        line = line.rstrip(b'\r')
+        index = line.find(b'SNOW_REPORT_ERR')
+        return line if index > 0 and not line[index - 1:index].isspace() else line[index:]
+    # A chunk carrier line is not a code line, and a cut fragment is not a code
+    # (lab#177, ADR-0014).
+    tokens = [token(line) for line in lines if b'SNOW_REPORT_ERR' in line and b'SNOW_QA_KMSG1' not in line]
+    codes = {match[1] for match in (re.fullmatch(rb'SNOW_REPORT_ERR ([a-z_]{1,40})\r?', item)
+                                    for item in tokens) if match}
+    if len(codes) != 1 or any(b'SNOW_REPORT_V1' in line for line in lines):
+        sys.exit(1)
+    print(codes.pop().decode('ascii'))
+    PY
+            ) || fail report_guest_error
+            fail "report_guest_error:$code"
+          fi
           if [[ "$observed_failure" == SNOW_INSTALL_FAILED ]]; then
             code=$(python3 - "$WORK/serial" <<'PY'
     import re, sys
@@ -533,7 +576,7 @@ data:
         # with the same error and record checks, then stop now instead of
         # waiting out the whole phase window.
         if [[ "$final" == 1 ]]; then blocked guest_stopped_without_record; fi
-        if [[ "$needle" == SNOW_QA_V1 || "$needle" == SNOW_SYSEXT_V1 || "$needle" == SNOW_LOGIN_V1 || "$needle" == SNOW_PROBLEMS_V1 ]] && vm_stopped; then final=1; continue; fi
+        if [[ "$needle" == SNOW_QA_V1 || "$needle" == SNOW_SYSEXT_V1 || "$needle" == SNOW_LOGIN_V1 || "$needle" == SNOW_PROBLEMS_V1 || "$needle" == SNOW_REPORT_V1 ]] && vm_stopped; then final=1; continue; fi
         sleep 5
       done
       blocked phase_timeout
@@ -547,15 +590,23 @@ data:
     # Compress the trusted ConfigMap payload to keep the SMBIOS value below
     # firmware's 64 KiB string bound; the guest decompresses using Python.
     # qa.py travels in a SMBIOS credential that firmware bounds at 64 KiB, and the
-    # guest unit holding it is base64-encoded a second time, so the payload is
-    # compressed without comments: ast.unparse keeps the program, drops the prose,
-    # and an unchanged AST proves the stripped source is the same program.
-    python3 -c 'import ast,pathlib,sys,zlib
-    source = pathlib.Path(sys.argv[1]).read_text()
-    stripped = ast.unparse(ast.parse(source))
-    if ast.dump(ast.parse(stripped)) != ast.dump(ast.parse(source)):
+    # guest unit holding it is base64-encoded a second time, so the payload drops
+    # every comment and every docstring: ast.unparse keeps the program, an unchanged
+    # AST proves the stripped source is the same program, and neither program reads
+    # __doc__. xz (lzma) compresses it smaller than zlib, which is room the guest
+    # unit needs: the SMBIOS table is bounded at 64 KiB in total (run 6swrx).
+    python3 -c 'import ast,lzma,pathlib,sys
+    tree = ast.parse(pathlib.Path(sys.argv[1]).read_text())
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        body = node.body
+        if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) and isinstance(body[0].value.value, str):
+            node.body = body[1:] or [ast.Pass()]
+    stripped = ast.unparse(tree)
+    if ast.dump(ast.parse(stripped)) != ast.dump(tree):
         sys.exit(1)
-    pathlib.Path(sys.argv[2]).write_bytes(zlib.compress(stripped.encode(), 9))' /opt/snow-qa/qa.py "$WORK/qa.z" || fail qa_payload
+    pathlib.Path(sys.argv[2]).write_bytes(lzma.compress(stripped.encode(), preset=9 | lzma.PRESET_EXTREME))' /opt/snow-qa/qa.py "$WORK/qa.z" || fail qa_payload
     qa_b64=$(base64 -w0 "$WORK/qa.z") || fail qa_payload
     # The ISO boot runs only after validation, authenticated preflight and a
     # persistent manifest hash. A single root disk and a read-only ISO.
@@ -1027,6 +1078,8 @@ data:
     login_mode=$(python3 -c 'import json,sys; print(1 if "first_login_probe" in json.load(open(sys.argv[1])) else 0)' "$WORK/normalized.json") || fail manifest_read
     problems_mode=$(python3 -c 'import json,sys; print(1 if "problems_probe" in json.load(open(sys.argv[1])) else 0)' "$WORK/normalized.json") || fail manifest_read
     problems_path=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("problems_probe", {}).get("path", "none"))' "$WORK/normalized.json") || fail manifest_read
+    report_mode=$(python3 -c 'import json,sys; print(1 if "report_probe" in json.load(open(sys.argv[1])) else 0)' "$WORK/normalized.json") || fail manifest_read
+    report_intake=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("report_probe", {}).get("intake", "none"))' "$WORK/normalized.json") || fail manifest_read
     if [[ "$sysext_mode" == 1 ]]; then
       phase_plan=(installed-n sysext-enable sysext-reboot)
     elif [[ "$login_mode" == 1 ]]; then
@@ -1050,10 +1103,93 @@ data:
       else
         phase_plan=(installed-n stage problems problems-reboot)
       fi
+    elif [[ "$report_mode" == 1 ]]; then
+      # The report probe proves the sender on the installed N; N+1 never boots.
+      # Floe's sender is snosi-health-report; a desktop's is chairlift, which sends
+      # from the user's own login, so its report boot needs the same test-only
+      # autologin setup that the first-login probe's login-1 boot makes.
+      phase_plan=(report)
+      report_product=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["product"])' "$WORK/normalized.json") || fail manifest_read
+      report_login=0
+      [[ "$report_product" == floe ]] || report_login=1
     else
       phase_plan=(installed-n stage boot-n-plus-1 rollback boot-n)
     fi
     sysext_failures=""
+    # The report probe's guest code does not fit in qa.py, so it travels in a
+    # credential of its own: xz without comments or docstrings, AST-checked like
+    # qa.py, and bounded below the same 60000 character SMBIOS limit.
+    report_b64=""
+    INTAKE=""
+    INTAKE_IP=""
+    if [[ "$report_mode" == 1 ]]; then
+      python3 -c 'import ast,lzma,pathlib,sys
+    tree = ast.parse(pathlib.Path(sys.argv[1]).read_text())
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        body = node.body
+        if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) and isinstance(body[0].value.value, str):
+            node.body = body[1:] or [ast.Pass()]
+    stripped = ast.unparse(tree)
+    if ast.dump(ast.parse(stripped)) != ast.dump(tree):
+        sys.exit(1)
+    pathlib.Path(sys.argv[2]).write_bytes(lzma.compress(stripped.encode(), preset=9 | lzma.PRESET_EXTREME))' /opt/snow-qa/report-guest.py "$WORK/report.z" || fail report_payload
+      report_b64=$(base64 -w0 "$WORK/report.z") || fail report_payload
+      [[ ${#report_b64} -lt 60000 ]] || fail unit_size
+      if [[ "$report_intake" == lab ]]; then
+        # The lab intake is the real frostyard/problem-intake Worker under
+        # `wrangler dev`, with a mocked GlitchTip, in a throwaway container this
+        # run creates and deletes. Its bearer is random per run and stays in it.
+        # Pins: the intake commit, the Node release (Trixie has 20; wrangler needs
+        # 22 or newer) and the sha256 of the x86-64 Node tarball.
+        intake_commit=572fdd876d0f358f8b36a6f292a7a938b01ebc32
+        node_version=v24.22.1
+        node_sha256=6c172a9ab6718f7b801fb5a7bd486af2ee5e32758086a04b84fcce2aa77095e6
+        intake_name="${VM}-intake"
+        # The teardown name is set only after the launch succeeded, so a launch that
+        # failed before it created anything cannot report a false teardown failure.
+        # A timed-out launch may still have created the instance: delete the candidate,
+        # and then ask the instance list. Absence is proven only by a query that
+        # answers and does not list the name; a query that fails or times out proves
+        # nothing, so the name stays a teardown task for the exit trap.
+        if timeout 300 incus launch images:debian/trixie "$intake_name" --ephemeral >/dev/null 2>&1; then
+          INTAKE="$intake_name"
+        else
+          if ! timeout 120 incus delete --force "$intake_name" >/dev/null 2>&1; then
+            if intake_names=$(timeout 30 incus list --format csv -c n 2>/dev/null); then
+              # The query answered: the name is absent only when it is not listed.
+              if [[ $'\n'"$intake_names"$'\n' == *$'\n'"$intake_name"$'\n'* ]]; then
+                INTAKE="$intake_name"
+              fi
+            else
+              INTAKE="$intake_name"
+            fi
+          fi
+          blocked intake_unavailable
+        fi
+        intake_end=$((SECONDS + 120))
+        while :; do
+          INTAKE_IP=$(timeout 30 incus list "$INTAKE" -c4 -f csv 2>/dev/null | head -n 1 | cut -d' ' -f1) || INTAKE_IP=""
+          [[ "$INTAKE_IP" =~ ^10\.[0-9]{1,3}(\.[0-9]{1,3}){2}$ ]] && break
+          (( SECONDS < intake_end )) || blocked intake_unavailable
+          sleep 5
+        done
+        timeout 60 incus exec "$INTAKE" -- install -d -m 0755 /opt/intake >/dev/null 2>&1 || blocked intake_setup
+        timeout 60 incus file push /opt/snow-qa/intake-lab.py "$INTAKE/opt/intake/lab.py" >/dev/null 2>&1 || blocked intake_setup
+        # The container builds and starts the Worker itself; its output never
+        # carries the bearer to this pod log.
+        timeout 1200 incus exec "$INTAKE" --env INTAKE_COMMIT="$intake_commit" \
+          --env NODE_VERSION="$node_version" --env NODE_SHA256="$node_sha256" \
+          -- bash -s < /opt/snow-qa/intake-setup.sh > "$WORK/intake-setup.log" 2>&1 || {
+          # The setup prints no secret (no xtrace), so its last lines are safe
+          # evidence of where it stopped (dev-snow-bootc-lifecycle-fnn87 hid a 404).
+          tail -n 40 "$WORK/intake-setup.log" > "$WORK/intake-setup.txt" 2>/dev/null || true
+          persist "$WORK/intake-setup.txt" "$EVIDENCE/intake-setup.txt" || true
+          blocked intake_setup
+        }
+      fi
+    fi
     # Kernels with the known upstream btrfs fs-verity defect (frostyard/snosi#1130,
     # kdave/linux 254e15591ee4). Remove an entry when the kernel canary (Firn lane)
     # says `clean` on it or a fixed kernel ships. Keep identical in every lane.
@@ -1072,7 +1208,7 @@ data:
       cp -- "$WORK/serial-full" "$WORK/serial-last" || fail channel_baseline
       # Credentials supplied by SMBIOS as base64, not kernel arguments. Each
       # phase has a fresh unit and a fresh VM boot, never a re-used serial log.
-      case "$phase" in installed-n|login-1) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["installed_boot"])' "$WORK/normalized.json") || fail manifest_read;; stage) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["stage"])' "$WORK/normalized.json") || fail manifest_read;; problems) key=reboot; [[ "$problems_path" != fresh ]] || key=installed_boot; budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"][sys.argv[2]])' "$WORK/normalized.json" "$key") || fail manifest_read;; *) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["reboot"])' "$WORK/normalized.json") || fail manifest_read;; esac
+      case "$phase" in installed-n|login-1|report) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["installed_boot"])' "$WORK/normalized.json") || fail manifest_read;; stage) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["stage"])' "$WORK/normalized.json") || fail manifest_read;; problems) key=reboot; [[ "$problems_path" != fresh ]] || key=installed_boot; budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"][sys.argv[2]])' "$WORK/normalized.json" "$key") || fail manifest_read;; *) budget=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["timeouts"]["reboot"])' "$WORK/normalized.json") || fail manifest_read;; esac
       # The sysext-probe boots run the sysext collector, the login boots run the
       # first-login probe, and every other boot attests. A target orders itself
       # After= every unit it Wants= (systemd.target(5)), so a probe pulled by
@@ -1083,6 +1219,7 @@ data:
         sysext-enable|sysext-reboot) guest_mode=sysext; guest_after=" multi-user.target";;
         login-1|login-2) guest_mode=login; guest_after=" multi-user.target";;
         problems|problems-reboot) guest_mode=problems; guest_after=" multi-user.target";;
+        report) guest_mode=report; guest_after=" multi-user.target";;
         *) guest_mode=guest; guest_after="";;
       esac
       guestunit="[Unit]
@@ -1093,15 +1230,27 @@ data:
     TimeoutStartSec=$((budget + 150))
     StandardOutput=null
     StandardError=null
-    ExecStart=/bin/bash -ec 'install -d -m 0700 /run/snow-credentials; cut -d\" \" -f1 /proc/uptime > /run/snow-credentials/unit_started; install -d -m 0700 /opt/snow-qa; echo $qa_b64 | base64 -d > /run/snow-qa.z; python3 -c \"import zlib,sys;sys.stdout.buffer.write(zlib.decompress(sys.stdin.buffer.read()))\" < /run/snow-qa.z > /opt/snow-qa/qa.py; echo $manifest_b64 | base64 -d > /opt/snow-qa/normalized.json; printf %%s $phase > /run/snow-credentials/phase; printf %%s $nonce > /run/snow-credentials/nonce; printf %%s $n > /run/snow-credentials/image_n; printf %%s $next > /run/snow-credentials/image_n_plus_1; printf %%s $target > /run/snow-credentials/target_ref; python3 /opt/snow-qa/qa.py ${guest_mode:-guest} /run/snow-credentials || true; systemctl --no-block poweroff'"
+    ExecStart=/bin/bash -ec 'install -d -m 0700 /run/snow-credentials; cut -d\" \" -f1 /proc/uptime > /run/snow-credentials/unit_started; install -d -m 0700 /opt/snow-qa; echo $qa_b64 | base64 -d > /run/snow-qa.z; python3 -c \"import lzma,sys;sys.stdout.buffer.write(lzma.decompress(sys.stdin.buffer.read()))\" < /run/snow-qa.z > /opt/snow-qa/qa.py; echo $manifest_b64 | base64 -d > /opt/snow-qa/normalized.json; printf %%s $phase > /run/snow-credentials/phase; printf %%s $nonce > /run/snow-credentials/nonce; printf %%s $n > /run/snow-credentials/image_n; printf %%s $next > /run/snow-credentials/image_n_plus_1; printf %%s $target > /run/snow-credentials/target_ref; python3 /opt/snow-qa/qa.py ${guest_mode:-guest} /run/snow-credentials || true; systemctl --no-block poweroff'"
       gb=$(printf '%s' "$guestunit" | base64 -w0) || fail unit_encoding
       [[ ${#gb} -lt 60000 ]] || fail unit_size
       gd=
       login_credential=""
-      if [[ "$phase" == login-1 ]]; then
+      report_credential=""
+      # The login-setup unit is the first-login probe's test-only autologin, and the
+      # report boot of a desktop product reuses it: chairlift sends in that session.
+      login_setup=0
+      if [[ "$phase" == login-1 || ( "$phase" == report && "${report_login:-0}" == 1 ) ]]; then
+        login_setup=1
+      fi
+      if [[ "$login_setup" == 1 ]]; then
         # login-1 also pulls the test-only autologin setup unit, from the same
-        # multi-user.target drop-in and the same single raw.qemu of the phase.
-        login_b64=$(base64 -w0 /opt/snow-qa/login-setup.sh) || fail unit_encoding
+        # multi-user.target drop-in and the same single raw.qemu of the phase. The
+        # script itself travels xz-compressed in a credential of its own: its base64
+        # inside the unit would cost about 6900 more SMBIOS characters.
+        python3 -c 'import lzma,pathlib,sys
+    pathlib.Path(sys.argv[2]).write_bytes(lzma.compress(pathlib.Path(sys.argv[1]).read_bytes(), preset=9 | lzma.PRESET_EXTREME))' /opt/snow-qa/login-setup.sh "$WORK/login.z" || fail login_payload
+        login_b64=$(base64 -w0 "$WORK/login.z") || fail login_payload
+        [[ ${#login_b64} -lt 60000 ]] || fail unit_size
         gd=$(printf '[Unit]\nWants=snow-guest.service snow-login-setup.service' | base64 -w0) || fail unit_encoding
         loginunit="[Unit]
     Before=display-manager.service gdm.service gdm3.service sddm.service systemd-user-sessions.service
@@ -1111,10 +1260,10 @@ data:
     TimeoutStartSec=120
     StandardOutput=null
     StandardError=null
-    ExecStart=/bin/bash -c 'echo $login_b64 | base64 -d > /run/snow-login-setup.sh; chmod 700 /run/snow-login-setup.sh; /run/snow-login-setup.sh'"
+    ExecStart=/bin/bash -c 'python3 -c \"import lzma,sys;sys.stdout.buffer.write(lzma.decompress(sys.stdin.buffer.read()))\" < /run/credentials/@system/snow-login.z > /run/snow-login-setup.sh; chmod 700 /run/snow-login-setup.sh; /run/snow-login-setup.sh'"
         lb=$(printf '%s' "$loginunit" | base64 -w0) || fail unit_encoding
         [[ ${#lb} -lt 60000 ]] || fail unit_size
-        login_credential=" -smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.snow-login-setup.service=$lb"
+        login_credential=" -smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.snow-login-setup.service=$lb -smbios type=11,value=io.systemd.credential.binary:snow-login.z=$login_b64"
       else
         gd=$(printf '[Unit]\nWants=snow-guest.service' | base64 -w0) || fail unit_encoding
       fi
@@ -1123,7 +1272,25 @@ data:
       # calls /usr/libexec/bootc-update-stage directly and is not affected.
       td=$(printf '[Unit]\nConditionPathExists=/run/snow-qa-timer-disabled' | base64 -w0) || fail unit_encoding
       [[ ${#gd} -lt 60000 && ${#td} -lt 60000 ]] || fail unit_size
-      timeout 60 incus config set "$VM" raw.qemu="-smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.snow-guest.service=$gb -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.multi-user.target=$gd -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.bootc-update-stage.service=$td$login_credential" >/dev/null 2>&1 || fail phase_injection
+      if [[ "$phase" == report ]]; then
+        # The report boot alone carries the report guest code, the lab intake URL
+        # and a timer drop-in that fires the sender 20 s after the timer starts.
+        # The timer's own randomized delay would hide a send behind the probe.
+        timer_dropin=$(printf '[Timer]\nRandomizedDelaySec=0\nAccuracySec=1s\nOnActiveSec=20\n' | base64 -w0) || fail unit_encoding
+        [[ ${#timer_dropin} -lt 60000 ]] || fail unit_size
+        report_credential=" -smbios type=11,value=io.systemd.credential.binary:snow-report.z=$report_b64 -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.snosi-health-report.timer=$timer_dropin"
+        if [[ "$report_intake" == lab ]]; then
+          report_credential+=" -smbios type=11,value=io.systemd.credential:snow-intake=http://${INTAKE_IP}:8787"
+        fi
+      fi
+      # The SMBIOS table is bounded at 64 KiB in total (run 6swrx: a desktop report
+      # boot carried about 68500 characters, and its guest unit never ran: most likely
+      # the firmware dropped the credentials), so the sum of this boot's values is
+      # bounded, not only each one.
+      # The other SMBIOS structures need room, so the bound leaves about 4 KiB.
+      smbios="-smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.snow-guest.service=$gb -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.multi-user.target=$gd -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.bootc-update-stage.service=$td$login_credential$report_credential"
+      [[ ${#smbios} -le 61440 ]] || fail smbios_size
+      timeout 60 incus config set "$VM" raw.qemu="$smbios" >/dev/null 2>&1 || fail phase_injection
       timeout 120 incus start "$VM" >/dev/null 2>&1 || fail guest_start
       case "$phase" in
         sysext-enable|sysext-reboot)
@@ -1181,6 +1348,33 @@ data:
           [[ "$seen_boot_ids" != *":$prior:"* ]] || fail reused_boot_id
           seen_boot_ids+="$prior:"
           persist "$WORK/$phase.json" "$EVIDENCE/$phase.json" || fail evidence_write
+          printf 'phase=%s boot_id=%s\n' "$phase" "$prior" >> "$OUT/checks.txt"
+          persist "$OUT/checks.txt" "$EVIDENCE/checks.txt" || fail evidence_write
+          # lab#177: which channel carried the record. Best effort: this file
+          # never shapes checks.txt, the judge or the reason.
+          printf 'phase=%s %s\n' "$phase" "$(cat "$WORK/serial-channel" 2>/dev/null)" >> "$OUT/serial-channel.txt" || true
+          persist "$OUT/serial-channel.txt" "$EVIDENCE/serial-channel.txt" || true
+          ;;
+        report)
+          await SNOW_REPORT_V1 "$((budget + 300))" SNOW_REPORT_ERR
+          python3 /opt/snow-qa/report.py phase "$WORK/normalized.json" "$phase" "$nonce" "$prior" "$WORK/serial" "$WORK/report.json" > "$WORK/report-id" 2>/dev/null || fail phase_mismatch
+          [[ -s "$WORK/report.json" && -s "$WORK/report-id" ]] || fail phase_mismatch
+          prior=$(sed -n '1p' "$WORK/report-id")
+          [[ -n "$prior" ]] || fail phase_mismatch
+          [[ "$seen_boot_ids" != *":$prior:"* ]] || fail reused_boot_id
+          seen_boot_ids+="$prior:"
+          persist "$WORK/report.json" "$EVIDENCE/report.json" || fail evidence_write
+          # The lab intake's own logs are the evidence of what reached it. This is
+          # pulled before the container goes away, and a missing or oversized log
+          # is a probe defect, never a product finding.
+          if [[ "$report_intake" == lab ]]; then
+            for intake_log in requests glitchtip; do
+              timeout 60 incus file pull "$INTAKE/var/lib/intake/$intake_log.jsonl" "$WORK/intake-$intake_log.jsonl" >/dev/null 2>&1 || fail report_logs
+              intake_size=$(wc -c < "$WORK/intake-$intake_log.jsonl") || fail report_logs
+              (( intake_size <= 1048576 )) || fail report_logs
+              persist "$WORK/intake-$intake_log.jsonl" "$EVIDENCE/intake-$intake_log.jsonl" || fail evidence_write
+            done
+          fi
           printf 'phase=%s boot_id=%s\n' "$phase" "$prior" >> "$OUT/checks.txt"
           persist "$OUT/checks.txt" "$EVIDENCE/checks.txt" || fail evidence_write
           # lab#177: which channel carried the record. Best effort: this file
@@ -1393,6 +1587,29 @@ data:
         blocked "problems_$problems_summary"
       fi
     fi
+    if [[ "$report_mode" == 1 ]]; then
+      # The report-probe report: one summary line, then the fixed detail lines.
+      # The lab intake's logs are inputs of the judgement, not of the boot.
+      report_logs=()
+      if [[ "$report_intake" == lab ]]; then
+        report_logs=("$WORK/intake-requests.jsonl" "$WORK/intake-glitchtip.jsonl")
+      fi
+      if ! python3 /opt/snow-qa/report.py report "$WORK/normalized.json" "$WORK/report.json" ${report_logs[@]+"${report_logs[@]}"} > "$WORK/report-report" 2>/dev/null; then
+        fail report_report
+      fi
+      report_line=$(sed -n '1p' "$WORK/report-report")
+      report_summary=${report_line#report=}
+      [[ "$report_line" == "report=$report_summary" && "$report_summary" =~ ^[a-z0-9+-]{1,96}$ ]] || fail report_report
+      cp -- "$WORK/report-report" "$OUT/report.txt" || fail report_report
+      persist "$OUT/report.txt" "$EVIDENCE/report.txt" || fail evidence_write
+      printf 'report=%s\n' "$report_summary" >> "$OUT/checks.txt"
+      persist "$OUT/checks.txt" "$EVIDENCE/checks.txt" || fail evidence_write
+      if [[ "$report_summary" == unproven-* ]]; then
+        # ADR-0003: an image without the sender, or a guest that never reached
+        # the lab intake, is unproven, never failed.
+        blocked "report_$report_summary"
+      fi
+    fi
     STATE=PASS
     if [[ "$sysext_mode" == 1 ]]; then
       REASON=verified_sysext_probe${fsverity_known:+;fsverity_known_defect=${fsverity_known// /,}}
@@ -1400,6 +1617,8 @@ data:
       REASON="verified_first_login_probe;first_login=$login_summary${fsverity_known:+;fsverity_known_defect=${fsverity_known// /,}}"
     elif [[ "$problems_mode" == 1 ]]; then
       REASON="verified_problems_probe;problems=$problems_summary${fsverity_known:+;fsverity_known_defect=${fsverity_known// /,}}"
+    elif [[ "$report_mode" == 1 ]]; then
+      REASON="verified_report_probe;report=$report_summary${fsverity_known:+;fsverity_known_defect=${fsverity_known// /,}}"
     else
       REASON=verified_five_fresh_boots${fsverity_known:+;fsverity_known_defect=${fsverity_known// /,}}
     fi
@@ -1422,6 +1641,7 @@ data:
     import grp
     import hashlib
     import json
+    import lzma
     import os
     import pwd
     import re
@@ -1538,6 +1758,18 @@ data:
     PROBLEMS_LISTINGS = {"unit": "a local unit failed (exit-code)", "stage": "not staged (network)",
                          "crash": "sleep crashed (SIGSEGV)",
                          "app": "org.frostyard.nsl 0.0.0-rc.857 error lab.injected_t857"}
+    # The report probe (plan T857 phase 2): it proves on a real installed Floe VM
+    # that the snosi problem-report sender (snosi ADR-0030) sends nothing while
+    # reporting is off, and, when it is on, sends the injected problem and 1 weekly
+    # count to an intake. Its guest code does not fit in this file, so it travels
+    # in a credential of its own and this module only dispatches to it.
+    REPORT_PHASES = ("report",)
+    REPORT_FIELDS = FIELDS | {"report_probe"}
+    REPORT_INTAKES = ("lab", "production")
+    # The report record is a marker line like the problems record, so it carries
+    # its own token bound; the host refuses anything above it.
+    REPORT_TOKEN_MAX = 12000
+    REPORT_CODE = "/run/credentials/@system/snow-report.z"
     RECORD_FIELDS = set("phase nonce boot_id spec_image spec_transport booted_digest booted_version staged_digest rollback_digest policy_sha256 policy_ok pull_ok pull_digest secure_boot uki_type2 lockdown lockdown_mode cmdline_lockdown cmdline root_luks root_btrfs tpm_pcr11_tokens kernel fsverity_errors fsverity_lines action marker_digest".split())
     GUEST_MANIFEST = Path("/opt/snow-qa/normalized.json")
     GUEST_PATHS = {"boot_id": Path("/proc/sys/kernel/random/boot_id"),
@@ -1603,12 +1835,20 @@ data:
         return p["path"]
 
 
+    def report_probe(p):
+        """The optional report_probe block: 1 intake value and nothing else."""
+        require(type(p) is dict and set(p) == {"intake"} and p["intake"] in REPORT_INTAKES,
+                "report_fields")
+        return p["intake"]
+
+
     def product_repo(m):
         return PRODUCTS[m["product"]]
 
 
     def normalize(m):
-        require(type(m) is dict and set(m) in (FIELDS, SYSEXT_FIELDS, LOGIN_FIELDS, PROBLEMS_FIELDS), "manifest_fields")
+        require(type(m) is dict and set(m) in (FIELDS, SYSEXT_FIELDS, LOGIN_FIELDS, PROBLEMS_FIELDS,
+                                               REPORT_FIELDS), "manifest_fields")
         # A repository of the other product must never pass: the family is the
         # product, and every reference below uses that product's repository.
         require(type(m["product"]) is str and m["product"] in PRODUCTS and m["family"] == m["product"], "product")
@@ -1636,6 +1876,12 @@ data:
                 require(m["version_n"] != m["version_n_plus_1"], "version_distinct")
             else:
                 require(m["version_n"] < m["version_n_plus_1"], "version_order")
+        elif "report_probe" in m:
+            # The report probe never stages N+1 either, so its versions only have
+            # to differ. Floe carries the snosi sender; the desktops carry
+            # chairlift, which sends from the user's own session.
+            report_probe(m["report_probe"])
+            require(m["version_n"] != m["version_n_plus_1"], "version_distinct")
         else:
             require(m["version_n"] < m["version_n_plus_1"], "version_order")
         require(m["iso_url"] == ISO_BASE + "snosi-installer_" + m["iso_version"] + "_x86-64.iso", "iso_url")
@@ -2114,7 +2360,7 @@ data:
     # A joined line is one of the 4 marker lines. A slice line counts as a
     # complete record only when it also matches the bound its own parser uses,
     # so a copy the kernel cut into is never reported as a record.
-    MARKER_LINE = rb"(?:SNOW_QA_V1|SNOW_QA_ERR|SNOW_SYSEXT_V1|SNOW_SYSEXT_ERR|SNOW_LOGIN_V1|SNOW_LOGIN_ERR|SNOW_PROBLEMS_V1|SNOW_PROBLEMS_ERR) [ -~]+"
+    MARKER_LINE = rb"(?:SNOW_QA_V1|SNOW_QA_ERR|SNOW_SYSEXT_V1|SNOW_SYSEXT_ERR|SNOW_LOGIN_V1|SNOW_LOGIN_ERR|SNOW_PROBLEMS_V1|SNOW_PROBLEMS_ERR|SNOW_REPORT_V1|SNOW_REPORT_ERR) [ -~]+"
     COMPLETE_LINES = ((b"SNOW_QA_V1", rb"[A-Za-z0-9_-]{1,8192}"),
                       (b"SNOW_QA_ERR", rb"[a-z_]{1,40}"),
                       (b"SNOW_SYSEXT_V1", rb"[A-Za-z0-9_-]{1,%d}" % (SYSEXT_TOKEN_MAX + 64)),
@@ -2122,7 +2368,9 @@ data:
                       (b"SNOW_LOGIN_V1", rb"[A-Za-z0-9_-]{1,8192}"),
                       (b"SNOW_LOGIN_ERR", rb"[a-z_]{1,40}"),
                       (b"SNOW_PROBLEMS_V1", rb"[A-Za-z0-9_-]{1,%d}" % (PROBLEMS_TOKEN_MAX + 64)),
-                      (b"SNOW_PROBLEMS_ERR", rb"[a-z_]{1,40}"))
+                      (b"SNOW_PROBLEMS_ERR", rb"[a-z_]{1,40}"),
+                      (b"SNOW_REPORT_V1", rb"[A-Za-z0-9_-]{1,%d}" % (REPORT_TOKEN_MAX + 64)),
+                      (b"SNOW_REPORT_ERR", rb"[a-z_]{1,40}"))
     SERIAL_MAX = 1024 * 1024
 
 
@@ -4032,6 +4280,17 @@ data:
                 # Failures travel inside the record; only a fatal gate error uses the
                 # problems error marker.
                 publish(problems(argv[1]))
+            elif argv[0] == "report" and len(argv) == 2:
+                # The report guest code is too large for this file: it travels in its
+                # own credential and runs here with this module as its `qa`. A missing
+                # or corrupt credential is a bounded gate error, never a traceback.
+                scope = {"__name__": "snow_report", "qa": sys.modules[__name__]}
+                try:
+                    code = compile(lzma.decompress(Path(REPORT_CODE).read_bytes()), "report-guest.py", "exec")
+                except (OSError, ValueError, EOFError, lzma.LZMAError) as exc:
+                    raise GateError("report_code") from exc
+                exec(code, scope)
+                return scope["main"](argv[1])
             elif argv[0] == "kmsg-join" and len(argv) == 2:
                 # lab#177: after the serial slice is written, before any parser.
                 kmsg_join(argv[1])
@@ -4041,8 +4300,8 @@ data:
         except (GateError, OSError, TypeError, KeyError, ValueError) as exc:
             code = str(exc) if isinstance(exc, GateError) and full(r"[a-z_]{1,40}", str(exc)) else "io_error"
             error_markers = {"guest": "SNOW_QA_ERR ", "sysext": "SNOW_SYSEXT_ERR ", "login": "SNOW_LOGIN_ERR ",
-                             "problems": "SNOW_PROBLEMS_ERR "}
-            if argv[:1] in (["guest"], ["sysext"], ["login"], ["problems"]) and isinstance(exc, GateError) and code != "io_error":
+                             "problems": "SNOW_PROBLEMS_ERR ", "report": "SNOW_REPORT_ERR "}
+            if argv[:1] in (["guest"], ["sysext"], ["login"], ["problems"], ["report"]) and isinstance(exc, GateError) and code != "io_error":
                 # An observed fixed-code failure is distinct from an absent
                 # channel. Never print arbitrary tool stderr or credentials.
                 publish(error_markers[argv[0]] + code)
@@ -4854,3 +5113,1552 @@ data:
         }
       }
     }
+  report-guest.py: |
+    """Guest side of the report probe (plan T857 phase 2).
+
+    On Floe it proves the snosi problem-report sender (snosi ADR-0030): nothing is
+    sent while reporting is off, and when it is on, the injected problem and 1
+    weekly count reach the intake. On Snow, Snowfield and Sundog it proves
+    chairlift's windowless sender (`chairlift --send-pending-reports`, chairlift
+    docs/specs/problem-reporting.md at v0.15.0), run in the test-only user's own
+    session. qa.py starts this program from its own credential and publishes the one
+    record it returns.
+    """
+    import base64
+    import datetime
+    import json
+    import os
+    import re
+    import sys
+    import time
+    import urllib.error
+    import urllib.request
+    from pathlib import Path
+
+    # The record this probe publishes: fixed keys, every value bounded by report.py.
+    REPORT_RECORD_FIELDS = set("phase nonce boot_id booted_digest sender sender_version intake session injected crash_collected off consent timer sent dry cli production".split())
+    # Floe: the snosi sender, its consent file and its own sent log.
+    SENDER = "/usr/libexec/snosi-health-report"
+    CONF_DIR = "/etc/snosi-health"
+    CONF = "/etc/snosi-health/reporting.conf"
+    SENT = "/var/lib/snosi-health/sent.jsonl"
+    PROBLEMS = "/var/lib/snosi-health/problems.json"
+    HEALTH_URL = "/usr/bin/snosi-health"
+    REPORT_UNIT = "snosi-health-report.service"
+    REPORT_TIMER = "snosi-health-report.timer"
+    OFF = "problem reporting is off"
+    # Desktops: chairlift's windowless sender and its per-user files. Only an
+    # administrator file may choose the endpoint, and the package ships the group in
+    # /usr/share; /etc is authoritative as a whole when it exists.
+    CLI = "/usr/bin/chairlift"
+    CLI_MIN = (0, 15, 0)
+    CLI_ADMIN = "/etc/chairlift/config.yml"
+    CLI_SHIPPED = "/usr/share/chairlift/config.yml"
+    CLI_PAGE = re.compile(r"problems_page:\s*(?:#.*)?")
+    CLI_GROUP = re.compile(r"problems_reporting_group:\s*(?:#.*)?")
+    CONSENT_DIR = ".config/chairlift"
+    CONSENT = ".config/chairlift/reporting.json"
+    SENT_LOG = ".local/state/chairlift/reports.json"
+    CONSENT_TEXT = '{"format":1,"enabled":%s,"mode":"auto","decided_at":"%s","schema":"frostyard.problem/1"}\n'
+    # 1 document of the production path, written for curl's --data-binary.
+    BODY = "/run/snow-report.json"
+    INTAKE_CREDENTIAL = "/run/credentials/@system/snow-intake"
+    # The lab intake is reachable only on its container's own address, never a name.
+    INTAKE_URL = re.compile(r"http://[0-9]{1,3}(?:\.[0-9]{1,3}){3}:8787")
+    PRODUCTION_URL = "https://report.frostyard.org/v1/report"
+    # Bounds: the record travels as 1 marker line, so every list and string is small.
+    SENT_MAX = 32
+    DRY_MAX = 32
+    STATUS_MAX = 160
+    SENT_FILE_MAX = 256 * 1024
+    DOCUMENT_MAX = 64
+    OUTPUT_MAX = 20
+    TRIGGER_TIMEOUT = 300
+    TRIGGER_POLL = 5
+    SESSION_WAIT = 300
+    SEND_TIMEOUT = 300
+    TOKEN = re.compile(r"[a-z0-9_.-]{1,32}")
+    UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
+
+
+    def token(value):
+        """One bounded lowercase token from text the guest read."""
+        text = value.strip() if type(value) is str else ""
+        return text if TOKEN.fullmatch(text) else "other"
+
+
+    def read(path, limit=65536):
+        """The bytes of one guest file, or None."""
+        try:
+            target = Path(path)
+            if target.is_symlink():
+                return None
+            with target.open("rb") as stream:
+                return stream.read(limit)
+        except OSError:
+            return None
+
+
+    def text(path, limit=65536):
+        raw = read(path, limit)
+        return None if raw is None else raw.decode("utf-8", "replace")
+
+
+    def printable(value, limit=STATUS_MAX):
+        """Text the guest read, reduced to printable characters and 1 bound."""
+        return "".join(ch for ch in value if 32 <= ord(ch) <= 126)[:limit]
+
+
+    def post(url, timeout=30):
+        """(status, body) of one POST; 0 when the request could not be made."""
+        request = urllib.request.Request(url, data=b"", method="POST")
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return response.status, response.read(65536)
+        except urllib.error.HTTPError as exc:
+            return exc.code, b""
+        except (urllib.error.URLError, OSError, ValueError):
+            return 0, b""
+
+
+    def mark(url, name):
+        """One lab mark; its status, or 0 when the intake could not be reached."""
+        return post(url + "/lab/mark/" + name, timeout=10)[0]
+
+
+    def intake_url():
+        """The intake URL of this run's credential; refuted shapes never travel on."""
+        value = Path(INTAKE_CREDENTIAL).read_text().strip()
+        qa.require(len(value) <= 64 and INTAKE_URL.fullmatch(value) is not None,
+                   "intake_credential")
+        return value
+
+
+    def curl_post(document):
+        """POST 1 document to the production intake, over https and without a redirect."""
+        body = Path(BODY)
+        try:
+            body.write_bytes(qa.canonical(document))
+        except OSError:
+            qa.require(False, "production_document")
+        rc, out = qa.problems_run(
+            ["curl", "-q", "--proto", "=https", "--connect-timeout", "10", "--max-time", "30",
+             "-A", "", "-H", "Accept:", "-H", "Content-Type: application/json",
+             "--data-binary", "@" + str(body), "-o", "/dev/null", "-w", "%{http_code}",
+             PRODUCTION_URL], 60)
+        status = int(out.strip()) if out.strip().isdigit() else 0
+        report_id = document.get("report_id")
+        return {"http_status": status,
+                "report_id": report_id if type(report_id) is str and UUID.fullmatch(report_id) else None}
+
+
+    # ------------------------------------------------------------- the Floe sender
+
+    def dry_run():
+        """The kinds of the documents `snosi-health send --dry-run` would send."""
+        rc, out = qa.problems_run([HEALTH_URL, "send", "--dry-run"], 120)
+        kinds = []
+        for line in out.decode("utf-8", "replace").splitlines()[:DRY_MAX]:
+            try:
+                document = json.loads(line)
+            except (ValueError, UnicodeError):
+                continue
+            kind = document.get("kind") if type(document) is dict else None
+            kinds.append(token(kind))
+        return rc, kinds
+
+
+    def sent_entries():
+        """The sender's own log: 1 bounded entry per report it tried to send."""
+        raw = read(SENT, SENT_FILE_MAX + 1)
+        if raw is None or len(raw) > SENT_FILE_MAX:
+            # A missing log is no report; a cut read is never parsed into one.
+            return []
+        entries = []
+        for line in raw.decode("utf-8", "replace").splitlines()[:SENT_MAX]:
+            try:
+                entry = json.loads(line)
+            except (ValueError, UnicodeError):
+                continue
+            if type(entry) is not dict:
+                continue
+            report = entry.get("report")
+            report = report if type(report) is dict else {}
+            status = entry.get("http_status")
+            problem = entry.get("problem_id")
+            report_id = report.get("report_id")
+            entries.append({"status": token(entry.get("status")),
+                            "http_status": status if type(status) is int and 0 <= status <= 599 else 0,
+                            "problem_id": problem if type(problem) is str and re.fullmatch(r"[0-9a-f]{16}", problem) else None,
+                            "kind": token(report.get("kind")),
+                            "report_id": report_id if type(report_id) is str and UUID.fullmatch(report_id) else None})
+        return entries
+
+
+    def append_endpoint(endpoint):
+        """The administrator's edit: the endpoint is a key of the reporting file."""
+        try:
+            with Path(CONF).open("a", encoding="utf-8") as stream:
+                stream.write("endpoint=" + endpoint + "\n")
+            return True
+        except OSError:
+            return False
+
+
+    def reporting_file():
+        body = text(CONF) or ""
+        lines = [line.strip() for line in body.splitlines()]
+        endpoints = [line.split("=", 1)[1].strip() for line in lines
+                     if line.startswith("endpoint=") and "=" in line]
+        return lines, endpoints
+
+
+    def off_checks(endpoint):
+        """The checks of the off state, in the order the probe makes them."""
+        off = {"conf_absent": not Path(CONF_DIR).exists(),
+               "service_rc": qa.problems_run(["systemctl", "start", REPORT_UNIT], 400)[0],
+               "condition": token(qa.problems_show(
+                   ["systemctl", "show", "-p", "ConditionResult", "--value", REPORT_UNIT]))}
+        send_rc, out = qa.problems_run([SENDER, "send"], 120)
+        off["send_rc"] = send_rc
+        off["send_off"] = OFF in out.decode("utf-8", "replace")
+        off["status_rc"] = qa.problems_run([HEALTH_URL, "reporting", "off"], 120)[0]
+        off["endpoint"] = append_endpoint(endpoint)
+        off["again_rc"] = qa.problems_run(["systemctl", "start", REPORT_UNIT], 400)[0]
+        off["again_result"] = token(qa.problems_show(
+            ["systemctl", "show", "-p", "Result", "--value", REPORT_UNIT]))
+        off["sent_absent"] = not Path(SENT).exists()
+        off["dry_rc"], dry = dry_run()
+        return off, dry
+
+
+    def consent_on(endpoint):
+        """The on state: the command's result and the file it leaves behind."""
+        on_rc = qa.problems_run([HEALTH_URL, "reporting", "on"], 120)[0]
+        lines, endpoints = reporting_file()
+        status = qa.problems_show([HEALTH_URL, "reporting", "status"], 60)
+        first = status.splitlines()[0] if status.splitlines() else ""
+        return {"on_rc": on_rc, "enabled": "enabled=1" in lines,
+                "endpoint": bool(endpoints) and endpoints[-1] == endpoint,
+                "status": printable(first)}
+
+
+    def invocation():
+        value = qa.problems_show(["systemctl", "show", "-p", "InvocationID", "--value", REPORT_UNIT]).strip()
+        return value if re.fullmatch(r"[0-9a-f]{32}", value) else ""
+
+
+    def trigger():
+        """Restart the timer and wait, bounded, for it to start the sender once."""
+        before = invocation()
+        qa.problems_run(["systemctl", "restart", REPORT_TIMER], 120)
+        start = time.monotonic()
+        triggered = False
+        while True:
+            state = qa.problems_show(["systemctl", "show", "-p", "ActiveState", "--value", REPORT_UNIT]).strip()
+            current = invocation()
+            if current and current != before and state in ("inactive", "failed"):
+                triggered = True
+                break
+            if time.monotonic() - start >= TRIGGER_TIMEOUT:
+                break
+            time.sleep(TRIGGER_POLL)
+        return {"triggered": triggered,
+                "result": token(qa.problems_show(["systemctl", "show", "-p", "Result", "--value", REPORT_UNIT])),
+                "waited": int(min(time.monotonic() - start, TRIGGER_TIMEOUT)),
+                "enabled": token(qa.problems_show(["systemctl", "is-enabled", REPORT_TIMER]))}
+
+
+    def collector_crash():
+        """True when the collector recorded at least 1 crash, None when unreadable.
+
+        The crash check needs a crash to exclude: without this, an injection that
+        failed and a sender that never sent both looked like a pass.
+        """
+        raw = read(PROBLEMS, 65537)
+        if raw is None or len(raw) > 65536:
+            return None
+        try:
+            document = json.loads(raw)
+        except (ValueError, UnicodeError):
+            return None
+        entries = document.get("problems") if type(document) is dict else None
+        if type(entries) is not list:
+            return None
+        return any(type(entry) is dict and entry.get("kind") == "crash" for entry in entries[:200])
+
+
+    def inject():
+        """The 2 problems that a real host could report, and their 2 collector runs."""
+        injected = {"app": qa.problems_app(), "crash": qa.problems_crash()}
+        # Two collector runs, like the problems probe: the second one is always a
+        # full run after the injections.
+        for _ in (1, 2):
+            qa.problems_run(["systemctl", "start", "snosi-health.service"], 400)
+        return injected, collector_crash()
+
+
+    def lab(url):
+        """The Floe lab intake path: off, then consent, then the timer's own send."""
+        endpoint = url + "/v1/report"
+        mark(url, "off-begin")
+        injected, crash_collected = inject()
+        off, dry = off_checks(endpoint)
+        mark(url, "on-begin")
+        consent = consent_on(endpoint)
+        timer = trigger()
+        mark(url, "on-end")
+        return {"injected": injected, "crash_collected": crash_collected, "off": off, "dry": dry,
+                "consent": consent, "timer": timer, "sent": sent_entries()}
+
+
+    def documents():
+        """Every document `snosi-health send --dry-run` printed, in order."""
+        _, out = qa.problems_run([HEALTH_URL, "send", "--dry-run"], 120)
+        found = []
+        for line in out.decode("utf-8", "replace").splitlines()[:DOCUMENT_MAX]:
+            try:
+                document = json.loads(line)
+            except (ValueError, UnicodeError):
+                continue
+            if type(document) is dict:
+                found.append(document)
+        return found
+
+
+    def production():
+        """The Floe production path: 1 lab test report, and nothing else."""
+        qa.problems_app()
+        for _ in (1, 2):
+            qa.problems_run(["systemctl", "start", "snosi-health.service"], 400)
+        chosen = [document for document in documents()
+                  if document.get("kind") == "app_problem" and type(document.get("detail")) is dict
+                  and document["detail"].get("code") == qa.PROBLEMS_APP_FIELDS["FROSTYARD_CODE"]]
+        # Exactly 1 injected document: 2 would send 2 reports, none proves nothing.
+        qa.require(len(chosen) == 1, "production_document")
+        return curl_post(chosen[0])
+
+
+    # -------------------------------------------------------- the desktop sender
+
+    def numeric_version(value):
+        """The first 3 numeric parts of a version string, as integers."""
+        parts = []
+        for piece in value.strip().split(".")[:3]:
+            digits = re.match(r"[0-9]+", piece)
+            if digits is None:
+                break
+            parts.append(int(digits[0]))
+        return parts
+
+
+    CLI_PACKAGE = "frostyard-chairlift"
+
+
+    def cli_version():
+        """chairlift's package version, or None when the package is not installed."""
+        if not Path(CLI).is_file():
+            return None
+        # The Debian package is frostyard-chairlift (chairlift .goreleaser.yaml,
+        # snosi shared/packages/snow); "chairlift" is no package (run zf6pf).
+        version = qa.problems_show(["dpkg-query", "-W", "-f", "${Version}", CLI_PACKAGE], 60).strip()
+        return version if re.fullmatch(r"[0-9A-Za-z.+~-]{1,64}", version) else None
+
+
+    def cli_new_enough(version):
+        """True when that version can send pending reports (0.15.0 or newer)."""
+        parts = (numeric_version(version or "") + [0, 0, 0])[:3]
+        return tuple(parts) >= CLI_MIN
+
+
+    def session(account):
+        """The user's own session, or None: no display manager or account means none."""
+        if account is None or qa.login_display_manager() is None:
+            return None
+        found = qa.login_session(SESSION_WAIT)
+        if found is None:
+            return None
+        # The 4 session fields, each bounded: a localized desktop string must not make
+        # the record unreadable on the host.
+        return {name: printable(found.get(name, ""), 64)
+                for name in ("type", "class", "state", "desktop")}
+
+
+    def own(path, account):
+        """Give the account its own file: the sender runs as that user, not as root."""
+        try:
+            os.chown(path, account.pw_uid, account.pw_gid)
+            return True
+        except (OSError, AttributeError):
+            return False
+
+
+    def save_consent(home, account, enabled):
+        """Write chairlift's consent file: folder 0700, file 0600, owned by the user."""
+        folder = Path(home) / CONSENT_DIR
+        target = Path(home) / CONSENT
+        stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        temp = folder / ".reporting.json.snow-qa"
+        try:
+            folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+            folder.chmod(0o700)
+            with open(temp, "w", encoding="utf-8",
+                      opener=lambda path, flags: os.open(path, flags, 0o600)) as stream:
+                stream.write(CONSENT_TEXT % ("true" if enabled else "false", stamp))
+            temp.chmod(0o600)
+            temp.replace(target)
+            target.chmod(0o600)
+        except OSError:
+            qa.require(False, "chairlift_consent")
+        # A file the user cannot read or replace is not consent: fail closed.
+        qa.require(own(folder, account) and own(target, account), "chairlift_consent")
+
+
+    def remove_consent(home):
+        """No consent file at all: chairlift reads that as off, with no error."""
+        try:
+            (Path(home) / CONSENT).unlink()
+        except OSError:
+            pass
+
+
+    def indent_of(line):
+        return len(line) - len(line.lstrip(" "))
+
+
+    def group_lines(lines):
+        """(index, indent) of every problems_reporting_group below problems_page."""
+        pages = [number for number, line in enumerate(lines) if CLI_PAGE.fullmatch(line.strip())]
+        found = []
+        for page in pages:
+            base = indent_of(lines[page])
+            for number in range(page + 1, len(lines)):
+                line = lines[number]
+                if line.strip() and indent_of(line) <= base:
+                    break
+                if CLI_GROUP.fullmatch(line.strip()):
+                    found.append((number, indent_of(line)))
+        return found
+
+
+    def write_endpoint(endpoint):
+        """Give chairlift the lab endpoint, in the administrator file only (CONFIG.md)."""
+        source = CLI_ADMIN if Path(CLI_ADMIN).is_file() else CLI_SHIPPED
+        body = text(source)
+        qa.require(body is not None, "chairlift_config")
+        lines = body.splitlines()
+        groups = group_lines(lines)
+        # Exactly 1 group under problems_page: a different layout is never guessed.
+        qa.require(len(groups) == 1, "chairlift_config")
+        index, indent = groups[0]
+        stop = len(lines)
+        for number in range(index + 1, len(lines)):
+            if lines[number].strip() and indent_of(lines[number]) <= indent:
+                stop = number
+                break
+        kept = lines[:index + 1]
+        kept.append(" " * (indent + 2) + "endpoint: " + endpoint)
+        for number in range(index + 1, len(lines)):
+            # An old endpoint inside the group never survives the administrator's edit.
+            if index < number < stop and lines[number].strip().startswith("endpoint:"):
+                continue
+            kept.append(lines[number])
+        target = Path(CLI_ADMIN)
+        try:
+            target.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+            target.parent.chmod(0o755)
+            with open(target, "w", encoding="utf-8",
+                      opener=lambda path, flags: os.open(path, flags, 0o644)) as stream:
+                stream.write("\n".join(kept) + "\n")
+            target.chmod(0o644)
+        except OSError:
+            return False
+        return True
+
+
+    # chairlift writes its 1 reason line and its log lines to stderr and only the
+    # dry-run previews to stdout (cli.go at v0.15.0). A send keeps both streams as
+    # 1 output; a dry run keeps stdout alone, so a log line never splits a preview.
+    BOTH_STREAMS = 'exec "$0" --send-pending-reports "$@" 2>&1'
+    STDOUT_ONLY = 'exec "$0" --send-pending-reports "$@" 2>/dev/null'
+    # The exact line chairlift prints when the consent is missing or off.
+    CLI_OFF = "problem reporting is off"
+
+
+    def run_sender(user, extra=(), script=BOTH_STREAMS):
+        """chairlift's windowless sender, in the user's own session and environment."""
+        return qa.problems_run(["systemd-run", "--machine=" + user + "@.host", "--user", "--wait",
+                                "--pipe", "--quiet", "--collect", "--", "/bin/sh", "-c", script, CLI]
+                               + list(extra), SEND_TIMEOUT)
+
+
+    def says_off(out):
+        """True when 1 output line is exactly chairlift's consent-off line."""
+        return CLI_OFF in [line.strip() for line in out.decode("utf-8", "replace").splitlines()]
+
+
+    def output_lines(out):
+        """Up to 20 bounded printable lines of the sender's own output."""
+        return [printable(line) for line in out.decode("utf-8", "replace").splitlines()[:OUTPUT_MAX]]
+
+
+    def cli_sent(home):
+        """chairlift's sent log: it records only the sends that succeeded."""
+        raw = read(Path(home) / SENT_LOG, SENT_FILE_MAX + 1)
+        if raw is None or len(raw) > SENT_FILE_MAX:
+            return []
+        try:
+            value = json.loads(raw)
+        except (ValueError, UnicodeError):
+            return []
+        entries = value.get("sent") if type(value) is dict else None
+        if type(entries) is not list:
+            return []
+        found = []
+        for entry in entries[:SENT_MAX]:
+            if type(entry) is not dict:
+                continue
+            problem = entry.get("problem_id")
+            report_id = entry.get("report_id")
+            # chairlift logs only successes, and no HTTP status: 0 means "not recorded".
+            found.append({"status": "accepted", "http_status": 0,
+                          "problem_id": problem if type(problem) is str and re.fullmatch(r"[0-9a-f]{16}", problem) else None,
+                          "kind": token(entry.get("kind")),
+                          "report_id": report_id if type(report_id) is str and UUID.fullmatch(report_id) else None})
+        return found
+
+
+    def previews(out):
+        """Every indented JSON preview of a dry run: they follow one another, not per line."""
+        body = out.decode("utf-8", "replace")
+        decoder = json.JSONDecoder()
+        found, index = [], 0
+        while len(found) < DOCUMENT_MAX:
+            while index < len(body) and body[index].isspace():
+                index += 1
+            if index >= len(body):
+                break
+            try:
+                document, index = decoder.raw_decode(body, index)
+            except ValueError:
+                break   # a preview that is not JSON is never guessed at
+            if type(document) is dict:
+                found.append(document)
+        return found
+
+
+    def desktop_lab(url, account, home):
+        """The desktop lab path: off, then the user's consent, then 1 send."""
+        user = account.pw_name
+        endpoint = url + "/v1/report"
+        mark(url, "off-begin")
+        injected, crash_collected = inject()
+        config = write_endpoint(endpoint)
+        # Off run 1: no consent file at all.
+        remove_consent(home)
+        first_rc, first_out = run_sender(user)
+        # Off run 2: a consent file that is stored and off.
+        save_consent(home, account, False)
+        second_rc, second_out = run_sender(user)
+        off_rc = [first_rc, second_rc]
+        # Both off runs must say why they sent nothing, in chairlift's own words.
+        off_consent = says_off(first_out) and says_off(second_out)
+        sent_absent = not cli_sent(home)
+        mark(url, "on-begin")
+        save_consent(home, account, True)
+        on_rc, out = run_sender(user)
+        mark(url, "on-end")
+        return {"injected": injected, "crash_collected": crash_collected, "sent": cli_sent(home),
+                "cli": {"off_rc": off_rc, "off_consent": off_consent, "sent_absent": sent_absent,
+                        "config": config, "on_rc": on_rc, "output": output_lines(out)}}
+
+
+    def desktop_production(account, home):
+        """The desktop production path: 1 lab test report, and nothing else."""
+        user = account.pw_name
+        injected, crash_collected = inject()
+        # A dry run follows the same rules as a send, so it needs a consent that
+        # allows; it sends nothing and writes no state (spec rule 7).
+        save_consent(home, account, True)
+        on_rc, out = run_sender(user, ("--dry-run",), STDOUT_ONLY)
+        sent_absent = not cli_sent(home)
+        remove_consent(home)
+        # A failed dry run, or a sent log that shows a send, is evidence that this run
+        # sent more than 1 report: then nothing is posted and the host says
+        # missing-production.
+        production = {"http_status": 0, "report_id": None}
+        if on_rc == 0 and sent_absent:
+            chosen = [document for document in previews(out)
+                      if document.get("kind") == "app_problem" and type(document.get("detail")) is dict
+                      and document["detail"].get("code") == qa.PROBLEMS_APP_FIELDS["FROSTYARD_CODE"]]
+            # Exactly 1 injected preview: 2 would send 2 reports, none proves nothing.
+            qa.require(len(chosen) == 1, "production_document")
+            production = curl_post(chosen[0])
+        return injected, crash_collected, production, {"off_rc": [], "off_consent": False,
+                                                       "sent_absent": sent_absent, "config": False,
+                                                       "on_rc": on_rc, "output": output_lines(out)}
+
+
+    # --------------------------------------------------------------- the record
+
+    def report(credentials):
+        """The one report-probe record: identity, the sender, and what it sent."""
+        creds = Path(credentials)
+
+        def credential(name):
+            value = (creds / name).read_text().strip()
+            qa.require(len(value) <= 256, "credential")
+            return value
+
+        phase, nonce = credential("phase"), credential("nonce")
+        qa.require(phase in qa.REPORT_PHASES and qa.nonce_valid(nonce), "credential")
+        m = qa.load(qa.GUEST_MANIFEST, frozen=True)
+        qa.require("report_probe" in m, "report_manifest")
+        for key in ("image_n", "image_n_plus_1", "target_ref"):
+            qa.require(credential(key) == m[key], "credential")
+        boot_id = qa.GUEST_PATHS["boot_id"].read_text().strip()
+        qa.require(qa.boot_id_valid(boot_id), "boot_identity")
+        # status_fields validates the bootc status shape; the host compares the booted
+        # digest with the image N of the manifest.
+        _, _, booted_digest, _, _, _ = qa.status_fields(qa.guest_status())
+        intake = m["report_probe"]["intake"]
+        record = dict(phase=phase, nonce=nonce, boot_id=boot_id, booted_digest=booted_digest,
+                      sender=False, sender_version=None, intake=intake, session=None,
+                      injected=None, crash_collected=None, off=None, consent=None, timer=None,
+                      sent=None, dry=None, cli=None, production=None)
+        if m["product"] == "floe":
+            record["sender"] = Path(SENDER).is_file()
+            if record["sender"]:
+                if intake == "lab":
+                    record.update(lab(intake_url()))
+                else:
+                    record["production"] = production()
+        else:
+            # A desktop has no snosi sender: chairlift sends, from the user's session.
+            version = cli_version()
+            record["sender_version"] = version
+            record["sender"] = Path(CLI).is_file() and cli_new_enough(version)
+            if record["sender"]:
+                account = qa.login_account()
+                home = qa.login_home(account)
+                if home is not None:
+                    record["session"] = session(account)
+                if record["session"] is not None:
+                    if intake == "lab":
+                        record.update(desktop_lab(intake_url(), account, home))
+                    else:
+                        injected, crash_collected, production_record, cli = desktop_production(
+                            account, home)
+                        record["injected"], record["crash_collected"] = injected, crash_collected
+                        record["production"], record["cli"] = production_record, cli
+        qa.require(set(record) == REPORT_RECORD_FIELDS, "record_fields")
+        encoded = base64.urlsafe_b64encode(qa.canonical(record).strip()).decode().rstrip("=")
+        # The record is 1 marker line with its own bound. The output lines are
+        # diagnostics only, so they go from the end first; a sent entry never goes.
+        while len(encoded) > qa.REPORT_TOKEN_MAX and type(record["cli"]) is dict \
+                and record["cli"]["output"]:
+            record["cli"]["output"].pop()
+            encoded = base64.urlsafe_b64encode(qa.canonical(record).strip()).decode().rstrip("=")
+        qa.require(len(encoded) <= qa.REPORT_TOKEN_MAX, "record_size")
+        return "SNOW_REPORT_V1 " + encoded
+
+
+    def main(credentials):
+        """The record, or a bounded error marker; never a traceback or a secret."""
+        try:
+            qa.publish(report(credentials))
+            return 0
+        except qa.GateError as exc:
+            code = str(exc)
+            if re.fullmatch(r"[a-z_]{1,40}", code) is None:
+                print("qa_failed:io_error", file=sys.stderr)
+                return 1
+            qa.publish("SNOW_REPORT_ERR " + code)
+            return 1
+        except (OSError, TypeError, KeyError, ValueError):
+            print("qa_failed:io_error", file=sys.stderr)
+            return 1
+  report.py: |
+    """Host-side gates and report for the report-only report probe (plan T857 phase 2).
+
+    This file never travels to the guest: the guest runs report-guest.py, carried in
+    its own credential and started by qa.py `report`. It reads the one
+    `SNOW_REPORT_V1` record of the probed boot and the lab intake's own request and
+    GlitchTip logs, and it reports what the probe proved. The gates come from the one
+    ConfigMap copy of qa.py beside it.
+    """
+    import base64
+    import json
+    import os
+    import re
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from qa import (REPORT_TOKEN_MAX, SERIAL_MAX, GateError, boot_id_valid, canonical,  # noqa: E402
+                    full, load, marker_token, nonce_valid, pairs, require)
+    from problems import SCHEMA, validate  # noqa: E402
+
+    # The record the guest publishes, and the bounds of every field in it.
+    RECORD_FIELDS = set("phase nonce boot_id booted_digest sender sender_version intake session injected crash_collected off consent timer sent dry cli production".split())
+    # A desktop record: chairlift's version, the user's session and its windowless
+    # sender's own results. Floe keeps the snosi sender's off/consent/timer triples.
+    SESSION_FIELDS = set("type class state desktop".split())
+    CLI_FIELDS = set("off_rc off_consent sent_absent config on_rc output".split())
+    VERSION = r"[0-9A-Za-z.+~-]{1,64}"
+    LABEL = r"[ -~]{0,64}"
+    OFF_FIELDS = set("conf_absent service_rc condition send_rc send_off status_rc endpoint again_rc again_result sent_absent dry_rc".split())
+    CONSENT_FIELDS = set("on_rc enabled endpoint status".split())
+    TIMER_FIELDS = set("triggered result waited enabled".split())
+    SENT_FIELDS = set("status http_status problem_id kind report_id".split())
+    PRODUCTION_FIELDS = set("http_status report_id".split())
+    INJECTED_FIELDS = {"app", "crash"}
+    MARKS = ("off-begin", "on-begin", "on-end")
+    # The check names of the summary, in a fixed order: missing- plus all 10 is 65
+    # characters, well inside the summary bound.
+    CHECKS = ("off", "timer", "consent", "count", "app", "crash", "schema", "ip", "forward", "match")
+    # A desktop's sender has consent and timer checks of its own: 1 `cli` check.
+    DESKTOP_CHECKS = ("off", "cli", "count", "app", "crash", "schema", "ip", "forward", "match")
+    INJECTED_CODE = "lab.injected_t857"
+    # The headers a Cloudflare edge adds; the intake strips them for GlitchTip.
+    EDGE = ("cf-connecting-ip", "x-forwarded-for", "true-client-ip")
+    REQUESTS_MAX = 1048576
+    ENVELOPES_MAX = 1048576
+    TOKEN = r"[a-z0-9_.-]{1,32}"
+    UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+    UUID_RE = re.compile(UUID)
+    HEX16 = r"[0-9a-f]{16}"
+    PRINTABLE = r"[ -~]{0,160}"
+    SUMMARY = re.compile(r"[a-z0-9+-]{1,96}")
+
+
+    # ------------------------------------------------------------- the record
+
+    def record_shape(record):
+        """Strict shape of one report record: exact keys, types and bounds."""
+        require(type(record) is dict and set(record) == RECORD_FIELDS, "record_fields")
+        require(record["phase"] == "report" and nonce_valid(record["nonce"]), "record_identity")
+        require(record["intake"] in ("lab", "production"), "record_fields")
+        require(full(r"[0-9a-f]{64}", record["booted_digest"]), "record_fields")
+        require(boot_id_valid(record["boot_id"]), "boot_identity")
+        require(type(record["sender"]) is bool, "record_fields")
+        version = record["sender_version"]
+        if version is not None:
+            require(full(VERSION, version), "record_sender")
+        session = record["session"]
+        if session is not None:
+            require(type(session) is dict and set(session) == SESSION_FIELDS, "record_session")
+            require(all(full(LABEL, value) for value in session.values()), "record_session")
+        cli = record["cli"]
+        if cli is not None:
+            require(type(cli) is dict and set(cli) == CLI_FIELDS, "record_cli")
+            require(type(cli["off_rc"]) is list and len(cli["off_rc"]) <= 2
+                    and all(type(rc) is int and -128 <= rc <= 255 for rc in cli["off_rc"]), "record_cli")
+            require(type(cli["on_rc"]) is int and -128 <= cli["on_rc"] <= 255, "record_cli")
+            require(all(type(cli[key]) is bool for key in ("off_consent", "sent_absent", "config")), "record_cli")
+            require(type(cli["output"]) is list and len(cli["output"]) <= 20
+                    and all(full(PRINTABLE, line) for line in cli["output"]), "record_cli")
+        injected = record["injected"]
+        if injected is not None:
+            require(type(injected) is dict and set(injected) == INJECTED_FIELDS, "record_injected")
+            require(all(type(injected[key]) is bool for key in ("app", "crash")), "record_injected")
+        # The collector's own verdict on the crash: None when its document was unreadable.
+        require(record["crash_collected"] is None or type(record["crash_collected"]) is bool,
+                "record_injected")
+        off = record["off"]
+        if off is not None:
+            require(type(off) is dict and set(off) == OFF_FIELDS, "record_off")
+            require(all(type(off[key]) is bool
+                        for key in ("conf_absent", "send_off", "endpoint", "sent_absent")), "record_off")
+            require(all(type(off[key]) is int and -128 <= off[key] <= 255
+                        for key in ("service_rc", "send_rc", "status_rc", "again_rc", "dry_rc")), "record_off")
+            require(all(full(TOKEN, off[key]) for key in ("condition", "again_result")), "record_off")
+        consent = record["consent"]
+        if consent is not None:
+            require(type(consent) is dict and set(consent) == CONSENT_FIELDS, "record_consent")
+            require(type(consent["on_rc"]) is int and -128 <= consent["on_rc"] <= 255, "record_consent")
+            require(all(type(consent[key]) is bool for key in ("enabled", "endpoint")), "record_consent")
+            require(full(PRINTABLE, consent["status"]), "record_consent")
+        timer = record["timer"]
+        if timer is not None:
+            require(type(timer) is dict and set(timer) == TIMER_FIELDS, "record_timer")
+            require(type(timer["triggered"]) is bool and full(TOKEN, timer["result"]), "record_timer")
+            require(full(TOKEN, timer["enabled"]), "record_timer")
+            require(type(timer["waited"]) is int and 0 <= timer["waited"] <= 300, "record_timer")
+        sent = record["sent"]
+        if sent is not None:
+            require(type(sent) is list and len(sent) <= 32, "record_sent")
+            for entry in sent:
+                require(type(entry) is dict and set(entry) == SENT_FIELDS, "record_sent")
+                require(full(TOKEN, entry["status"]) and full(TOKEN, entry["kind"]), "record_sent")
+                require(type(entry["http_status"]) is int and 0 <= entry["http_status"] <= 599, "record_sent")
+                require(entry["problem_id"] is None or full(HEX16, entry["problem_id"]), "record_sent")
+                require(entry["report_id"] is None or full(UUID, entry["report_id"]), "record_sent")
+        dry = record["dry"]
+        if dry is not None:
+            require(type(dry) is list and len(dry) <= 32 and all(full(TOKEN, kind) for kind in dry), "record_dry")
+        production = record["production"]
+        if production is not None:
+            require(type(production) is dict and set(production) == PRODUCTION_FIELDS, "record_production")
+            require(type(production["http_status"]) is int and 0 <= production["http_status"] <= 599, "record_production")
+            require(production["report_id"] is None or full(UUID, production["report_id"]), "record_production")
+        if version is None:
+            # The snosi sender has no chairlift version, session or cli record.
+            require(session is None and cli is None, "record_fields")
+        else:
+            require(all(record[name] is None for name in ("off", "consent", "timer")), "record_fields")
+        if record["intake"] == "production":
+            # The production path makes no mark and changes no consent; a desktop
+            # still keeps its injection and its dry-run results.
+            require(all(record[name] is None for name in ("off", "consent", "timer", "sent", "dry")), "record_fields")
+        else:
+            require(record["production"] is None, "record_fields")
+        if not record["sender"]:
+            require(all(record[name] is None for name in ("off", "consent", "timer", "sent", "dry", "injected",
+                                                         "crash_collected", "production", "session", "cli")),
+                    "record_fields")
+
+
+    def record_count(raw):
+        """The one report record the serial slice carries, by the SNOW_QA_V1 rules."""
+        require(len(raw) <= SERIAL_MAX, "serial_size")
+        lines = [line for line in raw.split(b"\n") if b"SNOW_QA_KMSG1" not in line]
+        tail = rb"([A-Za-z0-9_-]{1,%d})" % (REPORT_TOKEN_MAX + 64)
+        # Identical copies collapse into one token; only a complete one is a record.
+        tokens = {marker_token(line, b"SNOW_REPORT_V1") for line in lines if b"SNOW_REPORT_V1" in line}
+        markers = {token for token in tokens if re.fullmatch(b"SNOW_REPORT_V1 " + tail, token) is not None}
+        require(markers or not tokens, "record_encoding")
+        require(len(markers) == 1, "record_count")
+        match = re.fullmatch(b"SNOW_REPORT_V1 " + tail, sorted(markers)[0])
+        require(match is not None, "record_encoding")
+        encoded = match[1]
+        try:
+            decoded = base64.b64decode(encoded + b"=" * (-len(encoded) % 4), altchars=b"-_", validate=True)
+            require(base64.urlsafe_b64encode(decoded).rstrip(b"=") == encoded, "record_encoding")
+            require(len(decoded) <= REPORT_TOKEN_MAX, "record_size")
+            record = json.loads(decoded, object_pairs_hook=pairs,
+                                parse_constant=lambda _: (_ for _ in ()).throw(GateError("record_encoding")))
+        except (ValueError, UnicodeError) as exc:
+            raise GateError("record_encoding") from exc
+        return record
+
+
+    def record_file(path):
+        """One written report record, read back and shape-checked."""
+        try:
+            raw = Path(path).read_bytes()
+            require(len(raw) <= 65536, "record_size")
+            data = json.loads(raw, object_pairs_hook=pairs)
+        except (ValueError, UnicodeError) as exc:
+            raise GateError("record_fields") from exc
+        record_shape(data)
+        return data
+
+
+    def phase(m, name, nonce, prior, serial, destination):
+        """The record of one probed boot: its identity and image, then evidence."""
+        require("report_probe" in m and name == "report" and nonce_valid(nonce)
+                and (prior == "none" or boot_id_valid(prior)), "phase_arguments")
+        record = record_count(Path(serial).read_bytes())
+        record_shape(record)
+        require(record["phase"] == name and record["nonce"] == nonce, "record_identity")
+        require(record["boot_id"] != prior, "boot_identity")
+        require(record["intake"] == m["report_probe"]["intake"], "probed_intake")
+        # The report boot is the installed N: nothing is staged and nothing is booted twice.
+        require(record["booted_digest"] == m["image_n"].rsplit(":", 1)[-1], "booted_image")
+        with open(destination, "wb", opener=lambda path, flags: os.open(path, flags, 0o600)) as stream:
+            stream.write(canonical(record))
+        print(record["boot_id"])
+
+
+    # --------------------------------------------------------------- the logs
+
+    def log_entries(path, limit):
+        """Every JSON line of one intake log; a cut or broken log is refused."""
+        raw = Path(path).read_bytes()
+        require(len(raw) <= limit, "report_logs")
+        entries = []
+        for line in raw.splitlines():
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line, object_pairs_hook=pairs)
+            except (ValueError, UnicodeError) as exc:
+                raise GateError("report_logs") from exc
+            require(type(entry) is dict, "report_logs")
+            entries.append(entry)
+        return entries
+
+
+    def marks(requests):
+        """The sequence number of each mark the guest made, None when it is not there."""
+        found = {}
+        for name in MARKS:
+            seqs = [entry.get("seq") for entry in requests
+                    if entry.get("type") == "mark" and entry.get("name") == name]
+            found[name] = seqs[0] if len(seqs) == 1 and type(seqs[0]) is int else None
+        return found
+
+
+    def sequence(entry):
+        """The arrival number the intake gave 1 log line."""
+        value = entry.get("seq")
+        return value if type(value) is int else 0
+
+
+    def posted(requests):
+        """Every POST /v1/report the proxy forwarded, in arrival order.
+
+        The intake numbers a request when it arrives and writes its line when it
+        finishes, so the file order is not the arrival order.
+        """
+        return sorted((entry for entry in requests
+                       if entry.get("type") == "request" and entry.get("method") == "POST"
+                       and entry.get("path") == "/v1/report"), key=sequence)
+
+
+    def document_of(entry):
+        """The report document of one forwarded request, or None."""
+        body = entry.get("body")
+        if type(body) is not str:
+            return None
+        try:
+            document = json.loads(body)
+        except (ValueError, UnicodeError):
+            return None
+        return document if type(document) is dict else None
+
+
+    def report_id_of(document):
+        value = document.get("report_id") if type(document) is dict else None
+        return value if type(value) is str and UUID_RE.fullmatch(value) else None
+
+
+    def accepted(requests):
+        """(entry, document) of each report the intake answered with 202."""
+        found = []
+        for entry in posted(requests):
+            document = document_of(entry)
+            if entry.get("status") == 202 and document is not None:
+                found.append((entry, document))
+        return found
+
+
+    def of_kind(entries, kind):
+        return [(entry, document) for entry, document in entries if document.get("kind") == kind]
+
+
+    def json_value(raw):
+        """1 JSON object of a line group, or None."""
+        try:
+            value = json.loads(raw)
+        except (ValueError, UnicodeError):
+            return None
+        return value if type(value) is dict else None
+
+
+    def envelope_parts(entry):
+        """(event_id, event) of 1 complete Sentry envelope, or (None, None).
+
+        Sentry defines the body as 1 envelope header line, then pairs of item header
+        and payload. This lane's mock always forwards exactly 1 event item, so a
+        header without a payload, a malformed or non-event item header, an event id
+        that contradicts the header, or a second item is no envelope at all.
+
+        The item header's `length`, when it is there, must be the UTF-8 byte length
+        of the payload: the payload is the bytes after the item header line up to the
+        next newline (a trailing newline after it is allowed). This runs on the body
+        the intake logged, so a secret redaction that changed the length fails the
+        envelope too, and that is right: a secret in a report body is a defect.
+        """
+        body = entry.get("body")
+        # Split on newlines only: the byte length of the payload line is what counts.
+        lines = body.split("\n") if type(body) is str else []
+        if len(lines) < 3:
+            return None, None
+        header, item, payload = json_value(lines[0]), json_value(lines[1]), lines[2]
+        event = json_value(payload)
+        if header is None or item is None or event is None:
+            return None, None
+        event_id = header.get("event_id")
+        if type(event_id) is not str or full(r"[0-9a-fA-F]{32}", event_id) is None:
+            return None, None
+        if item.get("type") != "event" or event.get("event_id") != event_id:
+            return None, None
+        # Exactly 1 item: nothing but the payload and 1 trailing newline follows it.
+        if any(line for line in lines[3:]):
+            return None, None
+        if "length" in item:
+            length = item["length"]
+            if type(length) is not int or length < 0:
+                return None, None
+            if len(payload.encode("utf-8")) != length:
+                return None, None
+        return event_id, event
+
+
+    # --------------------------------------------------------------- the checks
+
+    def desktop_off_clean(cli):
+        """The desktop off runs: no consent, then a stored off, and every run clean."""
+        if type(cli) is not dict:
+            return False
+        rcs = cli["off_rc"]
+        return (len(rcs) == 2 and all(rc == 0 for rc in rcs)
+                and cli["off_consent"] is True and cli["sent_absent"] is True)
+
+
+    def off_clean(off):
+        """The guest's off state: the sender never ran, and it says why."""
+        return (type(off) is dict and off["conf_absent"] is True and off["condition"] == "no"
+                and off["send_off"] is True and off["status_rc"] == 0
+                and off["endpoint"] is True and off["sent_absent"] is True)
+
+
+    def schema_clean(requests, root):
+        """Every forwarded document is frostyard.problem/1, and the intake said 202."""
+        for entry in posted(requests):
+            document = document_of(entry)
+            if document is None or entry.get("status") != 202:
+                return False
+            try:
+                validate(root, document, root)
+            except GateError:
+                return False
+        return True
+
+
+    def ip_clean(requests, envelopes):
+        """No client IP reaches GlitchTip: not in a header, not in an event."""
+        # The guest's address is the one to look for. A loopback peer is the
+        # container's own readiness check, and the mock's Host header always holds
+        # 127.0.0.1 (dev-snow-bootc-lifecycle-5pcgp: a false missing-ip).
+        peers = [entry.get("peer") for entry in requests if type(entry.get("peer")) is str
+                 and entry["peer"] and not entry["peer"].startswith("127.")]
+        if not peers:
+            return False
+        for entry in envelopes:
+            # The header and every payload of the envelope, as the mock stored them.
+            blob = json.dumps(entry, sort_keys=True)
+            if any(peer in blob for peer in peers):
+                return False
+            headers = entry.get("headers")
+            if type(headers) is dict and any(name.lower() in EDGE for name in headers):
+                return False
+            _, event = envelope_parts(entry)
+            user = event.get("user") if type(event) is dict else None
+            if type(user) is dict and user.get("ip_address") is not None:
+                return False
+        return True
+
+
+    def forward_clean(entries, envelopes):
+        """Every accepted report is exactly 1 authenticated envelope, and no count is."""
+        if any(entry.get("bearer_ok") is not True for entry in envelopes):
+            return False
+        seen = []
+        for entry in envelopes:
+            event_id, _ = envelope_parts(entry)
+            if event_id is None or not full(r"[0-9a-fA-F]{32}", event_id):
+                return False
+            seen.append(event_id.lower())
+        if len(seen) != len(set(seen)):
+            return False
+        wanted = set()
+        for entry, document in entries:
+            report_id = report_id_of(document)
+            if report_id is None or document.get("kind") == "count":
+                # A count travels as its own report, never as a GlitchTip event.
+                continue
+            wanted.add(report_id.replace("-", ""))
+        return wanted == set(seen)
+
+
+    def match_clean(record, entries):
+        """The sender's own log names the same accepted reports the intake saw."""
+        guest = {entry["report_id"] for entry in record["sent"] or []
+                 if entry["status"] == "accepted" and entry["report_id"] is not None}
+        host = {report_id_of(document) for entry, document in entries} - {None}
+        return bool(guest) and guest == host
+
+
+    def yes(value):
+        return "yes" if value else "no"
+
+
+    def first_id(entries):
+        for entry, document in entries:
+            report_id = report_id_of(document)
+            if report_id is not None:
+                return report_id
+        return "none"
+
+
+    def lab_summary(record, root, requests, envelopes):
+        """ok, unproven-intake, or missing- plus every failed check of the lab path."""
+        found = marks(requests)
+        if any(found[name] is None for name in MARKS) or not (found["off-begin"] < found["on-begin"] < found["on-end"]):
+            # Without the marks the guest never reached the intake: nothing to judge.
+            return "unproven-intake"
+        forwarded = accepted(requests)
+        app = [document for entry, document in of_kind(forwarded, "app_problem")
+               if type(document.get("detail")) is dict
+               and document["detail"].get("code") == INJECTED_CODE]
+        timer, consent, cli = record["timer"] or {}, record["consent"] or {}, record["cli"] or {}
+        desktop = record["sender_version"] is not None
+        early = not any(type(entry.get("seq")) is int and entry["seq"] < found["on-begin"]
+                        for entry in posted(requests))
+        injected = record["injected"] if type(record["injected"]) is dict else {}
+        checks = {
+            "count": len(of_kind(forwarded, "count")) == 1,
+            "app": bool(app),
+            # A crash must be recorded by the collector, must never be sent, and the
+            # injection must have worked: with no crash there is nothing to exclude.
+            "crash": (injected.get("crash") is True and record["crash_collected"] is True
+                      and not any((document_of(entry) or {}).get("kind") == "crash"
+                                  for entry in posted(requests))),
+            "schema": schema_clean(requests, root),
+            "ip": ip_clean(requests, envelopes),
+            "forward": forward_clean(forwarded, envelopes),
+            "match": match_clean(record, forwarded),
+        }
+        if desktop:
+            checks["off"] = desktop_off_clean(cli) and early
+            checks["cli"] = cli.get("on_rc") == 0 and cli.get("config") is True
+            order = DESKTOP_CHECKS
+        else:
+            checks["off"] = off_clean(record["off"]) and early
+            checks["timer"] = timer.get("triggered") is True and timer.get("result") == "success"
+            checks["consent"] = consent.get("on_rc") == 0 and consent.get("enabled") is True
+            checks["consent"] = checks["consent"] and consent.get("endpoint") is True
+            order = CHECKS
+        failed = [name for name in order if not checks[name]]
+        return "ok" if not failed else "missing-" + "+".join(failed)
+
+
+    def production_summary(record):
+        production = record["production"]
+        if record["sender_version"] is not None:
+            # A desktop dry run that failed, or a sent log that shows a send, is
+            # evidence of more than the 1 report: the run proves nothing.
+            cli = record["cli"] or {}
+            if cli.get("on_rc") != 0 or cli.get("sent_absent") is not True:
+                return "missing-production"
+        if production is not None and production["http_status"] == 202 and production["report_id"] is not None:
+            return "production-accepted"
+        return "missing-production"
+
+
+    # --------------------------------------------------------------- the report
+
+    def sender_lines(record):
+        """A desktop's sender: the user's session and chairlift's version."""
+        if record["sender_version"] is None:
+            return
+        session = record["session"] or {}
+        print("session type=%s desktop=%s" % (session.get("type") or "none",
+                                              session.get("desktop") or "none"))
+        print("sender version=%s" % record["sender_version"])
+
+
+    def detail(record, requests, accepted_posts, envelopes):
+        """The fixed detail lines: what the probe saw, bounded and printable."""
+        print("intake=%s sender=%s" % (record["intake"], yes(record["sender"])))
+        sender_lines(record)
+        if record["intake"] == "production":
+            production = record["production"] or {}
+            print("report_id=%s kind=app_problem" % (production.get("report_id") or "none"))
+            print("http_status=%s" % production.get("http_status", "none"))
+            return
+        found = marks(requests)
+        print("marks off-begin=%s on-begin=%s on-end=%s" % tuple(
+            yes(found[name] is not None) for name in MARKS))
+        whole = posted(requests)
+        print("posted total=%d accepted=%d app_problem=%d count=%d crash=%d" % (
+            len(whole), len(accepted_posts), len(of_kind(accepted_posts, "app_problem")),
+            len(of_kind(accepted_posts, "count")),
+            sum(1 for entry in whole if (document_of(entry) or {}).get("kind") == "crash")))
+        print("report_ids app_problem=%s count=%s" % (first_id(of_kind(accepted_posts, "app_problem")),
+                                                      first_id(of_kind(accepted_posts, "count"))))
+        print("envelopes=%d bearer_ok=%s" % (
+            len(envelopes), yes(all(entry.get("bearer_ok") is True for entry in envelopes))))
+        if record["sender_version"] is not None:
+            cli = record["cli"] or {}
+            print("cli off_rc=%s off_consent=%s sent_absent=%s config=%s on_rc=%s" % (
+                ",".join(str(rc) for rc in cli.get("off_rc") or []) or "none",
+                yes(cli.get("off_consent")), yes(cli.get("sent_absent")), yes(cli.get("config")),
+                cli.get("on_rc", "none")))
+        else:
+            off = record["off"] or {}
+            print("off conf_absent=%s condition=%s send_off=%s sent_absent=%s dry=%d" % (
+                yes(off.get("conf_absent")), off.get("condition", "none"), yes(off.get("send_off")),
+                yes(off.get("sent_absent")), len(record["dry"] or [])))
+            consent = record["consent"] or {}
+            print("consent on_rc=%s enabled=%s endpoint=%s" % (
+                consent.get("on_rc", "none"), yes(consent.get("enabled")), yes(consent.get("endpoint"))))
+            timer = record["timer"] or {}
+            print("timer triggered=%s result=%s waited=%s enabled=%s" % (
+                yes(timer.get("triggered")), timer.get("result", "none"), timer.get("waited", "none"),
+                timer.get("enabled", "none")))
+        print("sent accepted=%d of %d" % (
+            sum(1 for entry in record["sent"] or [] if entry["status"] == "accepted"),
+            len(record["sent"] or [])))
+
+
+    def report(m, path, requests_path=None, glitchtip_path=None):
+        """The one summary line, then the fixed detail lines; never a product failure."""
+        record = record_file(path)
+        if record["intake"] == "lab":
+            require(requests_path is not None and glitchtip_path is not None, "usage")
+            requests = log_entries(requests_path, REQUESTS_MAX)
+            envelopes = log_entries(glitchtip_path, ENVELOPES_MAX)
+        else:
+            require(requests_path is None and glitchtip_path is None, "usage")
+            requests, envelopes = [], []
+        root = json.loads(SCHEMA.read_bytes())
+        if not record["sender"]:
+            summary = "unproven-no-sender"
+        elif record["sender_version"] is not None and record["session"] is None:
+            # A desktop with no session sent nothing: nothing was proven either.
+            summary = "unproven-session"
+        elif record["intake"] == "lab":
+            summary = lab_summary(record, root, requests, envelopes)
+        else:
+            summary = production_summary(record)
+        # The summary reaches checks.txt and the run reason: one grammar, one bound.
+        require(SUMMARY.fullmatch(summary) is not None, "record_fields")
+        print("report=" + summary)
+        detail(record, requests, accepted(requests), envelopes)
+
+
+    def main(argv):
+        try:
+            require(len(argv) in (3, 5, 7), "usage")
+            if argv[0] == "phase" and len(argv) == 7:
+                phase(load(argv[1], frozen=True), argv[2], argv[3], argv[4], argv[5], argv[6])
+            elif argv[0] == "report" and len(argv) == 3:
+                report(load(argv[1], frozen=True), argv[2])
+            elif argv[0] == "report" and len(argv) == 5:
+                report(load(argv[1], frozen=True), argv[2], argv[3], argv[4])
+            else:
+                raise GateError("usage")
+            return 0
+        except (GateError, OSError, TypeError, KeyError, ValueError) as exc:
+            code = str(exc) if isinstance(exc, GateError) and full(r"[a-z_]{1,40}", str(exc)) else "io_error"
+            print("qa_failed:" + code, file=sys.stderr)
+            return 1
+
+
+    if __name__ == "__main__":
+        sys.exit(main(sys.argv[1:]))
+  intake-lab.py: |
+    """The lab intake of the report probe (plan T857 phase 2): the real intake Worker
+    under `wrangler dev`, behind a small proxy, with a mocked GlitchTip.
+
+    Both servers run inside the throwaway Incus container the run creates. The proxy
+    listens on the container's own address and adds the 3 headers a Cloudflare edge
+    adds, so the Worker sees a request shaped like a real one. Every request and every
+    GlitchTip envelope is appended to a JSON line log; nothing is kept in memory only.
+    Stdlib only: the container has no pip packages.
+    """
+    import json
+    import os
+    import re
+    import ssl
+    import threading
+    import urllib.error
+    import urllib.request
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from pathlib import Path
+
+    STATE = Path("/var/lib/intake")
+    REQUESTS = STATE / "requests.jsonl"
+    GLITCHTIP = STATE / "glitchtip.jsonl"
+    CERT = Path("/opt/intake/tls/cert.pem")
+    KEY = Path("/opt/intake/tls/key.pem")
+    # The intake bearer and the GlitchTip DSN key, both random per run and 0600.
+    SECRET_FILES = (Path("/opt/intake/bearer"), Path("/opt/intake/dsn-key"))
+    UPSTREAM = "http://127.0.0.1:8788"
+    PROXY_PORT = 8787
+    MOCK_PORT = 8443
+    BODY_MAX = 16384
+    ENVELOPE_MAX = 65536
+    READ_MAX = 65536
+    MARK = re.compile(r"/lab/mark/([a-z-]{1,16})")
+    ENVELOPE_PATH = re.compile(r"/api/[0-9]+/envelope/")
+    # The only request headers the Worker sees; the edge adds the 3 below. A header
+    # name is case-insensitive, so this set holds lower case names.
+    FORWARD = {"content-type"}
+    EDGE = ("CF-Connecting-IP", "X-Forwarded-For", "True-Client-IP")
+    # One sequence number for both logs, so an envelope and a request never share one.
+    LOCK = threading.Lock()
+    SEQUENCE = [0]
+
+
+    def secrets():
+        """The 2 lab credentials of this run, the bearer first; never logged, never returned."""
+        found = []
+        for path in SECRET_FILES:
+            try:
+                value = path.read_text().strip()
+            except OSError:
+                continue
+            if len(value) >= 16:
+                found.append(value)
+        return found
+
+
+    SECRETS = secrets()
+
+
+    def next_seq():
+        """The arrival number of 1 request, taken under the one lock.
+
+        The number is taken when the request arrives, not when its line is written:
+        a slow forward must not reorder an off-state request behind a later mark.
+        """
+        with LOCK:
+            SEQUENCE[0] += 1
+            return SEQUENCE[0]
+
+
+    def append(path, entry):
+        """Append 1 JSON line at the number the request arrived with, and fsync it."""
+        seq = entry.get("seq")
+        body = json.dumps(dict(entry, seq=seq if type(seq) is int else next_seq()),
+                          sort_keys=True) + "\n"
+        with LOCK:
+            with path.open("a", encoding="utf-8") as stream:
+                stream.write(body)
+                stream.flush()
+                os.fsync(stream.fileno())
+
+
+    def bearer_ok(headers):
+        """True only for exactly `Authorization: Bearer <this run's bearer>`.
+
+        The Worker always sends its DSN key in X-Sentry-Auth, so that key proves
+        nothing about the bearer that caddy checks; only the bearer counts here.
+        """
+        bearer = SECRETS[0] if SECRETS else ""
+        values = [value for name, value in headers.items() if name.lower() == "authorization"]
+        return bool(bearer) and values == ["Bearer " + bearer]
+
+
+    def scrub(value):
+        """1 logged value with both lab secrets replaced: neither is ever written."""
+        for secret in SECRETS:
+            value = value.replace(secret, "<redacted>")
+        return value
+
+
+    def redacted(name, value):
+        """A header value for the log: no lab secret is ever written to it."""
+        if name.lower() == "authorization":
+            return "bearer_ok: true" if bearer_ok({name: value}) else "bearer_ok: false"
+        return scrub(value)
+
+
+    def event_id(text):
+        """The event id of a GlitchTip envelope, or the mock's fixed placeholder."""
+        first = text.splitlines()[0] if text.splitlines() else ""
+        try:
+            header = json.loads(first)
+        except (ValueError, UnicodeError):
+            return "x"
+        if type(header) is dict and type(header.get("event_id")) is str:
+            return header["event_id"]
+        return "x"
+
+
+    class Handler(BaseHTTPRequestHandler):
+        """The line and the bounds every request of either server shares."""
+
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, *args):
+            pass   # the pod log is not the evidence: the JSON line logs are
+
+        def payload(self, limit):
+            length = self.headers.get("Content-Length")
+            if length is None or not length.isdigit():
+                return b""
+            return self.rfile.read(min(int(length), limit))
+
+        def answer(self, status, body=b"", content_type="application/json"):
+            # 1 request per connection: a body cut at BODY_MAX must not leave bytes
+            # that the next request on a kept-alive connection would read.
+            self.close_connection = True
+            self.send_response(status)
+            if body:
+                self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            if body:
+                self.wfile.write(body)
+
+
+    class Proxy(Handler):
+        """What a Cloudflare edge does: add the client's IP, forward, log the request."""
+
+        server_version = "intake-lab"
+        sys_version = ""
+
+        def forward(self, method, data):
+            # Numbered on arrival: the answer of a slow Worker must not move it.
+            seq = next_seq()
+            peer = self.client_address[0]
+            headers = {name: value for name, value in self.headers.items()
+                       if name.lower() in FORWARD}
+            for name in EDGE:
+                # The guest's own headers never reach the Worker; these 3 do, as a
+                # real edge sends them, so the mock proves the Worker strips them.
+                headers[name] = peer
+            request = urllib.request.Request(UPSTREAM + self.path, data=data or None,
+                                             headers=headers, method=method)
+            body = b""
+            try:
+                with urllib.request.urlopen(request, timeout=60) as response:
+                    status, body = response.status, response.read(READ_MAX)
+            except urllib.error.HTTPError as exc:
+                status = exc.code
+            except (urllib.error.URLError, OSError, ValueError):
+                status = 502
+            append(REQUESTS, {"type": "request", "method": method, "path": scrub(self.path),
+                              "peer": peer, "status": status, "name": None, "seq": seq,
+                              "body": scrub(data[:BODY_MAX].decode("utf-8", "replace"))})
+            self.answer(status, body)
+
+        def do_GET(self):
+            if self.path == "/v1/health":
+                return self.forward("GET", b"")
+            return self.answer(404, b'{"error":"not found"}')
+
+        def do_POST(self):
+            data = self.payload(BODY_MAX)
+            if self.path == "/v1/report":
+                return self.forward("POST", data)
+            match = MARK.fullmatch(self.path)
+            if match:
+                append(REQUESTS, {"type": "mark", "method": "POST", "path": scrub(self.path),
+                                  "peer": self.client_address[0], "status": 204,
+                                  "name": match[1], "body": "", "seq": next_seq()})
+                return self.answer(204)
+            return self.answer(404, b'{"error":"not found"}')
+
+
+    class Mock(Handler):
+        """A GlitchTip intake: it keeps the envelope and answers like the real one."""
+
+        server_version = "glitchtip-mock"
+        sys_version = ""
+
+        def do_POST(self):
+            data = self.payload(ENVELOPE_MAX)
+            ok = bearer_ok(self.headers)
+            if ENVELOPE_PATH.fullmatch(self.path) is None:
+                return self.answer(404, b'{"error":"not found"}')
+            body = data.decode("utf-8", "replace")
+            headers = {name: redacted(name, value) for name, value in self.headers.items()}
+            # The body and the path carry secrets too: the envelope holds the DSN.
+            append(GLITCHTIP, {"path": scrub(self.path), "headers": headers, "bearer_ok": ok,
+                               "body": scrub(body)})
+            if not ok:
+                return self.answer(404, b'{"error":"not found"}')
+            return self.answer(200, json.dumps({"id": event_id(body)}).encode())
+
+
+    def server(handler, address, tls=True):
+        """One server; the mock gets TLS with the certificate this run made."""
+        listener = ThreadingHTTPServer(address, handler)
+        if tls and CERT.is_file() and KEY.is_file():
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            context.load_cert_chain(str(CERT), str(KEY))
+            listener.socket = context.wrap_socket(listener.socket, server_side=True)
+        return listener
+
+
+    def serve():
+        STATE.mkdir(parents=True, exist_ok=True)
+        # Both logs exist from the start: a run that forwards nothing still has an
+        # empty GlitchTip log to pull, and that is evidence, not a lane defect (zf6pf).
+        for log in (REQUESTS, GLITCHTIP):
+            log.touch(exist_ok=True)
+        mock = server(Mock, ("127.0.0.1", MOCK_PORT))
+        proxy = server(Proxy, ("0.0.0.0", PROXY_PORT), tls=False)
+        threading.Thread(target=mock.serve_forever, daemon=True).start()
+        proxy.serve_forever()
+
+
+    if __name__ == "__main__":
+        serve()
+  intake-setup.sh: |
+    #!/bin/bash
+    # Setup of the lab intake container of the report probe (plan T857 phase 2).
+    #
+    # It runs inside a throwaway Incus container, as root, with INTAKE_COMMIT,
+    # NODE_VERSION and NODE_SHA256 from the runner. It builds the real
+    # frostyard/problem-intake Worker under `wrangler dev`, starts the proxy and mock
+    # GlitchTip beside it, and waits, bounded, until the proxy answers. The intake
+    # bearer and the GlitchTip DSN key are random per run and stay in this container;
+    # nothing here is written to the pod log or to the evidence.
+    set -euo pipefail
+    export DEBIAN_FRONTEND=noninteractive
+    umask 077
+    : "${INTAKE_COMMIT:?}" "${NODE_VERSION:?}" "${NODE_SHA256:?}"
+    [[ "$INTAKE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "bad INTAKE_COMMIT" >&2; exit 2; }
+    [[ "$NODE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "bad NODE_VERSION" >&2; exit 2; }
+    [[ "$NODE_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "bad NODE_SHA256" >&2; exit 2; }
+
+    apt-get update -qq
+    apt-get install -y -qq --no-install-recommends \
+      ca-certificates curl git xz-utils openssl python3 >/dev/null
+
+    # Trixie ships Node 20; wrangler 4.157.0 needs Node 22 or newer.
+    install -d -m 0755 /opt/node /opt/intake /opt/intake/tls /var/lib/intake
+    tarball=/opt/node.tar.xz
+    curl -fsSL --max-time 300 -o "$tarball" \
+      "https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-linux-x64.tar.xz"
+    printf '%s  %s\n' "$NODE_SHA256" "$tarball" | sha256sum -c - >/dev/null
+    tar -xJf "$tarball" -C /opt/node --strip-components=1
+    rm -f "$tarball"
+    export PATH="/opt/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+    git clone --quiet https://github.com/frostyard/problem-intake /opt/intake/src
+    git -C /opt/intake/src checkout --quiet --detach "$INTAKE_COMMIT"
+    [[ "$(git -C /opt/intake/src rev-parse HEAD)" == "$INTAKE_COMMIT" ]] || {
+      echo "intake pin mismatch" >&2; exit 3; }
+    # There is no mise in this container: the Worker installs from package-lock alone.
+    rm -f /opt/intake/src/mise.toml /opt/intake/src/mise.lock
+    (cd /opt/intake/src && npm ci --no-audit --no-fund >/dev/null)
+
+    # A self-signed P-256 certificate for the mock GlitchTip on the loopback address;
+    # workerd trusts it through NODE_EXTRA_CA_CERTS (set by the runner).
+    openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 2 \
+      -keyout /opt/intake/tls/key.pem -out /opt/intake/tls/cert.pem \
+      -subj /CN=127.0.0.1 -addext "subjectAltName=IP:127.0.0.1" >/dev/null 2>&1
+    chmod 0600 /opt/intake/tls/key.pem
+
+    bearer=$(openssl rand -hex 24)
+    dsn_key=$(openssl rand -hex 16)
+    printf 'INTAKE_BEARER=%s\nGLITCHTIP_DSNS={"system":"https://%s@127.0.0.1:8443/1"}\nAE_READ_TOKEN=lab\nCF_ACCOUNT_ID=lab\n' \
+      "$bearer" "$dsn_key" > /opt/intake/src/.dev.vars
+    chmod 0600 /opt/intake/src/.dev.vars
+    printf '%s\n' "$bearer" > /opt/intake/bearer
+    printf '%s\n' "$dsn_key" > /opt/intake/dsn-key
+    chmod 0600 /opt/intake/bearer /opt/intake/dsn-key
+
+    systemd-run --quiet --unit=intake-lab --property=Type=simple --property=Restart=no \
+      python3 /opt/intake/lab.py
+    systemd-run --quiet --unit=intake-wrangler --working-directory=/opt/intake/src \
+      --property=Type=simple --property=Restart=no \
+      --setenv=NODE_EXTRA_CA_CERTS=/opt/intake/tls/cert.pem \
+      --setenv=PATH=/opt/node/bin:/usr/local/bin:/usr/bin:/bin \
+      --setenv=CI=1 --setenv=WRANGLER_SEND_METRICS=false \
+      /opt/node/bin/npx wrangler dev --local --ip 127.0.0.1 --port 8788
+
+    end=$((SECONDS + 180))
+    until curl -fsS --max-time 5 http://127.0.0.1:8787/v1/health >/dev/null 2>&1; do
+      (( SECONDS < end )) || { echo "intake did not answer" >&2; exit 4; }
+      sleep 3
+    done

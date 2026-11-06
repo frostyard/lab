@@ -617,6 +617,52 @@ summary ends `PASS` with `verified_problems_probe;problems=<summary>`. The probe
 never fails the run for a product finding
 ([ADR-0017](docs/adr/0017-problems-probe-is-a-report-only-lane-mode.md)).
 
+The optional manifest key `report_probe` replaces the five-boot plan with a
+report-only report probe of the installed image's problem-report sender. It is
+an object with exactly `{"intake": "lab"}` or `{"intake": "production"}`, never
+present with `sysext_probe`, `first_login_probe` or `problems_probe`, and valid
+for all 4 products. On Floe the sender is the snosi sender (snosi ADR-0030); on
+Snow, Snowfield and Sundog it is chairlift v0.15.0's
+`chairlift --send-pending-reports`, run in the test-only user's own session,
+which the boot gets from the first-login probe's autologin setup unit. It never
+stages N+1, so its rule is `version_distinct`, its budget is `installed_boot`,
+and its plan is the one `report` boot of the installed N. Its guest code travels
+in its own `snow-report.z` credential, because it does not fit in `qa.py`. With
+`intake: lab` the run first creates a throwaway Incus **container** with the real
+frostyard/problem-intake Worker under `wrangler dev` and a mock GlitchTip, on the
+container's own address, with a proxy that adds the 3 headers a Cloudflare edge
+adds; the run starts and deletes that container through the mounted Incus socket
+and never keeps it, because it holds the run's random bearer. The guest marks
+`off-begin`, injects 1 app problem and 1 crash, runs the collector twice, and
+proves the off state: no `/etc/snosi-health` before the consent change, a
+sender start that its condition skips, a `send` that answers "problem reporting
+is off", no `sent.jsonl`, and what `send --dry-run` would send. It writes the
+`endpoint=` line of `reporting.conf` as an administrator would, marks `on-begin`,
+turns reporting on (which must keep that endpoint), restarts the timer and waits,
+bounded, for 1 send, marks `on-end`, and reads the sender's own `sent.jsonl`. The
+run pulls the intake's 2 JSON line logs as evidence. With `intake: production`
+there is no container and no consent change: the guest sends exactly 1 lab test
+report (`app_problem`, code `lab.injected_t857`) with `curl`, over `https` only.
+On a desktop the record proves chairlift instead: the probe waits, bounded, for
+the test-only user's session, writes the lab endpoint into
+`/etc/chairlift/config.yml` as an administrator would, runs the sender with no
+consent file and then with a stored off consent, turns the consent on and runs it
+once more, and reads chairlift's own
+`~/.local/state/chairlift/reports.json`. Its `intake: production` path takes the
+1 injected document from `chairlift --send-pending-reports --dry-run`, which
+sends nothing and writes no state, and posts it with `curl`. The host validates
+the record and the intake's logs and prints one `report=<summary>` line in
+`checks.txt` and `report.txt`: `ok`, `unproven-no-sender`, `unproven-session`
+(a desktop with no session), `unproven-intake`, `production-accepted`,
+`missing-production`, or `missing-` plus the failed checks (`off`, `timer`,
+`consent` on Floe; `off` and `cli` on a desktop; `count`, `app`, `crash`,
+`schema`, `ip`, `forward` and `match` on both). A
+summary that starts with `unproven-` ends `BLOCKED` with `report_<summary>`
+([ADR-0003](docs/adr/0003-unproven-is-distinct-from-failed.md)); every other
+summary ends `PASS` with `verified_report_probe;report=<summary>`. The run's
+bearer and DSN key are random per run and never leave the lab container
+([ADR-0018](docs/adr/0018-report-probe-is-a-report-only-lane-mode.md)).
+
 On failure, private evidence may also include `install-diagnostic.txt` (a
 bounded, redacted installer diagnostic or `unavailable`/`unparsed`) and
 `serial-redacted.log` (best-effort, bounded redacted console snapshot; never
@@ -653,8 +699,11 @@ systemd[1]: Received regular credentials: systemd.extra-unit.snosi-qa-install.se
 systemd[1]: Acquired 2 regular credentials, 0 untrusted credentials.
 ```
 
-Results come back on the serial console, which is the only channel that exists
-before a system is installed. The same mechanism carries the post-install
+The SMBIOS table is bounded at 64 KiB **in total**, so the lane bounds the sum of
+a boot's credential values, not only each one (`fail smbios_size`; dev run
+`dev-snow-bootc-lifecycle-6swrx` lost every credential of a desktop report boot
+at about 68500 characters). Results come back on the serial console, which is the
+only channel that exists before a system is installed. The same mechanism carries the post-install
 assertions. The protocol is recorded in
 [ADR-0005](docs/adr/0005-console-marker-protocol-for-agentless-guests.md);
 how the lanes reach the host's incus daemon at all is
