@@ -1102,6 +1102,13 @@ F (native SB) runs in parallel throughout.
    contained. Restricting to protected branches and dispatch is the minimum.
 4. ~~Who owns the signed secure OCI fixtures~~ — **resolved**: none are needed.
    See D3.
+5. **Spec transport after stage:** bootc reports the staged or booted
+   deployment's spec. #146 requires `registry` at `installed-n` and before
+   stage, and accepts `registry` or `containers-storage` after it. A `PASS`
+   does not retain which value each phase saw, so this run cannot settle it.
+   Decide by the next lifecycle change: persist the validated transport in
+   `checks.txt`, then tighten the rule from a run's evidence.
+   Source: [2026-10-26 Snow bootc lifecycle run plan](https://github.com/frostyard/lab/blob/cc3e68a4d51b346f05182ab565aa43a0e8ed34af/docs/plans/2026-10-26-snow-bootc-lifecycle-run.md).
 
 ---
 

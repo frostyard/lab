@@ -2,7 +2,7 @@
 
 This plan records the evidence that
 [snosi#1189](https://github.com/frostyard/snosi/issues/1189) needs. In
-`dev-snow-bootc-lifecycle-c88m4` ([plan](2026-10-29-snow-sysext-probe-lab142.md))
+`dev-snow-bootc-lifecycle-c88m4` ([plan](https://github.com/frostyard/lab/blob/cc3e68a4d51b346f05182ab565aa43a0e8ed34af/docs/plans/2026-10-29-snow-sysext-probe-lab142.md))
 9 units of `incus`, `coder` and `nix` were inactive, with no journal, after
 `updex features enable … --now`, and active after a reboot. The probable cause
 is that PID 1 did not reload, so the new unit files and the `multi-user.target`
@@ -10,7 +10,7 @@ is that PID 1 did not reload, so the new unit files and the `multi-user.target`
 the `sysext_probe` mode of the
 [`run-snow-bootc-lifecycle`](../../argo/workflow-templates/run-snow-bootc-lifecycle.yaml)
 lane (field contract in the
-[README](../../README.md#manual-snow-bootc-lifecycle)) as a dev run from an
+[spec](../specs/bootc-lifecycle-lane.md)) as a dev run from an
 unmerged branch (`dev-snow-bootc-lifecycle-*`, the 2026-10-26 lab exception
 T237f: no publish, no tag move, no change to the main WorkflowTemplate or
 ConfigMap). The probe is advisory and never a release gate
@@ -37,7 +37,7 @@ ConfigMap). The probe is advisory and never a release gate
 ## Phase 2 — Two dev runs
 
 Both runs use the inputs of
-[`snow-sysext-probe-2026-10-29/manifest.json`](snow-sysext-probe-2026-10-29/manifest.json)
+[`snow-sysext-probe-2026-10-29/manifest.json`](../../tests/fixtures/run-records/snow-sysext-probe-2026-10-29/manifest.json)
 (N, N+1, keys), so run A repeats `c88m4` with the same images. Only the ISO
 changed: `snosi-installer_20261029193442` left the signed index, so both
 manifests take its single entry at submit time,
@@ -106,8 +106,8 @@ values come from the private evidence `sysext-enable.json` and
 
 ## References
 
-- Implements: [README — Manual Snow bootc lifecycle](../../README.md#manual-snow-bootc-lifecycle)
+- Implements: [specs/bootc-lifecycle-lane.md — Manual Snow bootc lifecycle](../specs/bootc-lifecycle-lane.md)
 - Issue: [snosi#1189](https://github.com/frostyard/snosi/issues/1189)
-- Earlier plan: [lab#142 probe](2026-10-29-snow-sysext-probe-lab142.md)
+- Earlier plan: [lab#142 probe](https://github.com/frostyard/lab/blob/cc3e68a4d51b346f05182ab565aa43a0e8ed34af/docs/plans/2026-10-29-snow-sysext-probe-lab142.md)
 - Decisions: [ADR-0003](../adr/0003-unproven-is-distinct-from-failed.md),
   [ADR-0010](../adr/0010-vacuous-success-is-forbidden.md)

@@ -37,37 +37,28 @@ Org-wide decisions binding this repo: [org-adrs.md](org-adrs.md).
 
 ### Design
 
-*(none yet)*
+- [architecture.md](design/architecture.md) — stack, the polling and QA
+  pipeline, the container lanes, image lanes, suites, repository layout and
+  known gaps
+- [vm-lanes.md](design/vm-lanes.md) — the incus VM and installer lanes, and
+  driving an agentless guest over serial and SMBIOS credentials
+- [reporting.md](design/reporting.md) — the one-way results pipeline from the
+  cluster to the published dashboard
 
 ### Specs
 
-*(none yet)*
+- [bootc-lifecycle-lane.md](specs/bootc-lifecycle-lane.md) — the manifest field
+  contract and submission interface of the manual Snow bootc lifecycle lane
 
 ### Plans
 
-- [2026-10-26 — First Snow bootc N → N+1 update and rollback run](plans/2026-10-26-snow-bootc-lifecycle-run.md)
-  — selected inputs, preflight record and submit runbook
-- [2026-10-28 — notesd and maild suite sysexts on an installed Snow (sysext probe)](plans/2026-10-28-snow-sysext-probe-run.md)
-  — probe mode, dev run and result
-- [2026-10-28 — First Floe bootc N → N+1 update and rollback run](plans/2026-10-28-floe-bootc-lifecycle-run.md)
-  — selected inputs, known causes (snosi#1130), preflight record and submit runbook
-- [2026-10-30 — First Sundog bootc N → N+1 update and rollback run](plans/2026-10-30-sundog-bootc-lifecycle-run.md)
-  — selected inputs, known causes, dev-run phases
-- [2026-11-03 — First Snowfield bootc N → N+1 update and rollback run](plans/2026-11-03-snowfield-bootc-lifecycle-run.md)
-  — selected inputs, linux-surface fs-verity finding, preflight runbook
-- [2026-11-04 — Snowfield rerun with lockdown fixed](plans/2026-11-04-snowfield-bootc-lifecycle-run.md)
-  — lockdown fixed, `FAILED: fsverity_errors` finding, rerun record
-- [2026-10-29 — Sundog fresh-install rerun with console capture (snosi#1123)](plans/2026-10-29-sundog-fresh-install-rerun.md)
-  — runs, the ffbw7 serial stall and the kernel-log marker fix
-- [2026-10-29 — incus, coder and nix sysext activation on an installed Snow (lab#142)](plans/2026-10-29-snow-sysext-probe-lab142.md)
-  — `.mount` units in the probe, dev run and result
+<!-- Plans for finished work are removed once their record is in quality.md,
+the roadmap or an ADR; git keeps them. -->
+
 - [2026-10-30 — Load-state evidence for the sysext probe (snosi#1189)](plans/2026-10-30-snow-sysext-probe-snosi1189.md)
   — `LoadState` and `NeedDaemonReload` in the record, control and reload dev runs
-- [2026-11-01 — Sundog lifecycle with a bootc 1.17.1 N (snosi#1130 prediction, lab#174)](plans/2026-11-01-sundog-bootc117-lifecycle-run.md)
-  — first `fsverity.txt` evidence, 3 dev runs and the 9 s boot stop
 - [2026-11-04 — First-login probe on today's images (T843 t2)](plans/2026-11-04-first-login-probe-runs.md)
   — first-setup once on Snow and Snowfield, Sundog and Floe dev runs
-- [2026-11-05 — Lockdown proof for snosi#1214 on Snow and Snowfield](plans/2026-11-05-lockdown-1214-lifecycle-runs.md)
 - [2026-11-05 — Problems probe on the snosi-health images (T857 t7)](plans/2026-11-05-problems-probe-runs.md)
   — N before #1214 to N+1, per-boot lockdown and command line, bootc 1.17.1 to 1.17.3
 - [2026-11-05 — Report probe on the Floe report sender (T857 t21)](plans/2026-11-05-report-probe-runs.md)
@@ -79,6 +70,8 @@ Org-wide decisions binding this repo: [org-adrs.md](org-adrs.md).
   the evidence audit
 - [ops/bootstrap.md](ops/bootstrap.md) — from a bare k3s node to a
   reconciling lab
+- [ops/operating.md](ops/operating.md) — operator clients, the `just` recipes
+  and the command each one runs
 - [quality.md](quality.md) — quality signals, evidence, and known gaps
 - [risk-tiers.md](risk-tiers.md) — change risk tiers used by review and CI
 - [review-rubric.md](review-rubric.md) — what review checks, by tier

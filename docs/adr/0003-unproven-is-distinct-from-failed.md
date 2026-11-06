@@ -59,7 +59,7 @@ and rendered end to end:
 ## References
 
 - Shapes: [docs/roadmap.md](../roadmap.md) (Phase A, item A4),
-  [README.md — Reporting](../../README.md#reporting)
+  [design/reporting.md — Reporting](../design/reporting.md)
 - Implemented by: [scripts/collect_runs.py](../../scripts/collect_runs.py),
   [site/src/dashboard.mjs](../../site/src/dashboard.mjs),
   [site/src/pages/index.astro](../../site/src/pages/index.astro)

@@ -1,1 +1,0 @@
-PASS: verified_five_fresh_boots;fsverity_known_defect=7.2.12+deb14-amd64

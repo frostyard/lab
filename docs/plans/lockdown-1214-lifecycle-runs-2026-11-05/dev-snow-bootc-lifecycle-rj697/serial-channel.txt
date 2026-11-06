@@ -1,5 +1,0 @@
-phase=installed-n serial_record=1 kmsg_record=1
-phase=stage serial_record=1 kmsg_record=1
-phase=boot-n-plus-1 serial_record=1 kmsg_record=1
-phase=rollback serial_record=1 kmsg_record=1
-phase=boot-n serial_record=1 kmsg_record=1

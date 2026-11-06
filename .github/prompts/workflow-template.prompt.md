@@ -11,7 +11,8 @@ Read first:
   `templateRef`. `snosi-qa-pipeline.yaml` is the DAG entry point;
   `image-poller.yaml` is the digest poll.
 - `argo/*.yaml` — one-off `Workflow` objects used for manual submissions.
-- `README.md` § Architecture, for how a poll turns into a pipeline run.
+- `docs/design/architecture.md` § Architecture, for how a poll turns into a
+  pipeline run.
 
 ## Rules
 

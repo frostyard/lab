@@ -16,10 +16,16 @@ durable corrections belong in `.memory/`.
 
 ## Current handoff
 
-- **Date:** 2026-08-08
-- **Objective:** Add the ACMM session-summary learning artifact.
-- **Outcome:** Added this repository-specific session handoff.
-- **Decisions:** Keep summaries concise and store reusable corrections in
-  `.memory/`.
-- **Validation:** Confirmed the artifact exists at the ACMM-recognized path.
-- **Next step:** No follow-up is required for this documentation-only change.
+- **Date:** 2026-11-06
+- **Objective:** Bring the repository to frostyard core's repository baseline
+  (ADR-0071, rows B1 to B17).
+- **Outcome:** `make verify` / `make ci` gate, `mise.toml`, risk-path list and
+  caller, Dependabot, `SECURITY.md`, PR template risk tier, README to the
+  `infrastructure` kind; README detail moved to `docs/design/`,
+  `docs/specs/bootc-lifecycle-lane.md` and `docs/ops/operating.md`; done
+  plans deleted (git keeps them).
+- **Decisions:** `docs/plans/` holds open work only; tests read frozen run
+  records in `tests/fixtures/run-records/`.
+- **Validation:** `make ci BASE=origin/main`.
+- **Next step:** B5 follow-up: move the write permissions of `pages.yml` and
+  `labeler.yml` from the top level to the jobs.

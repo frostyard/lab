@@ -20,7 +20,7 @@ from test_floe_bootc_lifecycle import (  # noqa: F401  (qa is a fixture)
     floe_catalog, qa, shipped, swap)
 
 SUNDOG = "ghcr.io/frostyard/sundog"
-RUN_RECORD = ROOT / "docs/plans/sundog-bootc-lifecycle-run-2026-10-30/manifest.json"
+RUN_RECORD = ROOT / "tests/fixtures/run-records/sundog-bootc-lifecycle-run-2026-10-30/manifest.json"
 
 
 def sundog_manifest():

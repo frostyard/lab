@@ -48,7 +48,7 @@ whose whole job is leaving a trace."
 - Evidence for a failed run is wherever the failure was: the workflow log
   first, then `/var/lib/snosi-lab/secure/logs` on the host for the secure
   lane. Operators must know both places
-  ([README.md — Operating it](../../README.md#operating-it)).
+  ([ops/operating.md — Operating the lab](../ops/operating.md)).
 - Host-persisted logs are unbounded by any rotation; the directory needs
   occasional manual pruning (accepted for one lane's worth of logs).
 - Log-surface evidence is lost when the Workflow object ages out of
@@ -72,7 +72,7 @@ whose whole job is leaving a trace."
 
 ## References
 
-- Shapes: [README.md — Reporting](../../README.md#reporting)
+- Shapes: [design/reporting.md — Reporting](../design/reporting.md)
 - Implemented by:
   [argo/workflow-templates/run-secure-install-tests.yaml](../../argo/workflow-templates/run-secure-install-tests.yaml),
   [argo/workflow-templates/run-incus-vm-tests.yaml](../../argo/workflow-templates/run-incus-vm-tests.yaml),

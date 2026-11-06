@@ -197,7 +197,7 @@ byte-identical to v7.2.12 and still calls `fsverity_verify_folio()` in
 `btrfs_verify_folio()`, the upstream `ChangeLog-7.2.13` to `-7.2.15` have no
 btrfs commit, and the linux-surface `patches/7.2` set (base v7.2.15) touches no
 file under `fs/` or `mm/`. Snowfield run `dev-snow-bootc-lifecycle-v4cgb`
-([record](plans/2026-11-04-snowfield-bootc-lifecycle-run.md)) logged 2, 1, 0,
+([record](https://github.com/frostyard/lab/blob/cc3e68a4d51b346f05182ab565aa43a0e8ed34af/docs/plans/2026-11-04-snowfield-bootc-lifecycle-run.md)) logged 2, 1, 0,
 1 and 2 errors in its five boots, all `level=-1` on `dm-0`; its kept serial
 log (the `boot-n` boot) has no btrfs checksum or I/O error. Only that exact name is listed: another linux-surface
 build fails until it is checked the same way. A
@@ -307,26 +307,26 @@ The [manual Snow bootc WorkflowTemplate](../argo/workflow-templates/run-snow-boo
 accepts explicit public `manifest-json` and optional `keep-vm-on-failure`
 (default `false`); the exact fields, trust pins,
 operator-controlled N+1 target tag and submission interface are in the
-[README](../README.md#manual-snow-bootc-lifecycle). It is not scheduled, not a
+[spec](specs/bootc-lifecycle-lane.md). It is not scheduled, not a
 release gate. Its first manual main-lane PASS (`run-snow-bootc-lifecycle-tbjnp`,
 2026-10-26) is recorded in the
-[run plan](plans/2026-10-26-snow-bootc-lifecycle-run.md#result-2026-10-26-pass). The manifest field
+[run plan](https://github.com/frostyard/lab/blob/cc3e68a4d51b346f05182ab565aa43a0e8ed34af/docs/plans/2026-10-26-snow-bootc-lifecycle-run.md#result-2026-10-26-pass). The manifest field
 `product` (`snow`, `floe`, `snowfield` or `sundog`) selects the image
 ([ADR-0012](adr/0012-lifecycle-lane-product-comes-from-the-hashed-manifest.md)); the result line
 and `checks.txt` do not name it, so read a result with its `manifest_sha256`.
 Floe has offline contract tests and a
-[run plan](plans/2026-10-28-floe-bootc-lifecycle-run.md) with its first main-lane PASS
+[run plan](https://github.com/frostyard/lab/blob/cc3e68a4d51b346f05182ab565aa43a0e8ed34af/docs/plans/2026-10-28-floe-bootc-lifecycle-run.md) with its first main-lane PASS
 (`run-snow-bootc-lifecycle-v9bkv`, 2026-10-29). Sundog has offline contract tests and a
-[run plan](plans/2026-10-30-sundog-bootc-lifecycle-run.md) with a dev-run PASS
+[run plan](https://github.com/frostyard/lab/blob/cc3e68a4d51b346f05182ab565aa43a0e8ed34af/docs/plans/2026-10-30-sundog-bootc-lifecycle-run.md) with a dev-run PASS
 (`dev-snow-bootc-lifecycle-rs6sh`, 2026-10-30), but no main-lane run yet.
 Snowfield is accepted with offline contract tests and a
-[run plan](plans/2026-11-03-snowfield-bootc-lifecycle-run.md); its first dev run
+[run plan](https://github.com/frostyard/lab/blob/cc3e68a4d51b346f05182ab565aa43a0e8ed34af/docs/plans/2026-11-03-snowfield-bootc-lifecycle-run.md); its first dev run
 (`dev-snow-bootc-lifecycle-pnljz`) ended `BLOCKED` on the guest `lockdown` gate
 ([snosi#1213](https://github.com/frostyard/snosi/issues/1213)). The rerun
-[`dev-snow-bootc-lifecycle-v4cgb`](plans/2026-11-04-snowfield-bootc-lifecycle-run.md)
+[`dev-snow-bootc-lifecycle-v4cgb`](https://github.com/frostyard/lab/blob/cc3e68a4d51b346f05182ab565aa43a0e8ed34af/docs/plans/2026-11-04-snowfield-bootc-lifecycle-run.md)
 fixed lockdown by snosi#1214, then ended `FAILED: fsverity_errors` on
 linux-surface ([snosi#1130](https://github.com/frostyard/snosi/issues/1130)).
-The [snosi#1214 lockdown proof](plans/2026-11-05-lockdown-1214-lifecycle-runs.md)
+The [snosi#1214 lockdown proof](https://github.com/frostyard/lab/blob/cc3e68a4d51b346f05182ab565aa43a0e8ed34af/docs/plans/2026-11-05-lockdown-1214-lifecycle-runs.md)
 updated an N from before #1214 to N+1 and back: Snow `rj697` PASS (bootc
 1.17.1 to 1.17.3), Snowfield `dm5bp` `FAILED: fsverity_errors` from a dev-only
 lane copy, with `lockdown=integrity` on every N+1 boot.
@@ -538,7 +538,7 @@ key are random per run and stay in the lab container
 | `site/`, `e2e/`, or Playwright configuration | `just site-e2e`; run `cd site && npm test` when changing the API/data helpers. |
 | `scripts/`, `tests/`, or `policies/` | `python -m pytest -q`; for governance changes also run `python3 policies/check_agent_governance.py`. |
 | `argo/`, `manifests/`, `argocd/`, or Kubernetes resources | `python -m pytest -q` for offline schema and cross-resource contracts; also run `argo lint` where applicable and `just validate` against a configured cluster. |
-| Documentation | Commands and links resolve; present-tense lane claims agree with the committed run snapshot and `README.md`. August statements in `docs/roadmap.md` are historical. |
+| Documentation | Commands and links resolve; present-tense lane claims agree with the committed run snapshot and `docs/design/`. August statements in `docs/roadmap.md` are historical. |
 | Every pull request | Follow the [contributing guide](../CONTRIBUTING.md) and record the relevant result in the pull request's Testing section. Same-repository, non-draft pull requests also receive the advisory [Claude review](claude-code-review.md). |
 
 ## Known gaps

@@ -4,7 +4,7 @@ This plan proves phase 1 of plan T857 in the lab: the snosi-health collector
 and systemd-coredump that [snosi#1226](https://github.com/frostyard/snosi/pull/1226)
 (merge `b6e5e076`, snosi ADR-0029) ship on every product. It uses the
 report-only [problems probe](../adr/0017-problems-probe-is-a-report-only-lane-mode.md)
-of the [bootc lifecycle lane](../../README.md#manual-snow-bootc-lifecycle) on
+of the [bootc lifecycle lane](../specs/bootc-lifecycle-lane.md) on
 Snow, Sundog and Floe, on a fresh install and on the update path from the
 previous image. Snow covers Snowfield (there is no separate Snowfield check in
 plan T857). The probe records; it gates nothing until 3 runs with
@@ -103,7 +103,7 @@ reportable), the app problem (reportable), the stage failure
 version), and 1 `integrity_error` (`fs-verity`, reportable) that nobody
 injected. It is most likely the known btrfs fs-verity kernel defect
 ([snosi#1130](https://github.com/frostyard/snosi/issues/1130)): the same
-day's [lockdown runs](2026-11-05-lockdown-1214-lifecycle-runs.md) saw it on
+day's [lockdown runs](https://github.com/frostyard/lab/blob/cc3e68a4d51b346f05182ab565aa43a0e8ed34af/docs/plans/2026-11-05-lockdown-1214-lifecycle-runs.md) saw it on
 `7.2.12+deb14-amd64`, a known-defect kernel. The lane passes it as a known
 defect, but the collector records it as a reportable problem; that is a snosi
 question for phase 2, not a lab check.

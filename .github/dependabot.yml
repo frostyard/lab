@@ -1,0 +1,44 @@
+# Dependabot (frostyard core ADR-0071 row B13): 1 entry for each ecosystem
+# with a manifest in this repository.
+#   github-actions  the actions that the workflows pin (ADR-0021)
+#   npm /           package.json: the Playwright end-to-end suite (e2e/)
+#   npm /site       site/package.json: the Astro QA dashboard
+#   pip /           requirements-test.txt: pytest and the YAML and Kubernetes
+#                   schema validators
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+
+  - package-ecosystem: "npm"
+    directory: "/site"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore"
+      include: "scope"

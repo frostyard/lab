@@ -1,0 +1,10 @@
+# Tool pins for this repository (frostyard core ADR-0043). mise.lock carries
+# the checksums. `mise install` provisions the same versions locally and in CI.
+[settings]
+lockfile = true
+
+[tools]
+# The template gate (make verify-template) runs scripts/check-template.mjs and
+# the Node tests. Node 24 LTS. The site and the Playwright suite keep their own
+# Node matrix in .github/workflows/ (ci.yml, e2e.yml, pages.yml).
+node = "24.22.2"

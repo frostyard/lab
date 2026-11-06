@@ -18,8 +18,8 @@ from test_floe_bootc_lifecycle import (  # noqa: F401  (qa is a fixture)
 
 SNOWFIELD = "ghcr.io/frostyard/snowfield"
 SUNDOG = "ghcr.io/frostyard/sundog"
-RUN_RECORD = ROOT / "docs/plans/snowfield-bootc-lifecycle-run-2026-11-03/manifest.json"
-RERUN_RECORD = ROOT / "docs/plans/snowfield-bootc-lifecycle-run-2026-11-04/manifest.json"
+RUN_RECORD = ROOT / "tests/fixtures/run-records/snowfield-bootc-lifecycle-run-2026-11-03/manifest.json"
+RERUN_RECORD = ROOT / "tests/fixtures/run-records/snowfield-bootc-lifecycle-run-2026-11-04/manifest.json"
 
 
 def snowfield_manifest():
@@ -155,7 +155,7 @@ def test_committed_snowfield_rerun_manifest_validates(qa):
     assert qa.normalize(dict(manifest)) == manifest
 
 
-RERUN_PLAN = ROOT / "docs/plans/2026-11-04-snowfield-bootc-lifecycle-run.md"
+RERUN_PLAN = ROOT / "tests/fixtures/run-records/2026-11-04-snowfield-bootc-lifecycle-run.md"
 
 
 def test_rerun_plan_attributes_each_phase_to_the_image_the_lane_boots():

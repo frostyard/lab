@@ -65,7 +65,7 @@ as the correctness mechanism.
 
 ## References
 
-- Shapes: [README.md — Repository layout](../../README.md#repository-layout)
+- Shapes: [design/architecture.md — Repository layout](../design/architecture.md#repository-layout)
   (workflow-semaphores annotation)
 - Implemented by:
   [manifests/workflow-semaphores.yaml](../../manifests/workflow-semaphores.yaml),

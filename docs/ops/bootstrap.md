@@ -32,7 +32,7 @@ kubectl config current-context
 kubectl get namespaces argo argocd
 ```
 
-See the [operator client and command mapping](../../README.md#operating-it) for
+See the [operator client and command mapping](operating.md) for
 which recipes invoke `kubectl` versus `argo`.
 
 On an image-based host (snosi, Bluefin) install k3s with

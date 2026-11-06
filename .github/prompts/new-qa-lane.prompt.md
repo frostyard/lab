@@ -28,7 +28,8 @@ fails.
 5. **Reporting.** Check `scripts/collect_runs.py` and its tests in
    `tests/test_collect_runs.py` — if the lane's naming or labels do not match
    what the collector expects, the run will not show on the site.
-6. **Docs.** Update the lane table in `README.md` and the status table in
+6. **Docs.** Update the lane table in `docs/design/architecture.md` (Image
+   lanes) or `docs/design/vm-lanes.md`, and the status table in
    `docs/roadmap.md`.
 
 ## Check your work
