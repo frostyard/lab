@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "paths": [
+    {
+      "glob": ".github/risk-paths.json",
+      "why": "quality-gates: the high-risk path list"
+    },
+    {
+      "glob": ".github/workflows/**",
+      "why": "workflow-permissions: CI, the Pages deploy, the risk-paths caller and their token permissions"
+    },
+    {
+      "glob": "argo/workflow-templates/**",
+      "why": "argo-cd-ownership: WorkflowTemplates that Argo CD syncs to the cluster (Application frostyard-lab); the lanes run on the lab host"
+    },
+    {
+      "glob": "manifests/**",
+      "why": "kubernetes-rbac: RBAC, CronWorkflows, semaphores, digest state and result publication that Argo CD syncs (Application frostyard-lab-infra)"
+    },
+    {
+      "glob": "argocd/**",
+      "why": "argo-cd-ownership: the Argo CD Applications and the hand-applied bootstrap"
+    },
+    {
+      "glob": "Justfile",
+      "why": "cluster-credentials: operator recipes that apply, annotate and submit with the current kubeconfig"
+    },
+    {
+      "glob": "scripts/*-dev-submit.sh",
+      "why": "cluster-credentials: dev Workflow submits with the operator's kubeconfig"
+    },
+    {
+      "glob": "scripts/collect_runs.py",
+      "why": "evidence-publication: the collector that writes the published runs.json"
+    },
+    {
+      "glob": "policies/**",
+      "why": "quality-gates: the agent governance policy and its checker"
+    },
+    {
+      "glob": "Makefile",
+      "why": "quality-gates: the verify gate"
+    },
+    {
+      "glob": "pytest.ini",
+      "why": "quality-gates: the pytest coverage gate"
+    },
+    {
+      "glob": ".coverage-thresholds.json",
+      "why": "quality-gates: the coverage thresholds"
+    },
+    {
+      "glob": "scripts/check-template.mjs",
+      "why": "quality-gates: the template verification gate"
+    },
+    {
+      "glob": "scripts/check-corrections.mjs",
+      "why": "quality-gates: the corrections validation gate"
+    },
+    {
+      "glob": "scripts/lib/**",
+      "why": "quality-gates: the vendored risk-path validator and matcher"
+    },
+    {
+      "glob": "mise.toml",
+      "why": "quality-gates: the tool pins that the gate installs"
+    },
+    {
+      "glob": "mise.lock",
+      "why": "quality-gates: the checksums of the tools that the gate installs"
+    }
+  ]
+}

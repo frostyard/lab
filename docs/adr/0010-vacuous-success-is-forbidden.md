@@ -75,7 +75,7 @@ sites:
 
 ## References
 
-- Shapes: [README.md — Suites](../../README.md#suites)
+- Shapes: [design/architecture.md — Suites](../design/architecture.md#suites)
 - Implemented by:
   [argo/workflow-templates/snosi-qa-pipeline.yaml](../../argo/workflow-templates/snosi-qa-pipeline.yaml),
   [argo/secure-install-watch.yaml](../../argo/secure-install-watch.yaml),

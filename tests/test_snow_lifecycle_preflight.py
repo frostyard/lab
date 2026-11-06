@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 TOOL = ROOT / "scripts/snow-lifecycle-preflight"
 CONFIGMAP = ROOT / "argo/workflow-templates/snow-bootc-lifecycle-scripts.yaml"
-RUN_DIR = ROOT / "docs/plans/snow-bootc-lifecycle-run-2026-10-26"
+RUN_DIR = ROOT / "tests/fixtures/run-records/snow-bootc-lifecycle-run-2026-10-26"
 
 
 def test_scripts_parse():

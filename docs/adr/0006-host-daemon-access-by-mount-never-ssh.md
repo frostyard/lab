@@ -73,7 +73,7 @@ directory; its Microsoft-enrolled firmware comes from the container's own
 
 ## References
 
-- Shapes: [README.md — The incus VM lane](../../README.md#the-incus-vm-lane)
+- Shapes: [design/vm-lanes.md — The incus VM lane](../design/vm-lanes.md#the-incus-vm-lane)
 - Implemented by:
   [argo/workflow-templates/run-incus-install-tests.yaml](../../argo/workflow-templates/run-incus-install-tests.yaml),
   [argo/workflow-templates/run-incus-vm-tests.yaml](../../argo/workflow-templates/run-incus-vm-tests.yaml),

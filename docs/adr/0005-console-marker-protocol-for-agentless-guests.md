@@ -69,7 +69,7 @@ mechanisms that work against unmodified images:
 
 ## References
 
-- Shapes: [README.md — Driving a guest with no agent and no SSH](../../README.md#driving-a-guest-with-no-agent-and-no-ssh)
+- Shapes: [design/vm-lanes.md — Driving a guest with no agent and no SSH](../design/vm-lanes.md#driving-a-guest-with-no-agent-and-no-ssh)
 - Implemented by:
   [argo/workflow-templates/run-incus-install-tests.yaml](../../argo/workflow-templates/run-incus-install-tests.yaml),
   [argo/workflow-templates/run-incus-bootc-install-tests.yaml](../../argo/workflow-templates/run-incus-bootc-install-tests.yaml),

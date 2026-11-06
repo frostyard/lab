@@ -97,7 +97,7 @@ Two ownership rules make the state safe:
 
 ## References
 
-- Shapes: [README.md — Architecture](../../README.md#architecture)
+- Shapes: [design/architecture.md — Architecture](../design/architecture.md#architecture)
 - Implemented by:
   [argo/workflow-templates/image-poller.yaml](../../argo/workflow-templates/image-poller.yaml),
   [manifests/image-polling-digests.yaml](../../manifests/image-polling-digests.yaml),

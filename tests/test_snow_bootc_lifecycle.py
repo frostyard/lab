@@ -2881,11 +2881,10 @@ def test_manual_lane_docs_match_runner_manifest_and_template(qa):
     entry = next(t for t in template["spec"]["templates"] if t["name"] == template["spec"]["entrypoint"])
     assert entry["inputs"]["parameters"] == [
         {"name": "manifest-json"}, {"name": "keep-vm-on-failure", "value": "false"}]
-    readme = (root / "README.md").read_text()
     quality = (root / "docs/quality.md").read_text()
-    section = readme.split("### Manual Snow bootc lifecycle", 1)[1].split("\n### ", 1)[0]
+    section = (root / "docs/specs/bootc-lifecycle-lane.md").read_text()
     quality_section = quality.split("## Manual Snow bootc lifecycle evidence", 1)[1].split("\n## ", 1)[0]
-    assert "argo/workflow-templates/run-snow-bootc-lifecycle.yaml" in section
+    assert "../../argo/workflow-templates/run-snow-bootc-lifecycle.yaml" in section
     assert "../argo/workflow-templates/run-snow-bootc-lifecycle.yaml" in quality_section
     assert "manifest-json" in section and "manifest-json" in quality_section
     documented = set(re.findall(r"^\| `([a-z][a-z0-9_]*)` \|", section, flags=re.M))
@@ -3858,7 +3857,7 @@ SYSEXT_PROBE = {"features": ["notesd", "maild"],
                 "first_start": [{"unit": "frostmail-secrets-key.service",
                                  "path": "/etc/credstore.encrypted/frostmail-secrets-key"}]}
 SECRET_PATH = "/etc/credstore.encrypted/frostmail-secrets-key"
-DEV_PLAN = Path(__file__).resolve().parents[1] / "docs/plans/snow-sysext-probe-2026-10-28/manifest.json"
+DEV_PLAN = Path(__file__).resolve().parents[1] / "tests/fixtures/run-records/snow-sysext-probe-2026-10-28/manifest.json"
 
 
 # snosi#1189 evidence: the target's load state as the guest records it.
@@ -3940,7 +3939,7 @@ def test_sysext_probe_rejects_unsafe_input(qa, change):
         qa.normalize(m)
 
 
-LAB142_PLAN = Path(__file__).resolve().parents[1] / "docs/plans/snow-sysext-probe-2026-10-29/manifest.json"
+LAB142_PLAN = Path(__file__).resolve().parents[1] / "tests/fixtures/run-records/snow-sysext-probe-2026-10-29/manifest.json"
 
 
 def test_lab142_dev_plan_normalizes_with_the_mount_unit(qa):

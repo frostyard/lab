@@ -1,7 +1,0 @@
-phase=installed-n seq=1 device=dm-0 inode=219275 pos=430080 level=-1
-phase=stage seq=1 device=dm-0 inode=199057 pos=4485120 level=-1
-phase=boot-n-plus-1 seq=1 device=dm-0 inode=219275 pos=430080 level=-1
-phase=boot-n-plus-1 seq=2 device=dm-0 inode=219275 pos=1212416 level=-1
-phase=boot-n-plus-1 seq=3 device=dm-0 inode=199057 pos=4485120 level=-1
-phase=rollback seq=1 device=dm-0 inode=199057 pos=4485120 level=-1
-phase=boot-n seq=1 device=dm-0 inode=199057 pos=4485120 level=-1

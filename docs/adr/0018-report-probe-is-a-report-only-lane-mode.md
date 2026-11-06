@@ -205,7 +205,7 @@ workflow publishes it as the `report` output parameter.
 
 ## References
 
-- Shapes: [README — Manual Snow bootc lifecycle](../../README.md#manual-snow-bootc-lifecycle),
+- Shapes: [specs/bootc-lifecycle-lane.md — Manual Snow bootc lifecycle](../specs/bootc-lifecycle-lane.md),
   [quality.md — Manual Snow bootc lifecycle evidence](../quality.md#manual-snow-bootc-lifecycle-evidence)
 - Run plan: [2026-11-05 — Report probe on the Floe report sender](../plans/2026-11-05-report-probe-runs.md)
 - Builds on: [ADR-0003](0003-unproven-is-distinct-from-failed.md),

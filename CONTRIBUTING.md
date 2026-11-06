@@ -18,9 +18,10 @@ or supporting docs/tooling (`docs/`, `Justfile`, `scripts/`, `site/`).
 ## Getting started
 
 1. Fork the repository and create a branch for your change.
-2. Read the [README](README.md) for an overview of the pipeline architecture,
-   and [docs/](docs/) for deeper operational guides (bootstrap, roadmap,
-   etc.).
+2. Read the [README](README.md) for an overview, the
+   [architecture](docs/design/architecture.md) for how the pipeline fits
+   together, and [docs/](docs/README.md) for the decisions, contracts and
+   operational guides (bootstrap, operating, roadmap, etc.).
 3. The [`Justfile`](Justfile) has convenience recipes for common operations
    (`just status`, `just refresh`, `just smoke`, `just qa ...`). Run
    `just --list` to see everything available.
@@ -52,6 +53,21 @@ python -m pytest -q tests/test_collect_runs.py
 
 Run the full suite before opening a pull request. Changes to the agent
 governance policy also require `python3 policies/check_agent_governance.py`.
+
+## The make gate
+
+`make verify` is the gate that CI runs (job `Repository gate` runs
+`make ci`). It runs the template gate (agent symlinks, docs index, risk-path
+list, corrections, vendored core copies) and its Node tests, the policy
+check, the pytest suite and the dashboard unit tests. It needs Node.js 22 or
+later (`mise install` provides the pinned Node 24 from `mise.toml`) and the
+Python test dependencies above, in the active environment:
+
+```bash
+mise install
+make verify
+make ci BASE=origin/main   # adds the append-only corrections check
+```
 
 ## Making changes
 

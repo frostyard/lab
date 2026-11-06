@@ -75,7 +75,7 @@ fight over the same object.
 ## References
 
 - Shapes: [docs/ops/bootstrap.md](../ops/bootstrap.md),
-  [README.md — Architecture](../../README.md#architecture)
+  [design/architecture.md — Architecture](../design/architecture.md#architecture)
 - Implemented by: [argocd/application.yaml](../../argocd/application.yaml),
   [argocd/infra-application.yaml](../../argocd/infra-application.yaml),
   [argocd/argo-workflows-app.yaml](../../argocd/argo-workflows-app.yaml)

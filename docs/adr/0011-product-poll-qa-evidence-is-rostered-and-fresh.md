@@ -98,7 +98,7 @@ continuous product QA**.
 
 ## References
 
-- Shapes: [README.md — Reporting](../../README.md#reporting),
+- Shapes: [design/reporting.md — Reporting](../design/reporting.md),
   [quality.md — Triaging product QA evidence](../quality.md#triaging-product-qa-evidence)
 - Implemented by: [scripts/collect_runs.py](../../scripts/collect_runs.py),
   [site/src/dashboard.mjs](../../site/src/dashboard.mjs),

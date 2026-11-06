@@ -2,7 +2,7 @@
 
 This plan proves the report-only
 [first-login probe](../adr/0016-first-login-probe-is-a-report-only-lane-mode.md)
-of the [bootc lifecycle lane](../../README.md#manual-snow-bootc-lifecycle) on
+of the [bootc lifecycle lane](../specs/bootc-lifecycle-lane.md) on
 the 4 products before the first-login trigger moves from first-setup to the
 chairlift first run (plan T843, task t3 in snosi). The expected result on
 today's images: first-setup once on Snow and Snowfield, nothing on Sundog

@@ -65,8 +65,8 @@ name the lane, not the image.
 
 ## References
 
-- Shapes: [plans/2026-10-28-floe-bootc-lifecycle-run.md](../plans/2026-10-28-floe-bootc-lifecycle-run.md),
-  [README — Manual Snow bootc lifecycle](../../README.md#manual-snow-bootc-lifecycle)
+- Shapes: [plans/2026-10-28-floe-bootc-lifecycle-run.md](https://github.com/frostyard/lab/blob/cc3e68a4d51b346f05182ab565aa43a0e8ed34af/docs/plans/2026-10-28-floe-bootc-lifecycle-run.md),
+  [specs/bootc-lifecycle-lane.md — Manual Snow bootc lifecycle](../specs/bootc-lifecycle-lane.md)
 - Builds on: [ADR-0003](0003-unproven-is-distinct-from-failed.md),
   [ADR-0005](0005-console-marker-protocol-for-agentless-guests.md),
   [ADR-0010](0010-vacuous-success-is-forbidden.md)

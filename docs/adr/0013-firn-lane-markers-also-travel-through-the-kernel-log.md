@@ -21,7 +21,7 @@ passing boots the reset sequence and the systemd status follow at once. So
 kernel printk survives on the serial console when userspace writes to ttyS0 do
 not. The guest kernel `console_loglevel` is 7 and `printk_devkmsg` is `on`.
 The fault is intermittent: 1 of 24 Sundog installed boots that night
-([run record](../plans/2026-10-29-sundog-fresh-install-rerun.md)).
+([run record](https://github.com/frostyard/lab/blob/cc3e68a4d51b346f05182ab565aa43a0e8ed34af/docs/plans/2026-10-29-sundog-fresh-install-rerun.md)).
 
 With every marker on ttyS0 only, a stalled TTY loses the whole result and the
 lane reports `no_report`, which does not say why.

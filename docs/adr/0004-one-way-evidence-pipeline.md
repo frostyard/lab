@@ -74,7 +74,7 @@ each hop, and lanes never know reporting exists:
 
 ## References
 
-- Shapes: [README.md — Reporting](../../README.md#reporting)
+- Shapes: [design/reporting.md — Reporting](../design/reporting.md)
 - Implemented by: [scripts/collect_runs.py](../../scripts/collect_runs.py),
   [manifests/publish-results.yaml](../../manifests/publish-results.yaml),
   [site/src/dashboard.mjs](../../site/src/dashboard.mjs)

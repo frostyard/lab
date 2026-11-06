@@ -1,27 +1,61 @@
-# Run the repository's unit-test surfaces across supported runtime generations.
+# CI entry (frostyard core ADR-0071 row B12): job `gate` runs `make ci`, the
+# make gate of ADR-0043 and ADR-0044 (template gate, policy check, pytest,
+# dashboard unit tests, append-only corrections). Jobs `python` and `site` run
+# the same test targets on the other supported runtime generations.
+# ADR-0021: SHA-pinned actions, top-level permissions {}, contents: read only,
+# and checkout does not persist credentials. No secrets.
 name: CI
 
 on:
   pull_request:
   push:
     branches: [main]
+  merge_group: {}
   workflow_dispatch:
 
-permissions:
-  contents: read
+permissions: {}
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  gate:
+    name: Repository gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+          # check-corrections.mjs --base reads the base commit's copy.
+          fetch-depth: 0
+      # Node comes from mise.toml and mise.lock (ADR-0043), checksum-verified,
+      # the same way a developer's `mise install` does.
+      - uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # v4.2.5
+        with:
+          install: true
+          install_args: node
+          cache: true
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -r requirements-test.txt
+      - run: make ci BASE="$BASE"
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || '' }}
+
   python:
     name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.12', '3.13']
+        python-version: ['3.12']
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
@@ -30,11 +64,13 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: python -m pip install -r requirements-test.txt
-      - run: python -m pytest -q
+      - run: make verify-python PYTHON=python
 
   site:
     name: Node.js ${{ matrix.node-version }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -48,19 +84,4 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: npm
           cache-dependency-path: site/package-lock.json
-      - run: npm ci
-        working-directory: site
-      # Node.js exits successfully when its test glob matches nothing.
-      - name: Assert unit test files exist
-        working-directory: site
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          files=(test/*.test.mjs)
-          if (( ${#files[@]} == 0 )); then
-            echo "::error::No files match site/test/*.test.mjs; npm test would run zero tests"
-            exit 1
-          fi
-          echo "Found ${#files[@]} test file(s): ${files[*]}"
-      - run: npm test
-        working-directory: site
+      - run: make verify-site
