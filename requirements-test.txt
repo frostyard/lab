@@ -1,4 +1,4 @@
 pytest==8.4.2
 pytest-cov==7.1.0
 PyYAML==6.0.3
-kubernetes-validate==1.36.0
+kubernetes-validate==1.37.0
