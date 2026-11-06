@@ -133,8 +133,9 @@ and an account. No boot-time regression is visible against the T843 baseline.
   tag is operator-owned (Brian); a dev run never moves it.
 - **Done when:** each product has 1 update run with `problems=ok`, which also
   proves that `preset-reconcile` enables `snosi-health.timer` and that sysusers
-  creates `systemd-coredump` on an updated host. Not met on 2026-11-05: the
-  timer is enabled but not active on the first N+1 boot (results below).
+  creates `systemd-coredump` on an updated host. Met on 2026-11-05 under
+  Brian's rule T893d: the timer is enabled on the first N+1 boot and active on
+  the second (results below).
 
 Brian moved the 3 `qa-controlled` tags to the t5 images (T893); each target
 was read from the registry before the runs. The runs ran the merged lane
@@ -190,6 +191,53 @@ The update runs have 4 records, not 5: no run recorded an `integrity_error`
 (the unexplained fs-verity record of the fresh runs). The boot timing of the
 first N+1 boot is at or below each product's fresh median above (Snow
 21338 ms, Floe 17591 ms, Sundog 21057 ms).
+
+### Result 2026-11-05: Snow, Floe and Sundog PASS, problems=ok (T893d rule)
+
+Brian decided (T893d) that the probe accepts next-boot activation: on the
+update path the timer may be `enabled/inactive` on the first N+1 boot, and a
+second N+1 boot (`problems-reboot`) must show it `enabled/active`. The fresh
+path does not change. [lab#190](https://github.com/frostyard/lab/pull/190)
+adds that boot and rule ([ADR-0017](../adr/0017-problems-probe-is-a-report-only-lane-mode.md),
+amendment of 2026-11-05).
+
+The runs ran lab#190 at `3ae0fdb0` (dev, `snosi.io/trigger=dev`, `lab-dev`
+lease T893, no publish, no tag move). Each `qa-controlled` target was read
+from the registry before the runs and was still the t5 image. A first try
+(`z8mrg`, `l6drl`, `wv4c4`, 16:12 EST) ended
+`FAILED: preflight_mismatch:iso_index` before any boot: the signed index had
+moved to `snosi-installer_20261105202508_x86-64.iso` (`sha256:59ac5097…`). Its
+signature checks with the pinned key (`F37282A3…`); the 3 update manifests now
+name it, and the lane checked the ISO hash.
+
+| Product | Run | Time (EST) | Result | `target_ms` |
+| --- | --- | --- | --- | --- |
+| Snow | `slgls` | 16:14 to 16:29 | `PASS: verified_problems_probe;problems=ok;fsverity_known_defect=7.2.12+deb14-amd64` | 23970 |
+| Floe | `vf8fv` | 16:14 to 16:40 | `PASS: verified_problems_probe;problems=ok` | 18296 |
+| Sundog | `sv67g` | 16:14 to 16:54 | `PASS: verified_problems_probe;problems=ok;fsverity_known_defect=7.2.12+deb14-amd64` | 22025 |
+
+Each `problems.txt` (Snow shown; Floe and Sundog have 4 records, 2
+reportable, and their own boot timing):
+
+```
+problems=ok
+path=update collector=yes timer=enabled/inactive preset_reconcile=success coredump_user=yes core_pattern=yes journal_dir=yes
+file=0644 owner=0:0 schema=valid records=5 reportable=3 details=0640 group=sudo
+injected unit=yes stage=failed/network crash=yes app=yes collector_runs=0,0
+recorded unit=yes stage=yes crash=yes app=yes leak=no
+list rc=0 unit=yes stage=yes crash=yes app=yes
+boot target=graphical.target firmware_ms=0 loader_ms=0 kernel_ms=2643 initrd_ms=3289 userspace_ms=18037 target_ms=23970
+reboot timer=enabled/active preset_reconcile=success
+```
+
+On every product the timer was `enabled/inactive` on the first N+1 boot and
+`enabled/active` on the second, as snosi#1229 describes. Snow's 5th record is
+again an `integrity_error` (`fs-verity`): its `installed-n` boot logged 2
+fs-verity lines on `7.2.12+deb14-amd64`, a known-defect kernel
+([snosi#1130](https://github.com/frostyard/snosi/issues/1130)). Sundog's
+`stage` boot (still N) logged 1 such line on the same kernel, and its
+collector recorded no `integrity_error` on N+1. Phase 3 is done: 1 update run per product with
+`problems=ok`.
 
 ## Later / ideas
 
