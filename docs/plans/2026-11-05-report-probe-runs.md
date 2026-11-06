@@ -10,7 +10,7 @@ sends while reporting is off, neither sender lets the client's IP reach
 GlitchTip, and the real frostyard/problem-intake Worker accepts their reports as
 `frostyard.problem/1`. It uses the report-only
 [report probe](../adr/0018-report-probe-is-a-report-only-lane-mode.md) of the
-[bootc lifecycle lane](../../README.md#manual-snow-bootc-lifecycle). The probe
+[bootc lifecycle lane](../specs/bootc-lifecycle-lane.md). The probe
 records; it gates nothing until 3 lab runs of a product end `report=ok` and 1
 production report is accepted, and then a new decision promotes it.
 
@@ -170,5 +170,5 @@ same Worker.
 
 - Implements: [ADR-0018](../adr/0018-report-probe-is-a-report-only-lane-mode.md),
   [ADR-0017](../adr/0017-problems-probe-is-a-report-only-lane-mode.md)
-- Shapes: [README — Manual Snow bootc lifecycle](../../README.md#manual-snow-bootc-lifecycle),
+- Shapes: [specs/bootc-lifecycle-lane.md — Manual Snow bootc lifecycle](../specs/bootc-lifecycle-lane.md),
   [quality.md — Manual Snow bootc lifecycle evidence](../quality.md#manual-snow-bootc-lifecycle-evidence)
