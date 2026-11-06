@@ -859,8 +859,11 @@ def test_run_script_reads_the_report_intake_from_the_manifest(tmp_path, intake, 
     assert "572fdd876d0f358f8b36a6f292a7a938b01ebc32" in block
     assert "v24.22.1" in block
     assert "6c172a9ab6718f7b801fb5a7bd486af2ee5e32758086a04b84fcce2aa77095e6" in block
-    # The report guest code is compressed without comments, AST-checked, and bounded.
-    assert "ast.unparse(ast.parse(source))" in block and "lzma.PRESET_EXTREME" in block
+    # The report guest code is compressed without comments or docstrings,
+    # AST-checked, and bounded.
+    assert "node.body = body[1:] or [ast.Pass()]" in block
+    assert "if ast.dump(ast.parse(stripped)) != ast.dump(tree):" in block
+    assert "lzma.PRESET_EXTREME" in block
     assert '[[ ${#report_b64} -lt 60000 ]] || fail unit_size' in block
     assert 'fail report_payload' in block
 
@@ -1891,3 +1894,131 @@ def test_guest_desktop_sender_keeps_stderr_except_for_the_dry_run(guest_module):
     assert guest_module.BOTH_STREAMS.endswith("2>&1")
     assert guest_module.STDOUT_ONLY.endswith("2>/dev/null")
     assert '"$0" --send-pending-reports "$@"' in guest_module.BOTH_STREAMS
+
+
+# ------------------------------------------------------- the SMBIOS bounds
+# The SMBIOS table is bounded at 64 KiB IN TOTAL (dev-snow-bootc-lifecycle-6swrx:
+# a desktop report boot carried about 68500 characters and the firmware dropped
+# every credential, so the guest unit never ran). Each value is bounded on its
+# own, and this section bounds their sum.
+
+def qa_payload_block():
+    return re.search(r"(?ms)^python3 -c 'import ast,lzma.*?^\s*qa_b64=\$\(base64 -w0 \"\$WORK/qa\.z\"\) "
+                     r"\|\| fail qa_payload\n", run_script()).group()
+
+
+def report_payload_block():
+    return re.search(r"(?ms)^  python3 -c 'import ast,lzma.*?^\s*\[\[ \$\{#report_b64\} -lt 60000 \]\] "
+                     r"\|\| fail unit_size\n", run_script()).group()
+
+
+def credential_block():
+    """The boot's guest unit, its drop-ins and its credentials, to the 1 raw.qemu."""
+    return re.search(r'(?ms)^  guestunit="\[Unit\].*?raw\.qemu="\$smbios" >/dev/null 2>&1 '
+                     r'\|\| fail phase_injection\n', run_script()).group()
+
+
+def raw_qemu(tmp_path, phase, product="snow", intake="lab", report_login=0, guest_mode="guest",
+             guest_after=" multi-user.target"):
+    """(length, smbios) of the real raw.qemu string run.sh builds for 1 boot kind."""
+    scripts_dir = tmp_path / "scripts"
+    scripts_dir.mkdir(exist_ok=True)
+    data = scripts()
+    for name in ("qa.py", "report-guest.py", "login-setup.sh"):
+        (scripts_dir / name).write_text(data[name])
+    source = tmp_path / "manifest.json"
+    source.write_text(json.dumps(probe_manifest(intake, product), sort_keys=True))
+    normalized_path = tmp_path / "normalized.json"
+    validated = subprocess.run([sys.executable, str(scripts_dir / "qa.py"), "validate",
+                                str(source), str(normalized_path)], capture_output=True, text=True)
+    assert validated.returncode == 0, validated.stderr
+    spec = json.loads(normalized_path.read_text())
+    work = tmp_path / "work"
+    work.mkdir(exist_ok=True)
+    harness = (
+        "set -Eeuo pipefail\n"
+        'fail() { printf "FAIL:%s\\n" "$1"; exit 9; }\n'
+        # The 2 host commands of this fragment: a recording incus and its timeout.
+        'incus() { printf "%s" "$4" > "$WORK/qemu"; }\n'
+        'timeout() { shift; "$@"; }\n'
+        f"WORK={work} VM=snow-qa-test\n"
+        f"phase={phase} report_login={report_login} report_intake={intake} INTAKE_IP=10.0.0.5\n"
+        f"guest_mode={guest_mode} guest_after=\"{guest_after}\"\n"
+        f"nonce={NONCE} budget=900 n={spec['image_n']} next={spec['image_n_plus_1']}\n"
+        f"target={spec['target_ref']}\n"
+        f"manifest_b64={base64.b64encode(normalized_path.read_bytes()).decode()}\n"
+        f"report_mode={1 if phase == 'report' else 0}\n"
+        + qa_payload_block().replace("/opt/snow-qa/", str(scripts_dir) + "/")
+        + (report_payload_block().replace("/opt/snow-qa/", str(scripts_dir) + "/")
+           if phase == "report" else 'report_b64=""\n')
+        + credential_block().replace("/opt/snow-qa/", str(scripts_dir) + "/")
+        + '\nprintf "%s\\n" "${#smbios}"\n'
+    )
+    result = subprocess.run(["bash", "-c", harness], capture_output=True, text=True,
+                            env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path)})
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    smbios = (work / "qemu").read_text().removeprefix("raw.qemu=")
+    return int(result.stdout.strip()), smbios
+
+
+BOOTS = [
+    # phase, product, intake, report_login, guest_mode, guest_after
+    ("installed-n", "snow", "lab", 0, "guest", ""),
+    ("stage", "snow", "lab", 0, "guest", ""),
+    ("problems", "snow", "lab", 0, "problems", " multi-user.target"),
+    ("login-1", "snow", "lab", 0, "login", " multi-user.target"),
+    ("report", "floe", "lab", 0, "report", " multi-user.target"),
+    ("report", "floe", "production", 0, "report", " multi-user.target"),
+    ("report", "snow", "lab", 1, "report", " multi-user.target"),
+    ("report", "snow", "production", 1, "report", " multi-user.target"),
+]
+
+
+@pytest.mark.parametrize("phase,product,intake,report_login,guest_mode,guest_after", BOOTS)
+def test_each_boot_stays_well_under_the_smbios_table_total(
+        tmp_path, phase, product, intake, report_login, guest_mode, guest_after):
+    # 58000 is the margin under the lane's 61440 bound: before the compressed
+    # login-setup credential and the docstring-free payloads, the desktop report
+    # boot came to about 68500 characters (run 6swrx) and lost its guest unit.
+    length, smbios = raw_qemu(tmp_path, phase, product, intake, report_login, guest_mode, guest_after)
+    assert length == len(smbios)
+    assert length <= 58000, length
+    # Every value stays under the SMBIOS credential bound on its own as well.
+    for value in re.findall(r"-[a-z]+ type=11,value=[^ ]+", smbios):
+        assert len(value) < 60000
+
+
+def test_the_old_layout_would_have_failed_the_total(tmp_path):
+    # The measured defect (run 6swrx, desktop report boot, lab): guest unit 49444
+    # + report.z 8700 + the login unit with its base64 script 9788, and the small
+    # values, came to about 68500 characters, over the 61440 bound.
+    length, smbios = raw_qemu(tmp_path, "report", "snow", "lab", 1, "report", " multi-user.target")
+    assert length <= 58000
+    # The same boot without the 2 savings would be about 11500 characters longer.
+    assert "snow-login.z=" in smbios
+    assert not re.search(r"echo \$login_b64", run_script())
+    assert 49444 + 8700 + 9788 > 61440
+
+
+def test_run_script_bounds_the_total_of_every_smbios_value():
+    script = run_script()
+    # 1 bound on the sum, before the only raw.qemu of the boot.
+    assert 'smbios="-smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.snow-guest.service=$gb' in script
+    assert "[[ ${#smbios} -le 61440 ]] || fail smbios_size" in script
+    assert script.index("fail smbios_size") < script.index('raw.qemu="$smbios"')
+    # The comment names the reason: the table is bounded in total, not per value.
+    bound = script.index("[[ ${#smbios} -le 61440 ]]")
+    comment = script[bound - 1200:bound]
+    assert "64 KiB in total (run 6swrx" in comment
+    assert "The other SMBIOS structures need room" in comment
+
+
+def test_the_guest_payloads_carry_no_docstrings():
+    # Both payloads drop every docstring: it is the same program, and the boot's
+    # SMBIOS total is what the table bounds.
+    script = run_script()
+    assert script.count("isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))") == 2
+    assert script.count("node.body = body[1:] or [ast.Pass()]") == 2
+    assert script.count("if ast.dump(ast.parse(stripped)) != ast.dump(tree):") == 2
+    for name in ("qa.py", "report-guest.py"):
+        assert "__doc__" not in scripts()[name]

@@ -692,8 +692,11 @@ systemd[1]: Received regular credentials: systemd.extra-unit.snosi-qa-install.se
 systemd[1]: Acquired 2 regular credentials, 0 untrusted credentials.
 ```
 
-Results come back on the serial console, which is the only channel that exists
-before a system is installed. The same mechanism carries the post-install
+The SMBIOS table is bounded at 64 KiB **in total**, so the lane bounds the sum of
+a boot's credential values, not only each one (`fail smbios_size`; dev run
+`dev-snow-bootc-lifecycle-6swrx` lost every credential of a desktop report boot
+at about 68500 characters). Results come back on the serial console, which is the
+only channel that exists before a system is installed. The same mechanism carries the post-install
 assertions. The protocol is recorded in
 [ADR-0005](docs/adr/0005-console-marker-protocol-for-agentless-guests.md);
 how the lanes reach the host's incus daemon at all is

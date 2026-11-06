@@ -770,15 +770,21 @@ def test_run_script_injects_the_setup_unit_only_in_login_1():
     assert loop.count("raw.qemu=") == 1
     assert loop.count("systemd.extra-unit.snow-login-setup.service") == 1
     assert 'login_credential=" -smbios type=11,value=io.systemd.credential.binary:' \
-           'systemd.extra-unit.snow-login-setup.service=$lb"' in loop
+           'systemd.extra-unit.snow-login-setup.service=$lb' in loop
+    # The script itself is a compressed credential, not base64 inside the unit.
+    assert "-smbios type=11,value=io.systemd.credential.binary:snow-login.z=$login_b64" in loop
+    assert "lzma.compress(pathlib.Path(sys.argv[1]).read_bytes()" in loop
+    assert "echo $login_b64 | base64 -d" not in loop
+    assert "snow-login.z > /run/snow-login-setup.sh" in loop
     assert loop.count("$td$login_credential$report_credential") == 1
     # The setup unit runs before the display manager and the first user session.
     assert ("Before=display-manager.service gdm.service gdm3.service sddm.service "
             "systemd-user-sessions.service") in loop
     assert "TimeoutStartSec=120" in loop
     assert '[[ ${#lb} -lt 60000 ]] || fail unit_size' in loop
+    assert '[[ ${#login_b64} -lt 60000 ]] || fail unit_size' in loop
     # Only the login boots and the report boot of a desktop pull it, from 1
-    # encoded copy of the setup script.
+    # compressed copy of the setup script.
     guarded = re.search(r'(?ms)if \[\[ "\$login_setup" == 1 \]\]; then\n.*?\n  else\n', loop).group()
     assert "login_b64=" in guarded and "snow-login-setup.service" in guarded
     assert loop.count("login_b64=") == 1
@@ -1236,14 +1242,28 @@ def test_guest_unit_stays_under_the_smbios_bound(tmp_path, phase):
     assert gb <= 54000, gb
 
 
-def test_qa_payload_is_the_same_program_without_comments(tmp_path):
+def without_docstrings(source):
+    """The tree run.sh sends: every module, class and function docstring gone."""
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        body = node.body
+        if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) \
+                and isinstance(body[0].value.value, str):
+            node.body = body[1:] or [ast.Pass()]
+    return tree
+
+
+def test_qa_payload_is_the_same_program_without_comments_or_docstrings(tmp_path):
     payload, _ = real_qa_payload(tmp_path)
     source = lzma.decompress(payload).decode()
     original = scripts()["qa.py"]
-    # Comments and blank lines go, the program stays: the AST must be identical,
-    # the text must be shorter, and the module must still load and refuse a
-    # command it does not know with a bounded gate error.
-    assert ast.dump(ast.parse(source)) == ast.dump(ast.parse(original))
+    # Comments, blank lines and docstrings go, the program stays: the AST must be
+    # the docstring-stripped original, the text must be shorter, and the module
+    # must still load and refuse a command it does not know with a bounded error.
+    assert ast.dump(ast.parse(source)) == ast.dump(without_docstrings(original))
+    assert '"""' not in source
     assert 0 < len(source) < len(original)
     path = tmp_path / "unparsed-qa.py"
     path.write_text(source)
@@ -1335,3 +1355,55 @@ def test_guest_login_gdm_autologin_ignores_another_section(qa, tmp_path, monkeyp
         "[debug]\nAutomaticLogin=snowqa\n[daemon]\nAutomaticLoginEnable=true\n")
     record = login_payload(qa, qa.login(credentials))
     assert record["autologin"] is False
+
+
+def login_unit_and_payload(tmp_path):
+    """The real login-setup unit run.sh builds, and its compressed script."""
+    scripts_dir = tmp_path / "scripts"
+    scripts_dir.mkdir()
+    (scripts_dir / "login-setup.sh").write_text(scripts()["login-setup.sh"])
+    work = tmp_path / "work"
+    work.mkdir()
+    guarded = re.search(r'(?ms)^  if \[\[ "\$login_setup" == 1 \]\]; then\n.*?^  fi\n',
+                        run_script()).group()
+    harness = ("set -Eeuo pipefail\n"
+               'fail() { printf "FAIL:%s\\n" "$1"; exit 9; }\n'
+               'base64() { command base64 "$@"; }\n'
+               f"WORK={work} phase=login-1 login_setup=1\n"
+               + guarded.replace("/opt/snow-qa/", str(scripts_dir) + "/") +
+               '\nprintf "%s\\n---\\n%s\\n" "$loginunit" "$login_b64"\n')
+    result = subprocess.run(["bash", "-c", harness], capture_output=True, text=True,
+                            env={"PATH": "/usr/bin:/bin"})
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    unit, payload = result.stdout.split("\n---\n", 1)
+    return unit, payload.strip()
+
+
+def test_the_login_setup_unit_unpacks_its_compressed_script(tmp_path):
+    # The script travels xz-compressed in a credential of its own, so the unit
+    # must decompress it before it runs; the whole command line is exercised here.
+    unit, payload = login_unit_and_payload(tmp_path)
+    assert "snow-login.z" in unit and payload
+    command = next(line for line in unit.splitlines() if line.startswith("ExecStart="))
+    inner = command.split("/bin/bash -c '", 1)[1].rsplit("'", 1)[0]
+    credential = tmp_path / "snow-login.z"
+    credential.write_bytes(base64.b64decode(payload))
+    target = tmp_path / "run" / "snow-login-setup.sh"
+    target.parent.mkdir()
+    root = tmp_path / "root"
+    root.mkdir()
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    # No display manager: the setup script names none and writes dm=none.
+    (tools / "systemctl").write_text("#!/bin/sh\nexit 0\n")
+    (tools / "systemctl").chmod(0o755)
+    script = (inner.replace("/run/credentials/@system/snow-login.z", str(credential))
+                   .replace("/run/snow-login-setup.sh", str(target)))
+    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True,
+                            env={"PATH": f"{tools}:/usr/bin:/bin",
+                                 "SNOW_QA_ROOT": str(root), "HOME": str(tmp_path)})
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    # The unit decompressed exactly the shipped script and ran it.
+    assert target.read_bytes() == scripts()["login-setup.sh"].encode()
+    assert target.stat().st_mode & 0o777 == 0o700
+    assert (root / "var/lib/snow-qa/login-setup").read_text() == "dm=none\n"

@@ -590,15 +590,21 @@ data:
     # Compress the trusted ConfigMap payload to keep the SMBIOS value below
     # firmware's 64 KiB string bound; the guest decompresses using Python.
     # qa.py travels in a SMBIOS credential that firmware bounds at 64 KiB, and the
-    # guest unit holding it is base64-encoded a second time, so the payload is
-    # compressed without comments: ast.unparse keeps the program, drops the prose,
-    # and an unchanged AST proves the stripped source is the same program. xz
-    # (lzma) compresses it about 10% smaller than zlib, which is room the guest
-    # unit needs: the SMBIOS bound counts the base64 of the base64.
+    # guest unit holding it is base64-encoded a second time, so the payload drops
+    # every comment and every docstring: ast.unparse keeps the program, an unchanged
+    # AST proves the stripped source is the same program, and neither program reads
+    # __doc__. xz (lzma) compresses it smaller than zlib, which is room the guest
+    # unit needs: the SMBIOS table is bounded at 64 KiB in total (run 6swrx).
     python3 -c 'import ast,lzma,pathlib,sys
-    source = pathlib.Path(sys.argv[1]).read_text()
-    stripped = ast.unparse(ast.parse(source))
-    if ast.dump(ast.parse(stripped)) != ast.dump(ast.parse(source)):
+    tree = ast.parse(pathlib.Path(sys.argv[1]).read_text())
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        body = node.body
+        if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) and isinstance(body[0].value.value, str):
+            node.body = body[1:] or [ast.Pass()]
+    stripped = ast.unparse(tree)
+    if ast.dump(ast.parse(stripped)) != ast.dump(tree):
         sys.exit(1)
     pathlib.Path(sys.argv[2]).write_bytes(lzma.compress(stripped.encode(), preset=9 | lzma.PRESET_EXTREME))' /opt/snow-qa/qa.py "$WORK/qa.z" || fail qa_payload
     qa_b64=$(base64 -w0 "$WORK/qa.z") || fail qa_payload
@@ -1109,16 +1115,22 @@ data:
     fi
     sysext_failures=""
     # The report probe's guest code does not fit in qa.py, so it travels in a
-    # credential of its own: xz without comments, AST-checked like qa.py, and
-    # bounded below the same 60000 character SMBIOS limit.
+    # credential of its own: xz without comments or docstrings, AST-checked like
+    # qa.py, and bounded below the same 60000 character SMBIOS limit.
     report_b64=""
     INTAKE=""
     INTAKE_IP=""
     if [[ "$report_mode" == 1 ]]; then
       python3 -c 'import ast,lzma,pathlib,sys
-    source = pathlib.Path(sys.argv[1]).read_text()
-    stripped = ast.unparse(ast.parse(source))
-    if ast.dump(ast.parse(stripped)) != ast.dump(ast.parse(source)):
+    tree = ast.parse(pathlib.Path(sys.argv[1]).read_text())
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        body = node.body
+        if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) and isinstance(body[0].value.value, str):
+            node.body = body[1:] or [ast.Pass()]
+    stripped = ast.unparse(tree)
+    if ast.dump(ast.parse(stripped)) != ast.dump(tree):
         sys.exit(1)
     pathlib.Path(sys.argv[2]).write_bytes(lzma.compress(stripped.encode(), preset=9 | lzma.PRESET_EXTREME))' /opt/snow-qa/report-guest.py "$WORK/report.z" || fail report_payload
       report_b64=$(base64 -w0 "$WORK/report.z") || fail report_payload
@@ -1210,8 +1222,13 @@ data:
       fi
       if [[ "$login_setup" == 1 ]]; then
         # login-1 also pulls the test-only autologin setup unit, from the same
-        # multi-user.target drop-in and the same single raw.qemu of the phase.
-        login_b64=$(base64 -w0 /opt/snow-qa/login-setup.sh) || fail unit_encoding
+        # multi-user.target drop-in and the same single raw.qemu of the phase. The
+        # script itself travels xz-compressed in a credential of its own: its base64
+        # inside the unit would cost about 6900 more SMBIOS characters.
+        python3 -c 'import lzma,pathlib,sys
+    pathlib.Path(sys.argv[2]).write_bytes(lzma.compress(pathlib.Path(sys.argv[1]).read_bytes(), preset=9 | lzma.PRESET_EXTREME))' /opt/snow-qa/login-setup.sh "$WORK/login.z" || fail login_payload
+        login_b64=$(base64 -w0 "$WORK/login.z") || fail login_payload
+        [[ ${#login_b64} -lt 60000 ]] || fail unit_size
         gd=$(printf '[Unit]\nWants=snow-guest.service snow-login-setup.service' | base64 -w0) || fail unit_encoding
         loginunit="[Unit]
     Before=display-manager.service gdm.service gdm3.service sddm.service systemd-user-sessions.service
@@ -1221,10 +1238,10 @@ data:
     TimeoutStartSec=120
     StandardOutput=null
     StandardError=null
-    ExecStart=/bin/bash -c 'echo $login_b64 | base64 -d > /run/snow-login-setup.sh; chmod 700 /run/snow-login-setup.sh; /run/snow-login-setup.sh'"
+    ExecStart=/bin/bash -c 'python3 -c \"import lzma,sys;sys.stdout.buffer.write(lzma.decompress(sys.stdin.buffer.read()))\" < /run/credentials/@system/snow-login.z > /run/snow-login-setup.sh; chmod 700 /run/snow-login-setup.sh; /run/snow-login-setup.sh'"
         lb=$(printf '%s' "$loginunit" | base64 -w0) || fail unit_encoding
         [[ ${#lb} -lt 60000 ]] || fail unit_size
-        login_credential=" -smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.snow-login-setup.service=$lb"
+        login_credential=" -smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.snow-login-setup.service=$lb -smbios type=11,value=io.systemd.credential.binary:snow-login.z=$login_b64"
       else
         gd=$(printf '[Unit]\nWants=snow-guest.service' | base64 -w0) || fail unit_encoding
       fi
@@ -1244,7 +1261,14 @@ data:
           report_credential+=" -smbios type=11,value=io.systemd.credential:snow-intake=http://${INTAKE_IP}:8787"
         fi
       fi
-      timeout 60 incus config set "$VM" raw.qemu="-smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.snow-guest.service=$gb -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.multi-user.target=$gd -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.bootc-update-stage.service=$td$login_credential$report_credential" >/dev/null 2>&1 || fail phase_injection
+      # The SMBIOS table is bounded at 64 KiB in total (run 6swrx: a desktop report
+      # boot carried about 68500 characters, and its guest unit never ran: most likely
+      # the firmware dropped the credentials), so the sum of this boot's values is
+      # bounded, not only each one.
+      # The other SMBIOS structures need room, so the bound leaves about 4 KiB.
+      smbios="-smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.snow-guest.service=$gb -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.multi-user.target=$gd -smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.bootc-update-stage.service=$td$login_credential$report_credential"
+      [[ ${#smbios} -le 61440 ]] || fail smbios_size
+      timeout 60 incus config set "$VM" raw.qemu="$smbios" >/dev/null 2>&1 || fail phase_injection
       timeout 120 incus start "$VM" >/dev/null 2>&1 || fail guest_start
       case "$phase" in
         sysext-enable|sysext-reboot)
