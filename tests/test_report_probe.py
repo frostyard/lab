@@ -2325,13 +2325,15 @@ def intake_launch_block():
 def run_intake_launch(tmp_path, *, listed, query_rc=0):
     """The real launch fragment with a stub incus: its stdout and stderr.
 
-    The stub fails the launch and the delete; `incus list` answers with `listed`
-    (1 name per line) and exit code `query_rc`.
+    The stub fails the launch, the delete and every other query; `incus list`
+    answers with `listed` (1 name per line) and exit code `query_rc`.
     """
     harness = ("set -Eeuo pipefail\n"
                'incus() { case "$1" in launch) return 1;; delete) return 1;; '
                'list) [[ "$QUERY_RC" == 0 ]] || return 1; printf "%s" "$LISTED"; return 0;; '
-               'esac; }\n'
+               # Any other query fails, as with a daemon that does not answer: the old
+               # `incus info` check took that failure as absence (re-review 1, R2).
+               '*) return 1;; esac; }\n'
                'timeout() { shift; "$@"; }\n'
                'blocked() { printf "BLOCKED:%s intake=%s\n" "$1" "${INTAKE:-none}"; exit 0; }\n'
                'VM=snow-qa-test\n'
