@@ -5379,11 +5379,16 @@ data:
         return parts
 
 
+    CLI_PACKAGE = "frostyard-chairlift"
+
+
     def cli_version():
         """chairlift's package version, or None when the package is not installed."""
         if not Path(CLI).is_file():
             return None
-        version = qa.problems_show(["dpkg-query", "-W", "-f", "${Version}", "chairlift"], 60).strip()
+        # The Debian package is frostyard-chairlift (chairlift .goreleaser.yaml,
+        # snosi shared/packages/snow); "chairlift" is no package (run zf6pf).
+        version = qa.problems_show(["dpkg-query", "-W", "-f", "${Version}", CLI_PACKAGE], 60).strip()
         return version if re.fullmatch(r"[0-9A-Za-z.+~-]{1,64}", version) else None
 
 
@@ -6414,6 +6419,10 @@ data:
 
     def serve():
         STATE.mkdir(parents=True, exist_ok=True)
+        # Both logs exist from the start: a run that forwards nothing still has an
+        # empty GlitchTip log to pull, and that is evidence, not a lane defect (zf6pf).
+        for log in (REQUESTS, GLITCHTIP):
+            log.touch(exist_ok=True)
         mock = server(Mock, ("127.0.0.1", MOCK_PORT))
         proxy = server(Proxy, ("0.0.0.0", PROXY_PORT), tls=False)
         threading.Thread(target=mock.serve_forever, daemon=True).start()

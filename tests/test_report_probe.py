@@ -1411,6 +1411,9 @@ def desktop_environment(qa, monkeypatch, module, tmp_path, *, intake="lab", prod
     def run(args, timeout=120):
         calls.append(args)
         if args[0] == "dpkg-query":
+            # Only the real package name answers (run zf6pf asked for "chairlift").
+            if args[-1] != "frostyard-chairlift":
+                return 1, b""
             return (0, (version + "\n").encode()) if version else (1, b"")
         if args[0] == "systemd-run":
             consent = consent_text()
@@ -2022,3 +2025,30 @@ def test_the_guest_payloads_carry_no_docstrings():
     assert script.count("if ast.dump(ast.parse(stripped)) != ast.dump(tree):") == 2
     for name in ("qa.py", "report-guest.py"):
         assert "__doc__" not in scripts()[name]
+
+
+def test_the_intake_creates_both_logs_before_any_request(tmp_path, monkeypatch, scripts_dir):
+    # dev-snow-bootc-lifecycle-zf6pf: nothing was forwarded, glitchtip.jsonl never
+    # existed, and the pull failed the run as report_logs.
+    spec = importlib.util.spec_from_file_location("intake_lab_touch", scripts_dir / "intake-lab.py")
+    lab = importlib.util.module_from_spec(spec)
+    (scripts_dir / "intake-lab.py").write_text(scripts()["intake-lab.py"])
+    spec.loader.exec_module(lab)
+    state = tmp_path / "intake"
+    monkeypatch.setattr(lab, "STATE", state)
+    monkeypatch.setattr(lab, "REQUESTS", state / "requests.jsonl")
+    monkeypatch.setattr(lab, "GLITCHTIP", state / "glitchtip.jsonl")
+    monkeypatch.setattr(lab, "MOCK_PORT", 0)
+    monkeypatch.setattr(lab, "PROXY_PORT", 0)
+
+    class Stop(Exception):
+        pass
+
+    def stop(self, *args, **kwargs):
+        raise Stop()
+
+    monkeypatch.setattr(lab.ThreadingHTTPServer, "serve_forever", stop)
+    with pytest.raises(Stop):
+        lab.serve()
+    assert (state / "requests.jsonl").read_text() == ""
+    assert (state / "glitchtip.jsonl").read_text() == ""
