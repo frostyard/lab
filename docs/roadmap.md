@@ -1109,6 +1109,13 @@ F (native SB) runs in parallel throughout.
    Decide by the next lifecycle change: persist the validated transport in
    `checks.txt`, then tighten the rule from a run's evidence.
    Source: [2026-10-26 Snow bootc lifecycle run plan](https://github.com/frostyard/lab/blob/cc3e68a4d51b346f05182ab565aa43a0e8ed34af/docs/plans/2026-10-26-snow-bootc-lifecycle-run.md).
+6. **Suite sysexts in the live enable path.** The sysext probe of `maild` and
+   `notesd` left 3 product findings for the enable boot: `maild --lodge`
+   without the `lodge` feature, `frostnotes-lodge.socket` failing to listen,
+   and whether a live enable resets the units' start limit. They are tracked in
+   [snosi#1245](https://github.com/frostyard/snosi/issues/1245); rerun the
+   sysext probe when it is fixed.
+   Source: [2026-10-28 sysext probe run plan](https://github.com/frostyard/lab/blob/cc3e68a4d51b346f05182ab565aa43a0e8ed34af/docs/plans/2026-10-28-snow-sysext-probe-run.md#open-questions).
 
 ---
 

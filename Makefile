@@ -26,7 +26,10 @@ PYTHON ?= python3
 
 verify: verify-template verify-python verify-site
 
+# Node.js exits 0 when its test glob matches nothing (ADR-0010), so each
+# Node test recipe first requires at least 1 test file.
 verify-template:
+	@if ! ls test/*.test.mjs >/dev/null 2>&1; then echo "FAIL: no files match test/*.test.mjs; node --test would run zero tests"; exit 1; fi
 	@if ! command -v node >/dev/null 2>&1; then echo "FAIL: make verify-template requires Node.js 22 or later (mise install)"; exit 1; fi
 	@if [ "$(NODE_MAJOR)" = "" ] || [ "$(NODE_MAJOR)" -lt 22 ]; then echo "FAIL: make verify-template requires Node.js 22 or later (found: $$(node --version 2>/dev/null || echo missing))"; exit 1; fi
 	node scripts/check-template.mjs
@@ -36,8 +39,6 @@ verify-python:
 	$(PYTHON) policies/check_agent_governance.py
 	$(PYTHON) -m pytest -q
 
-# Node.js exits 0 when its test glob matches nothing (ADR-0010: no vacuous
-# success), so the recipe first requires at least 1 test file.
 verify-site:
 	@if ! ls site/test/*.test.mjs >/dev/null 2>&1; then echo "FAIL: no files match site/test/*.test.mjs; npm test would run zero tests"; exit 1; fi
 	cd site && npm ci && npm test

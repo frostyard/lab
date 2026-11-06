@@ -47,7 +47,10 @@ ADR-0018, ADR-0029). Edit only the canonical paths.
 in [docs/README.md](docs/README.md). `make verify` fails when a doc under
 `docs/` is not linked from `docs/README.md`. A plan in `docs/plans/` holds
 open work only: when its work is done, fold the facts that still hold into
-`docs/` and delete the plan (git keeps it). The root `README.md` follows
+`docs/` and delete the plan (git keeps it). Before the delete, read its
+results, "Open questions" and "Later" sections: each open question or live
+finding goes to `docs/roadmap.md` Open questions or to a tracking issue that
+the roadmap links. The root `README.md` follows
 core's README standard (ADR-0072, kind `infrastructure`, at most 1000 words):
 lane contracts and designs go in `docs/`, not in the README.
 
