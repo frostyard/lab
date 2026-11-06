@@ -5,12 +5,13 @@ on:
   issues:
     types: [opened, edited, reopened]
 
-permissions:
-  contents: read
-  issues: write
+permissions: {}
 
 jobs:
   triage:
+    permissions:
+      contents: read  # to read .github/labeler.yml through the API
+      issues: write   # to add labels to issues
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

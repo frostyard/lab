@@ -13,10 +13,7 @@ on:
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
+permissions: {}
 
 # Never cancel a deploy midway; let it finish and queue the next.
 concurrency:
@@ -25,6 +22,9 @@ concurrency:
 
 jobs:
   build:
+    permissions:
+      contents: read  # to checkout the repository
+      pages: read     # to read the Pages site configuration
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -47,6 +47,9 @@ jobs:
           path: site/dist
 
   deploy:
+    permissions:
+      pages: write      # to deploy to Pages
+      id-token: write   # to authenticate the deployment
     needs: build
     runs-on: ubuntu-latest
     environment:
