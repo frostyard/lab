@@ -198,7 +198,7 @@ AMBIGUOUS = "FAILED: installed system logged 2 fs-verity corruption message(s) a
     (["booted=ok", "fsverity_errors=5", "kernel=7.2.14+deb14-amd64"], False, None),
     (["booted=ok", "fsverity_errors=0", "fsverity_errors=4", f"kernel={KNOWN}"], False, None),
     # Another kernel, a look-alike, an unknown or a missing kernel with errors fails.
-    (["booted=ok", "fsverity_errors=2", "kernel=7.2.15+deb14-amd64"], True, "FAILED: installed system logged 2"),
+    (["booted=ok", "fsverity_errors=2", "kernel=7.2.16+deb14-amd64"], True, "FAILED: installed system logged 2"),
     (["booted=ok", "fsverity_errors=2", f"kernel={KNOWN}-extra"], True, "FAILED: installed system logged 2"),
     (["booted=ok", "fsverity_errors=2", "kernel=unknown"], True, "FAILED: installed system logged 2"),
     (["booted=ok", "fsverity_errors=2"], True, "FAILED: installed system logged 2 fs-verity corruption message(s) and the kernel identity is ambiguous: fsverity_kernel_ambiguous"),
@@ -250,7 +250,7 @@ def test_judge_requires_a_numeric_count_and_judges_it_by_kernel(source, tmp_path
         kernel = next((c[7:] for c in checks if c.startswith("kernel=")), None)
         if known_errors and kernel in ("7.2.11+deb14-amd64", "7.2.12+deb14-amd64",
                                          "7.2.13+deb14-amd64", "7.2.14+deb14-amd64",
-                                         "7.2.15-1-surface"):
+                                         "7.2.15+deb14-amd64", "7.2.15-1-surface"):
             assert (tmp_path / "checks.txt").read_text().splitlines().count(f"fsverity_known_defect={kernel}") == 1
             # Visible note in the summary, the checks file and the log.
             assert summary_file.read_text() == f"bootc installed and verified: snow (secureboot=true) fsverity_known_defect={kernel}"
@@ -271,7 +271,7 @@ SURFACE_KERNEL = "7.2.15-1-surface"
     ("7.2.14-1-surface", False),
     (SURFACE_KERNEL + "-extra", False),
     ("7.2.15-1", False),
-    ("7.2.15+deb14-amd64", False),
+    ("7.2.16+deb14-amd64", False),
     ("7.3.1+deb14-amd64", False),
 ])
 def test_judge_surface_kernel_exact_match_and_lookalikes(source, tmp_path, kernel, known_defect):
@@ -297,7 +297,43 @@ def test_judge_surface_kernel_exact_match_and_lookalikes(source, tmp_path, kerne
         assert "fsverity_known_defect" not in summary
 
 
-KNOWN_DEFECT_LIST = 'known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64 7.2.15-1-surface"'
+DEBIAN_7215_KERNEL = "7.2.15+deb14-amd64"
+
+
+@pytest.mark.parametrize("kernel,known_defect", [
+    (DEBIAN_7215_KERNEL, True),
+    (DEBIAN_7215_KERNEL + "-extra", False),
+    ("7.2.15+deb14", False),
+    ("7.2.15+deb13-amd64", False),
+    ("7.2.15+deb14-arm64", False),
+    ("7.2.15-1+deb14-amd64", False),
+    ("7.2.16+deb14-amd64", False),
+    ("7.2.15", False),
+])
+def test_judge_debian_7215_exact_match_and_lookalikes(source, tmp_path, kernel, known_defect):
+    block = source[source.index("# frostyard/snosi#1130: the guard must have run"):
+                   source.index('printf \'%s\' "bootc installed and verified')]
+    tail = source[source.index('printf \'%s\' "bootc installed and verified'):]
+    tail = tail[:tail.index("cat /tmp/results/result-summary.txt")]
+    (tmp_path / "checks.txt").write_text("booted=ok\nfsverity_errors=2\nkernel=" + kernel + "\n")
+    script = ("set -euo pipefail\nSECUREBOOT=true\nIMAGE=snow\n"
+              + (block + tail).replace("/tmp/results", str(tmp_path))
+              + "\necho reached-pass")
+    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
+    summary = (tmp_path / "result-summary.txt").read_text()
+    if known_defect:
+        assert result.returncode == 0, result.stderr
+        assert "reached-pass" in result.stdout
+        assert summary == f"bootc installed and verified: snow (secureboot=true) fsverity_known_defect={kernel}"
+        assert (tmp_path / "checks.txt").read_text().splitlines().count(f"fsverity_known_defect={kernel}") == 1
+    else:
+        assert result.returncode == 1
+        assert "reached-pass" not in result.stdout
+        assert summary.startswith("FAILED: installed system logged 2")
+        assert "fsverity_known_defect" not in summary
+
+
+KNOWN_DEFECT_LIST = 'known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64 7.2.15+deb14-amd64 7.2.15-1-surface"'
 UPSTREAM_FIX = "254e15591ee4"   # kdave/linux next-fixes; dcf8811f63af before a rebase
 
 
