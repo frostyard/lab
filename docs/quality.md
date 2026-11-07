@@ -154,7 +154,7 @@ is claimed by the submit file alone.
 
 ## fs-verity regression checks (snosi#1130)
 
-Debian kernels 7.2.11 to 7.2.14 and the linux-surface kernel
+Debian kernels 7.2.11 to 7.2.15 and the linux-surface kernel
 `7.2.15-1-surface` have a btrfs defect: on fs-verity files, readahead
 verifies a whole large folio before all of it is read. The kernel logs
 `fs-verity (...): FILE CORRUPTED! ... level=-1`. A synchronous re-read then
@@ -165,12 +165,15 @@ cause, not data corruption. The upstream fix is
 kdave's `next-fixes` branch. Earlier notes cite `dcf8811f63af`: that is the
 same patch before kdave rebased the branch, and it is no longer reachable. The
 fix is not in mainline or in a Debian kernel yet. Debian `7.2.13-1` and
-`7.2.14-1` (sid) have no btrfs entry in their changelogs, and the upstream
-`ChangeLog-7.2.13` to `-7.2.15` do not contain the fix. Both are listed from
+`7.2.14-1` (sid) have no btrfs entry in their changelogs. Debian testing ships
+`linux-image-7.2.15+deb14-amd64` for linux 7.2.15-1; that package is signed by
+`linux-signed-amd64` 7.2.15+1. Its changelog has no btrfs or fs-verity entry.
+The upstream `ChangeLog-7.2.15` has no btrfs commit, and `ChangeLog-7.3.2` and
+`ChangeLog-7.3.3` do not contain the fix either. These kernels are listed from
 this source evidence, so the lanes do not fail when snosi's
 `linux-image-amd64/forky` moves to them; no lab run has booted them yet. See
 [snosi#1130](https://github.com/frostyard/snosi/issues/1130)
-(investigation update 5).
+(investigation updates 5 and 8).
 
 How often it hits depends on the extents:
 
@@ -190,8 +193,8 @@ How often it hits depends on the extents:
 So `fsverity_errors` is judged against a **known-defect kernel list**, the same
 in every template that judges it (`known_defect_kernels` in the Firn judge, the
 bootc install judge and the lifecycle `run.sh`): `7.2.11+deb14-amd64`,
-`7.2.12+deb14-amd64`, `7.2.13+deb14-amd64`, `7.2.14+deb14-amd64` and
-`7.2.15-1-surface` (linux-surface, Snowfield). The linux-surface entry has
+`7.2.12+deb14-amd64`, `7.2.13+deb14-amd64`, `7.2.14+deb14-amd64`,
+`7.2.15+deb14-amd64` and `7.2.15-1-surface` (linux-surface, Snowfield). The linux-surface entry has
 the same unfixed code: upstream v7.2.15 `fs/btrfs/extent_io.c` is
 byte-identical to v7.2.12 and still calls `fsverity_verify_folio()` in
 `btrfs_verify_folio()`, the upstream `ChangeLog-7.2.13` to `-7.2.15` have no
