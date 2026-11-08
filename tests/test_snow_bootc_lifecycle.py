@@ -15,6 +15,7 @@ import io
 import shutil
 import lzma
 import zlib
+from functools import lru_cache
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,16 @@ NEXT = "b" * 64
 ISO = "c" * 64
 COMMIT = "39cf19887547f83200866e94e5753888706b49fa"
 REPO = "ghcr.io/frostyard/snow"
+
+
+@lru_cache(maxsize=1)
+def _parsed_source(text):
+    return yaml.safe_load(text)["data"]
+
+
+def source_data():
+    """The ConfigMap's data keys, parsed once per text (lab#206: about 0.2 s a parse)."""
+    return dict(_parsed_source(SOURCE.read_text()))
 
 
 def iso_bytes():
@@ -1234,12 +1245,12 @@ def test_staged_marker_rejects_malformed_or_foreign_file(qa, raw):
 
 
 def test_guest_reads_a_bounded_staged_marker(qa):
-    script = yaml.safe_load(SOURCE.read_text())["data"]["qa.py"]
+    script = source_data()["qa.py"]
     assert 'source.read(4097)' in script
 
 
 def run_script():
-    return yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    return source_data()["run.sh"]
 
 
 def phase_loop(script):
@@ -1322,7 +1333,7 @@ def test_host_waits_bounded_for_guest_shutdown_and_never_force_stops_between_pha
 
 def test_run_unit_survives_systemd_specifiers_and_delivers_guest_credentials(tmp_path):
     """Exercise the run.sh assignment, not a copied/fabricated unit string."""
-    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    script = source_data()["run.sh"]
     assignment = re.search(r'(?m)^  guestunit="\[Unit\].*?^  gb=', script, re.S)
     assert assignment
     values = dict(phase="stage", nonce=NONCE, n=f"{REPO}@sha256:{N}",
@@ -1356,7 +1367,7 @@ def test_run_unit_survives_systemd_specifiers_and_delivers_guest_credentials(tmp
 
 
 def test_guest_unit_records_uptime_before_bootstrap(tmp_path):
-    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    script = source_data()["run.sh"]
     assignment = re.search(r'(?m)^  guestunit="\[Unit\].*?^  gb=', script, re.S)
     assert assignment
     values = dict(phase="stage", nonce=NONCE, n=f"{REPO}@sha256:{N}",
@@ -1390,7 +1401,7 @@ def run_extracted_finish(tmp_path, state, serial, *, initialized=False, capture=
                          installer_attached=True, work_removal_failure=False,
                          out_unwritable=False, serial_copy_cleanup_failure=False):
     """Run the real shell functions with only Incus and evidence persistence substituted."""
-    script = yaml.safe_load(SOURCE.read_text())['data']['run.sh']
+    script = source_data()['run.sh']
     functions = []
     for name in ('capture_serial', 'redact_serial', 'finish'):
         match = re.search(r'(?ms)^' + name + r'\(\) \{\n.*?^\}', script)
@@ -1608,7 +1619,7 @@ def test_partial_line_install_diagnostic_payload_never_survives_serial_evidence(
 
 
 def test_partial_line_install_diagnostic_is_not_accepted_by_host_decoder(tmp_path):
-    script = yaml.safe_load(SOURCE.read_text())['data']['run.sh']
+    script = source_data()['run.sh']
     await_body = script.split('await() {', 1)[1].split('\n}', 1)[0]
     decoder = re.search(r'python3 - "\$WORK/serial" "\$WORK/install-diagnostic.txt" <<\'PY\'\n(.*?)\nPY',
                         await_body, re.S)
@@ -1844,7 +1855,7 @@ def test_guest_rejects_bad_unit_start_before_actions(qa, tmp_path, monkeypatch, 
 
 
 def test_run_install_unit_uses_manifest_install_budget_without_systemd_specifiers():
-    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    script = source_data()["run.sh"]
     assignment = re.search(r'(?m)^unit="\[Unit\].*?^drop=', script, re.S)
     assert assignment
     m = manifest()
@@ -1868,7 +1879,7 @@ def test_run_install_unit_uses_manifest_install_budget_without_systemd_specifier
     ("validate_skip_unknown", "SNOW_INSTALL_FAILED firn_validate:secret-file", False),
 ])
 def test_installer_vm_checks_firn_before_install(tmp_path, scenario, marker, installed):
-    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    script = source_data()["run.sh"]
     guest = re.search(r"(?ms)^cat > \"\$WORK/install.sh\" <<'GUEST'\n(.*?)^GUEST$", script)
     replacement = re.search(r"(?ms)^python3 - \"\$WORK/install.sh\".*?^PY$", script[guest.end():]) if guest else None
     assert guest and replacement
@@ -1958,7 +1969,7 @@ def test_installer_vm_checks_firn_before_install(tmp_path, scenario, marker, ins
 def test_installer_recipes_speak_firn_schema_version_2_only():
     # Firn 0.9.0 uses schema version 2; version 1 is deprecated and is rejected
     # from 2026-12-30 on, so both the validator and the install recipe say 2.
-    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    script = source_data()["run.sh"]
     guest = re.search(r"(?ms)^cat > \"\$WORK/install.sh\" <<'GUEST'\n(.*?)^GUEST$", script)
     assert guest
     body = guest[1]
@@ -2085,7 +2096,7 @@ INSTALL_FAILURE_CASES = [
 ]
 def run_installer_failure(tmp_path, stream, without_python, stderr='', base64_available=True,
                           emit_credentials=False):
-    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    script = source_data()["run.sh"]
     guest = re.search(r"(?ms)^cat > \"\$WORK/install.sh\" <<'GUEST'\n(.*?)^GUEST$", script)
     replacement = re.search(r"(?ms)^python3 - \"\$WORK/install.sh\".*?^PY$", script[guest.end():]) if guest else None
     assert guest and replacement
@@ -2314,7 +2325,7 @@ def test_diag_unavailable_without_base64(tmp_path):
     (b'SNOW_INSTALL_DIAG ' + base64.b64encode(b'z' * 4097) + b'\n', b'unparsed'),
 ])
 def test_host_install_diagnostic_decoder(tmp_path, payload, expected):
-    script = yaml.safe_load(SOURCE.read_text())['data']['run.sh']
+    script = source_data()['run.sh']
     await_body = script.split('await() {', 1)[1].split('\n}', 1)[0]
     match = re.search(r'python3 - "\$WORK/serial" "\$WORK/install-diagnostic.txt" <<\'PY\'\n(.*?)\nPY', await_body, re.S)
     assert match
@@ -2340,7 +2351,7 @@ def test_host_serial_and_install_diagnostic_share_redaction_contract(tmp_path):
     assert result.returncode == 1
     serial_result = (evidence / 'serial-redacted.log').read_bytes()
 
-    script = yaml.safe_load(SOURCE.read_text())['data']['run.sh']
+    script = source_data()['run.sh']
     await_body = script.split('await() {', 1)[1].split('\n}', 1)[0]
     decoder = re.search(r'python3 - "\$WORK/serial" "\$WORK/install-diagnostic.txt" <<\'PY\'\n(.*?)\nPY',
                         await_body, re.S)
@@ -2373,7 +2384,7 @@ def test_installer_failure_summary_is_bounded_and_secret_free(tmp_path, stream, 
 def test_installer_fallback_raw_control_check_does_not_pipe_into_grep():
     # grep -q may exit on an early NUL, causing upstream SIGPIPE; with pipefail
     # the negated pipeline can then wrongly classify a dirty line as clean.
-    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    script = source_data()["run.sh"]
     guest = re.search(r"(?ms)^cat > \"\$WORK/install.sh\" <<'GUEST'\n(.*?)^GUEST$", script)
     assert guest
     fallback = guest[1].split('export LC_ALL=C', 1)[1].split("printf 'SNOW_INSTALL_FAILED firn_install:", 1)[0]
@@ -2385,7 +2396,7 @@ def test_installer_fallback_raw_control_check_does_not_pipe_into_grep():
     ("boot-n-plus-1", "reboot"), ("rollback", "reboot"), ("boot-n", "reboot"),
 ])
 def test_run_guest_unit_uses_manifest_phase_budget_without_systemd_specifiers(tmp_path, phase, key):
-    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    script = source_data()["run.sh"]
     assignment = re.search(r'(?m)^  guestunit="\[Unit\].*?^  gb=', script, re.S)
     assert assignment
     work = tmp_path / "work"
@@ -2411,7 +2422,7 @@ def test_run_guest_unit_uses_manifest_phase_budget_without_systemd_specifiers(tm
     ("boot-n-plus-1", "reboot"), ("rollback", "reboot"), ("boot-n", "reboot"),
 ])
 def test_host_wait_outlives_guest_unit_budget(tmp_path, phase, key):
-    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    script = source_data()["run.sh"]
     selection = re.search(r'(?m)^  case "\$phase" in installed-n\|login-1\|report\).*?;; esac', script, re.S)
     assignment = re.search(r'(?m)^  guestunit="\[Unit\].*?^  gb=', script, re.S)
     # The wait sits in the shared boot body (2 or 3 levels deep with two modes).
@@ -2432,7 +2443,7 @@ def test_host_wait_outlives_guest_unit_budget(tmp_path, phase, key):
 
 
 def test_host_install_wait_outlives_install_unit_budget():
-    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    script = source_data()["run.sh"]
     assignment = re.search(r'(?m)^unit="\[Unit\].*?^drop=', script, re.S)
     wait = re.search(r'(?m)^await SNOW_INSTALL_OK .*$', script)
     assert assignment and wait
@@ -2631,7 +2642,7 @@ def test_single_marker_rejects_noncanonical_pad_bits(qa, tmp_path, capsys):
 
 
 def test_guest_shell_requires_credentials_without_echoing_inputs(tmp_path):
-    scripts = yaml.safe_load(SOURCE.read_text())["data"]
+    scripts = source_data()
     assert set(scripts) == {"guest.sh", "intake-lab.py", "intake-setup.sh", "login-setup.sh",
                             "problem-report-v1.json", "problems.py", "qa.py", "report-guest.py",
                             "report.py", "run.sh"}
@@ -2908,7 +2919,7 @@ def test_manual_lane_docs_match_runner_manifest_and_template(qa):
 def test_workflow_deadline_covers_maximum_guest_windows_and_host_margins(qa):
     template = yaml.safe_load((SOURCE.parent / "run-snow-bootc-lifecycle.yaml").read_text())
     entry = next(t for t in template["spec"]["templates"] if t["name"] == template["spec"]["entrypoint"])
-    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    script = source_data()["run.sh"]
 
     def host_timeout(command):
         match = re.search(r"(?m)^\s*timeout (\d+) " + command + r"(?:\s|$)", script)
@@ -2923,7 +2934,7 @@ def test_workflow_deadline_covers_maximum_guest_windows_and_host_margins(qa):
     guest_windows = sum(limits[key] for key in
                         ("iso_boot", "install", "installed_boot", "stage")) + 3 * limits["reboot"] + 6 * 300
     # Preflight's ISO download allows install+30; the host downloads it again.
-    assert 'timeout=m["timeouts"]["install"] + 30' in yaml.safe_load(SOURCE.read_text())["data"]["qa.py"]
+    assert 'timeout=m["timeouts"]["install"] + 30' in source_data()["qa.py"]
     iso_downloads = 2 * (limits["install"] + 30)
     # Preflight: five fetches, two GPG checks, mcopy/zstd/seven cpio reads,
     # two sandbox runs, two cosign + two image inspections, three tag resolves.
@@ -2951,7 +2962,7 @@ def test_workflow_deadline_covers_maximum_guest_windows_and_host_margins(qa):
 
 
 def test_runner_extracts_and_uses_bounded_serial_and_cleanup(tmp_path):
-    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    script = source_data()["run.sh"]
     path = tmp_path / "run.sh"
     path.write_text(script)
     assert subprocess.run(["bash", "-n", str(path)], check=False).returncode == 0
@@ -2969,7 +2980,7 @@ def test_runner_extracts_and_uses_bounded_serial_and_cleanup(tmp_path):
 
 
 def test_runner_installs_gpgv_without_recommends(tmp_path):
-    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    script = source_data()["run.sh"]
     install_command = re.search(
         r"(?m)^timeout 900 apt-get install .*?(?:\\\n  .*?)*\n  >/dev/null 2>&1 \|\| blocked packages_unavailable",
         script,
@@ -3012,7 +3023,7 @@ def test_runner_installs_gpgv_without_recommends(tmp_path):
     ("manifest_read", "FAILED: manifest_read"),
 ])
 def test_runner_failure_never_initializes_vm_and_does_not_expose_inputs(tmp_path, scenario, expected):
-    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    script = source_data()["run.sh"]
     # Isolate both host paths using shell substitution; all external operations
     # are mocked as executables, not a real Incus/registry/cluster call.
     script = script.replace("ROOT=/var/lib/snosi-lab/snow-lifecycle", f"ROOT={tmp_path}/evidence").replace("ROOT=/var/lib/snosi-lab/snow-bootc-evidence", f"ROOT={tmp_path}/evidence")
@@ -3085,23 +3096,24 @@ def test_runner_failure_never_initializes_vm_and_does_not_expose_inputs(tmp_path
 
 @pytest.mark.parametrize("scenario", ["pass", "no_line5", "stage", "stage_keep", "iso_add_partial_keep", "iso_add_partial_detach_failed", "no_reboot", "tag_drift", "evidence_write", "output_write", "stage_teardown", "teardown", "serial_oversize", "serial_unreadable", "blocked_teardown", "phase_missing", "phase_malformed", "guest_error", "guest_error_crlf", "updater_error_crlf", "rollback_error_crlf", "duplicate_error_crlf", "conflicting_error_crlf", "install_missing", "install_failed", "install_firn_v2", "install_firn_hash", "install_fake_code", "install_disk_detect", "install_disk_byid", "install_progress", "install_bad_progress", "install_secret_code", "install_fallback", "install_empty_stream", "install_validate_secret", "install_validate_unknown", "install_validate_unclassified", "install_validate_fake", "cumulative_pass", "cumulative_stale", "cumulative_reset", "cumulative_prefix", "fsverity", "fsverity_known", "fsverity_known_surface", "fsverity_surface_lookalike", "fsverity_known_deb7215", "fsverity_deb7215_lookalike", "guest_shutdown", "nvram_escape", "console_reset_each_start", "reset_mid_boot", "reset_twice", "reset_then_truncate", "empty_then_reset", "installer_restart", "reset_then_stale", "reset_then_stale_error", "stopped_without_record", "final_read_record", "final_read_error", "final_read_conflict", "final_read_fresh_record"])
 def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario):
-    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    script = source_data()["run.sh"]
     for old, new in (("ROOT=/var/lib/snosi-lab/snow-bootc-evidence", f"ROOT={tmp_path}/evidence"),
                      ("OUT=/tmp/results", f"OUT={tmp_path}/results"),
                      ("/var/lib/snosi-lab/iso/snow-qa-", f"{tmp_path}/snow-qa-"),
                      ("/var/lib/incus/storage-pools", str(tmp_path / "pools")),
                      ("/opt/snow-qa/qa.py", str(tmp_path / "qa.py"))):
         script = script.replace(old, new)
-    if scenario in ('reset_twice', 'empty_then_reset', 'reset_mid_boot', 'installer_restart', 'reset_then_stale', 'reset_then_stale_error',
-                    'stopped_without_record', 'final_read_record', 'final_read_error', 'final_read_conflict', 'final_read_fresh_record'):
-        script = script.replace('sleep 5', 'sleep 0.01')  # several polls in one boot
+    # Every poll of the offline runner waits 0.01 s, not 5 s: the mock answers
+    # by call, not by clock, so a short poll changes no outcome and keeps the
+    # 63 scenarios inside the nightly budget (lab#206).
+    assert script.count('sleep 5') == 3
+    script = script.replace('sleep 5', 'sleep 0.01')
     if scenario in ('phase_missing', 'install_missing', 'install_failed', 'cumulative_stale', 'guest_error_crlf', 'updater_error_crlf', 'rollback_error_crlf', 'duplicate_error_crlf', 'conflicting_error_crlf', 'guest_shutdown'):
         # Keep the actual await loop; cap its clock only in offline timeout tests.
         assert 'end=$((SECONDS + $2))' in script
         script = script.replace('end=$((SECONDS + $2))', 'end=$((SECONDS + 1))')
         assert 'shutdown_end=$((SECONDS + shutdown_budget + 150))' in script
         script = script.replace('shutdown_end=$((SECONDS + shutdown_budget + 150))', 'shutdown_end=$((SECONDS + 1))')
-        script = script.replace('sleep 5', 'sleep 0.01')
     if scenario == "evidence_write":
         script = script.replace('local source="$1" dest="$2"',
                                 'local source="$1" dest="$2"\n  if [[ "$source" == "$WORK/checks.json" ]] && grep -q after-stage "$source"; then return 1; fi')
@@ -3495,7 +3507,7 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
 def test_installer_gives_firn_the_canonical_disk_not_the_by_id_link():
     # Firn 0.9.0 appends the partition number to the disk path it gets, so a
     # by-id link makes it format a nonexistent ...root1 (run lnzgv, format-boot).
-    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    script = source_data()["run.sh"]
     install = script[script.index("cat > \"$WORK/install.sh\""):script.index("\nGUEST\n")]
     assert 'disk = "$disk"' in install and 'disk = "$byid"' not in install
     assert '--confirm "$disk"' in install and '--confirm "$byid"' not in install
@@ -3508,7 +3520,7 @@ def test_firn_install_has_no_file_size_limit_and_bounded_outputs(tmp_path, firn_
     # RLIMIT_FSIZE on Firn is inherited by podman/bootc: any image blob above
     # it fails with EFBIG (run-snow-bootc-lifecycle-6prlx). The outputs are
     # bounded at their sinks instead, and Firn's exit status survives.
-    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    script = source_data()["run.sh"]
     install = script[script.index('cat > "$WORK/install.sh"'):script.index("\nGUEST\n")]
     line = next(l for l in install.splitlines() if "firn install " in l and l.lstrip().startswith("if "))
     assert "ulimit" not in line
@@ -3547,7 +3559,7 @@ def test_firn_install_has_no_file_size_limit_and_bounded_outputs(tmp_path, firn_
 
 
 def test_guest_publish_margin_matches_unit_timeout_and_bounds_the_replay(qa, monkeypatch):
-    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    script = source_data()["run.sh"]
     assert f"TimeoutStartSec=$((budget + {qa.PUBLISH_MARGIN}))" in script
     # 1 deadline covers the wait, the hold and every console write; the reserve
     # is left for the last getty query and the poweroff request (lab#177).
@@ -3574,7 +3586,7 @@ def test_guest_publish_margin_matches_unit_timeout_and_bounds_the_replay(qa, mon
 def test_host_shutdown_wait_includes_the_guest_publish_margin(qa):
     # The host starts its shutdown deadline at the first record; the guest may
     # still replay until its own publish deadline, then requests poweroff.
-    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    script = source_data()["run.sh"]
     assert f"shutdown_end=$((SECONDS + shutdown_budget + {qa.PUBLISH_MARGIN}))" in script
     assert qa.PUBLISH_MARGIN >= qa.PUBLISH_WAIT + qa.PUBLISH_HOLD + qa.PUBLISH_RESERVE
 
@@ -3762,7 +3774,7 @@ def test_system_policy_ok_requires_the_permissive_default_and_equal_transports(q
 
 def test_guest_accepts_both_tpm_pubkey_spellings_and_bootctl_double_slash(qa, monkeypatch, tmp_path):
     # systemd writes "tpm2_pubkey" (observed on Snow); older releases "tpm2-pubkey".
-    script = yaml.safe_load(SOURCE.read_text())["data"]["qa.py"]
+    script = source_data()["qa.py"]
     assert '("tpm2_pubkey", "tpm2-pubkey")' in script
     assert '["findmnt", "-n", "-o", "FSTYPE", "/sysroot"]' in script
     esp = tmp_path / "esp"
@@ -3814,7 +3826,7 @@ def test_phase_reads_a_record_after_the_getty_prompt(qa, tmp_path, capsys, prefi
 
 
 def test_runner_reads_a_guest_error_after_the_getty_prompt(tmp_path):
-    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    script = source_data()["run.sh"]
     parser = re.search(r"code=\$\(python3 - \"\$WORK/serial\" <<'PY'\n(.*?)\nPY\n", script, re.S)
     assert parser
     path = tmp_path / "parse.py"
@@ -3841,7 +3853,7 @@ def test_record_and_error_readers_share_lf_line_boundaries(qa, tmp_path, capsys)
         serial.write_text(text)
         assert qa.main(["phase", str(normalized), "installed-n", NONCE, "none", str(serial), str(checks)]) == (0 if ok else 1)
         capsys.readouterr()
-    script = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    script = source_data()["run.sh"]
     parser = re.search(r"code=\$\(python3 - \"\$WORK/serial\" <<'PY'\n(.*?)\nPY\n", script, re.S)
     path = tmp_path / "parse.py"
     path.write_text(parser.group(1))
@@ -4199,7 +4211,7 @@ def test_sysext_reboot_first_made_after_the_enable_boot_is_no_host_failure(qa, t
 
 
 def test_sysext_probe_unit_orders_after_multi_user_target():
-    run = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    run = source_data()["run.sh"]
     assert 'sysext-enable|sysext-reboot) guest_mode=sysext; guest_after=" multi-user.target";;' in run
     assert '*) guest_mode=guest; guest_after="";;' in run
     assert "After=network-online.target${guest_after}" in run
@@ -4632,7 +4644,7 @@ def test_qa_payload_stays_below_the_smbios_credential_bound():
     # program, and test_guest_unit_stays_under_the_smbios_bound holds the real
     # 54000 bound on the whole guest unit. The report probe (T857 t21) keeps the
     # bound and compresses the payload with xz, like the lane does.
-    payload = yaml.safe_load(SOURCE.read_text())["data"]["qa.py"]
+    payload = source_data()["qa.py"]
     assert len(base64.b64encode(lzma.compress(payload.encode(), preset=9 | lzma.PRESET_EXTREME))) < 50000
 
 
@@ -4665,7 +4677,7 @@ def test_sysext_reboot_host_codes_come_only_from_manifest_units_and_valid_names(
 
 def journal_printer(which="journal"):
     """The embedded pod-log printer: the load-state one comes first, the journal one second."""
-    run = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    run = source_data()["run.sh"]
     marker = 'python3 - "$WORK/normalized.json" "$WORK/sysext-enable.json"'
     start = run.index(marker)
     if which == "journal":
@@ -4746,7 +4758,7 @@ def test_sysext_state_printer_lists_every_unit_with_the_load_state(qa, tmp_path)
 
 
 def test_run_script_prints_the_load_state_whenever_the_probe_ran():
-    run = yaml.safe_load(SOURCE.read_text())["data"]["run.sh"]
+    run = source_data()["run.sh"]
     assert 'if [[ "$sysext_mode" == 1 ]]; then\n  python3 - "$WORK/normalized.json"' in run
 
 # ---------------------------------------------------------------------------
