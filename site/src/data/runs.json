@@ -1,5 +1,5 @@
 {
-  "generated": "2026-11-08T22:00:22Z",
+  "generated": "2026-11-08T22:30:24Z",
   "lanes": [
     {
       "laneKey": "run-firn-install-tests",
@@ -75,9 +75,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1794175200",
+        "name": "publish-results-1794177000",
         "phase": "Running",
-        "started": "2026-11-08T22:00:00Z",
+        "started": "2026-11-08T22:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -244,11 +244,28 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1794175200",
+      "name": "publish-results-1794177000",
       "phase": "Running",
-      "started": "2026-11-08T22:00:00Z",
+      "started": "2026-11-08T22:30:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": null,
+      "checks": [],
+      "fsverity": []
+    },
+    {
+      "name": "publish-results-1794175200",
+      "phase": "Succeeded",
+      "started": "2026-11-08T22:00:00Z",
+      "finished": "2026-11-08T22:00:35Z",
+      "durationSeconds": 35,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -351,23 +368,6 @@
       "started": "2026-11-08T21:00:00Z",
       "finished": "2026-11-08T21:00:39Z",
       "durationSeconds": 39,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": null,
-      "checks": [],
-      "fsverity": []
-    },
-    {
-      "name": "publish-results-1794169800",
-      "phase": "Succeeded",
-      "started": "2026-11-08T20:30:00Z",
-      "finished": "2026-11-08T20:30:32Z",
-      "durationSeconds": 32,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
