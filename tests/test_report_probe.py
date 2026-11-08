@@ -25,7 +25,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from test_snow_bootc_lifecycle import N, NEXT, NONCE, REPO, SOURCE, manifest, run_script
+from test_snow_bootc_lifecycle import N, NEXT, NONCE, REPO, SOURCE, manifest, run_script, source_data
 
 BOOT_ID = "01234567-89ab-4cde-8f01-23456789abcd"
 WEEK = "2026-W45"
@@ -39,7 +39,7 @@ CODE = "lab.injected_t857"
 
 
 def scripts():
-    return yaml.safe_load(SOURCE.read_text())["data"]
+    return source_data()
 
 
 # --------------------------------------------------------------- fixtures
@@ -177,13 +177,18 @@ def test_report_probe_never_stages_n_plus_1(qa):
         qa.normalize(m)
 
 
-def test_the_report_marker_is_a_complete_record_line(qa):
+def test_the_report_marker_is_a_complete_record_line(qa, monkeypatch):
     # The host joins kernel-log chunks into record lines; the report line is one
     # of them, with its own bound, and its error line carries a bounded code.
     assert (b"SNOW_REPORT_V1", rb"[A-Za-z0-9_-]{1,%d}" % (qa.REPORT_TOKEN_MAX + 64)) in qa.COMPLETE_LINES
     assert (b"SNOW_REPORT_ERR", rb"[a-z_]{1,40}") in qa.COMPLETE_LINES
     assert b"SNOW_REPORT_V1" in qa.MARKER_LINE and b"SNOW_REPORT_ERR" in qa.MARKER_LINE
+    # The real publish holds the line for PUBLISH_HOLD seconds and writes to the
+    # guest consoles; capture the line instead (lab#206: 30 s of sleep per run).
+    published = []
+    monkeypatch.setattr(qa, "publish", published.append)
     assert qa.main(["report"]) == 1
+    assert published == ["SNOW_REPORT_ERR usage"]
 
 
 # ---------------------------------------------------------------- the guest
@@ -1131,7 +1136,10 @@ def intake(lab, tmp_path, monkeypatch):
     proxy = lab.server(lab.Proxy, ("127.0.0.1", 0), tls=False)
     mock = lab.server(lab.Mock, ("127.0.0.1", 0))
     monkeypatch.setattr(lab, "UPSTREAM", "http://127.0.0.1:%d" % upstream.server_address[1])
-    threads = [threading.Thread(target=server.serve_forever, daemon=True)
+    # A short poll interval: shutdown() waits up to 1 interval per server, and
+    # the default 0.5 s cost about 1 s of teardown in each of these tests (lab#206).
+    threads = [threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.02},
+                                daemon=True)
                for server in (upstream, proxy, mock)]
     for thread in threads:
         thread.start()
@@ -1271,7 +1279,7 @@ def test_qa_dispatches_the_report_program_from_its_credential(qa, monkeypatch, t
     """qa.py runs report-guest.py from the snow-report.z credential, AST-stripped."""
     import ast
     import lzma
-    source = yaml.safe_load(SOURCE.read_text())["data"]["report-guest.py"]
+    source = source_data()["report-guest.py"]
     credential = tmp_path / "snow-report.z"
     credential.write_bytes(lzma.compress(ast.unparse(ast.parse(source)).encode(),
                                         preset=9 | lzma.PRESET_EXTREME))

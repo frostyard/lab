@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from test_snow_bootc_lifecycle import N, NEXT, NONCE, REPO, SOURCE, manifest, run_script
+from test_snow_bootc_lifecycle import N, NEXT, NONCE, REPO, SOURCE, manifest, run_script, source_data
 
 BOOT_ID = "01234567-89ab-4cde-8f01-23456789abcd"
 SECOND_BOOT_ID = "11234567-89ab-4cde-8f01-23456789abcd"
@@ -37,7 +37,7 @@ V1_SHA256 = "6c053ee3a9b4fd399d1d011b2be833dc6b17f25e727161fc576b0ce64cc14c3a"
 
 
 def scripts():
-    return yaml.safe_load(SOURCE.read_text())["data"]
+    return source_data()
 
 
 # --------------------------------------------------------------- fixtures

@@ -21,7 +21,7 @@ import yaml
 
 import test_snow_bootc_lifecycle as snow
 from test_snow_bootc_lifecycle import (  # noqa: F401  (qa is the ConfigMap fixture)
-    N, NEXT, NONCE, REPO, SOURCE, manifest, qa, run_script)
+    N, NEXT, NONCE, REPO, SOURCE, manifest, qa, run_script, source_data)
 
 BOOT_ID = "01234567-89ab-4cde-8f01-23456789abcd"
 SECOND_BOOT_ID = "11234567-89ab-4cde-8f01-23456789abcd"
@@ -32,7 +32,7 @@ DETAIL = ("phase=login-1 dm=gdm autologin=yes session=wayland started=first-setu
 
 
 def scripts():
-    return yaml.safe_load(SOURCE.read_text())["data"]
+    return source_data()
 
 
 def login_manifest(product="snow"):
