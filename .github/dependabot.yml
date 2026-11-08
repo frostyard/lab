@@ -5,6 +5,9 @@
 #   npm /site       site/package.json: the Astro QA dashboard
 #   pip /           requirements-test.txt: pytest and the YAML and Kubernetes
 #                   schema validators
+# Each entry has 1 group with `patterns: ["*"]`, so each entry opens at most 1
+# version-update pull request for each run (ADR-0075). The group has no
+# `applies-to`, so security updates stay 1 pull request each.
 version: 2
 updates:
   - package-ecosystem: "github-actions"
@@ -15,6 +18,9 @@ updates:
     commit-message:
       prefix: "ci"
       include: "scope"
+    groups:
+      actions:
+        patterns: ["*"]
 
   - package-ecosystem: "npm"
     directory: "/"
@@ -24,6 +30,9 @@ updates:
     commit-message:
       prefix: "chore"
       include: "scope"
+    groups:
+      npm:
+        patterns: ["*"]
 
   - package-ecosystem: "npm"
     directory: "/site"
@@ -33,6 +42,9 @@ updates:
     commit-message:
       prefix: "chore"
       include: "scope"
+    groups:
+      npm-site:
+        patterns: ["*"]
 
   - package-ecosystem: "pip"
     directory: "/"
@@ -42,3 +54,6 @@ updates:
     commit-message:
       prefix: "chore"
       include: "scope"
+    groups:
+      pip:
+        patterns: ["*"]
