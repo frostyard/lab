@@ -23,16 +23,24 @@ ADR-0018, ADR-0029). Edit only the canonical paths.
   `Repository gate` runs `make ci`, which also checks that
   `.memory/corrections.jsonl` is append-only against the PR base; run
   `make ci BASE=origin/main` for the same check locally. Install
-  `requirements-test.txt` first (CONTRIBUTING.md).
+  `requirements-test.txt` first (CONTRIBUTING.md). Job `CI result`
+  aggregates the other `ci.yml` jobs and is the required check (core
+  ADR-0076), so a matrix name can change without a ruleset edit.
 - `mise.toml` and `mise.lock` pin the Node that the gate runs (core
   ADR-0043); run `mise install`. Change a pin only with `mise lock`.
-- `.github/risk-paths.json` lists the high-risk paths (core ADR-0068). A PR
-  that touches one gets `risk:high` and declares tier High
-  ([docs/risk-tiers.md](docs/risk-tiers.md)). Each `why` starts with a
+- `.github/risk-paths.json` lists the paths that set a level (schema version 2,
+  core ADR-0068, ADR-0078). Each entry has a `level` from L1 (strictest) to L4
+  and `default_level` is L3. Core's `pr-triage` caller
+  (`.github/workflows/risk-paths.yml`) labels the PR `level:L<n>`, plus
+  `risk:high` for L1 and L2. A PR that touches an L1 or L2 path declares tier
+  High ([docs/risk-tiers.md](docs/risk-tiers.md)). Each `why` starts with a
   `protectedBoundaries` id of `policies/agent-governance.json`
-  (`tests/test_risk_paths.py`). Add a path when you add a file of that kind.
-- `scripts/lib/risk-paths.mjs` and `scripts/check-corrections.mjs` are copies
-  from frostyard/core; never edit them by hand (`make verify` checks their
+  (`tests/test_risk_paths.py`). Rule C of core's risk-path spec puts the list
+  and the caller at L1 or L2 (`scripts/check-template.mjs`). Add a path when
+  you add a file of that kind.
+- `scripts/lib/risk-paths.mjs` (core's risk-path and level validator, version 2)
+  and `scripts/check-corrections.mjs` are copies from frostyard/core, pinned to
+  a core commit SHA; never edit them by hand (`make verify` checks their
   hashes).
 - Blocker to guard: when a review finds a blocking point, the PR that fixes
   it also adds a guard (a targeted test that fails without the fix, or an

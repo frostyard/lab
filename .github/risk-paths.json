@@ -1,72 +1,90 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
+  "default_level": "L3",
   "paths": [
     {
       "glob": ".github/risk-paths.json",
-      "why": "quality-gates: the high-risk path list"
+      "level": "L2",
+      "why": "quality-gates: the risk-path list that sets the level labels and risk:high"
     },
     {
       "glob": ".github/workflows/**",
-      "why": "workflow-permissions: CI, the Pages deploy, the risk-paths caller and their token permissions"
+      "level": "L2",
+      "why": "workflow-permissions: CI, the Pages deploy, the PR triage caller and their token permissions"
     },
     {
       "glob": "argo/workflow-templates/**",
+      "level": "L1",
       "why": "argo-cd-ownership: WorkflowTemplates that Argo CD syncs to the cluster (Application frostyard-lab); the lanes run on the lab host"
     },
     {
       "glob": "manifests/**",
+      "level": "L1",
       "why": "kubernetes-rbac: RBAC, CronWorkflows, semaphores, digest state and result publication that Argo CD syncs (Application frostyard-lab-infra)"
     },
     {
       "glob": "argocd/**",
+      "level": "L1",
       "why": "argo-cd-ownership: the Argo CD Applications and the hand-applied bootstrap"
     },
     {
       "glob": "Justfile",
+      "level": "L1",
       "why": "cluster-credentials: operator recipes that apply, annotate and submit with the current kubeconfig"
     },
     {
       "glob": "scripts/*-dev-submit.sh",
+      "level": "L1",
       "why": "cluster-credentials: dev Workflow submits with the operator's kubeconfig"
     },
     {
       "glob": "scripts/collect_runs.py",
+      "level": "L1",
       "why": "evidence-publication: the collector that writes the published runs.json"
     },
     {
       "glob": "policies/**",
+      "level": "L2",
       "why": "quality-gates: the agent governance policy and its checker"
     },
     {
       "glob": "Makefile",
+      "level": "L2",
       "why": "quality-gates: the verify gate"
     },
     {
       "glob": "pytest.ini",
+      "level": "L2",
       "why": "quality-gates: the pytest coverage gate"
     },
     {
       "glob": ".coverage-thresholds.json",
+      "level": "L2",
       "why": "quality-gates: the coverage thresholds"
     },
     {
       "glob": "scripts/check-template.mjs",
+      "level": "L2",
       "why": "quality-gates: the template verification gate"
     },
     {
       "glob": "scripts/check-corrections.mjs",
+      "level": "L2",
       "why": "quality-gates: the corrections validation gate"
     },
     {
       "glob": "scripts/lib/**",
+      "level": "L2",
       "why": "quality-gates: the vendored risk-path validator and matcher"
     },
     {
       "glob": "mise.toml",
+      "level": "L2",
       "why": "quality-gates: the tool pins that the gate installs"
     },
     {
       "glob": "mise.lock",
+      "level": "L2",
       "why": "quality-gates: the checksums of the tools that the gate installs"
     }
   ]

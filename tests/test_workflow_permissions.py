@@ -1,4 +1,7 @@
 from pathlib import Path
+import os
+import shutil
+import subprocess
 
 import pytest
 import yaml
@@ -71,7 +74,7 @@ def test_labeler_job_permissions_are_exact():
 def test_job_write_permissions_are_allowlisted():
     allowed_writes = {
         ("claude-code-review.yml", "review", "pull-requests"),
-        ("risk-paths.yml", "risk-paths", "pull-requests"),
+        ("risk-paths.yml", "pr-triage", "pull-requests"),
         ("pages.yml", "deploy", "pages"),
         ("pages.yml", "deploy", "id-token"),
         ("labeler.yml", "triage", "issues"),
@@ -97,3 +100,45 @@ def test_job_write_permissions_are_allowlisted():
                         f"{workflow_file.name}: bad job write grant "
                         f"'{job_name}.{key}: {value}' is not allowlisted"
                     )
+
+
+def test_ci_aggregate_job_covers_every_other_job():
+    # core ADR-0076 (rule N5): 1 required check covers the whole CI workflow.
+    # The job must wait for every other ci.yml job, run whatever their result,
+    # and keep 1 stable name, or the required check can pass while a job failed.
+    workflow = load_workflow(WORKFLOWS / "ci.yml")
+    jobs = workflow["jobs"]
+    result = jobs.get("result")
+    assert result is not None, "ci.yml needs the aggregate job `result`"
+    assert result["name"] == "CI result", result.get("name")
+    assert result["if"] == "always()", result.get("if")
+    others = set(jobs) - {"result"}
+    assert set(result["needs"]) == others, sorted(others ^ set(result["needs"]))
+
+
+@pytest.mark.parametrize(
+    ("results", "passes"),
+    [
+        ('["success","success","success"]', True),
+        ('["success","failure","success"]', False),
+        ('["success","cancelled","success"]', False),
+        ('["skipped","success","success"]', False),
+        ("[]", False),
+    ],
+    ids=["all-success", "failure", "cancelled", "skipped", "empty"],
+)
+def test_ci_aggregate_job_fails_unless_every_job_succeeded(results, passes):
+    # core ADR-0076 (rule N5): run the aggregate step's own script with the
+    # value of toJSON(needs.*.result), so a script that cannot fail is caught.
+    assert shutil.which("bash") and shutil.which("jq"), "bash and jq are needed to run the aggregate step"
+    steps = load_workflow(WORKFLOWS / "ci.yml")["jobs"]["result"]["steps"]
+    assert len(steps) == 1, "the aggregate job has exactly 1 step"
+    script = steps[0]["run"]
+    completed = subprocess.run(
+        ["bash", "-e", "-o", "pipefail", "-c", script],
+        env={**os.environ, "RESULTS": results},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (completed.returncode == 0) is passes, (results, completed.stdout, completed.stderr)
