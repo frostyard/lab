@@ -1,7 +1,9 @@
 # CI entry (frostyard core ADR-0071 row B12): job `gate` runs `make ci`, the
 # make gate of ADR-0043 and ADR-0044 (template gate, policy check, pytest,
 # dashboard unit tests, append-only corrections). Jobs `python` and `site` run
-# the same test targets on the other supported runtime generations.
+# the same test targets on the other supported runtime generations. Job
+# `result` (`CI result`) aggregates the 3 and is the required check of ADR-0076
+# (rule N5), so a matrix name can change without a ruleset edit.
 # ADR-0021: SHA-pinned actions, top-level permissions {}, contents: read only,
 # and checkout does not persist credentials. No secrets.
 name: CI
@@ -85,3 +87,21 @@ jobs:
           cache: npm
           cache-dependency-path: site/package-lock.json
       - run: make verify-site
+
+  # The required check of ADR-0076 (rule N5): 1 name covers the whole CI entry
+  # workflow, so the matrix names can change without a ruleset edit. It fails
+  # when a needed job failed, was cancelled or was skipped.
+  result:
+    name: CI result
+    if: always()
+    needs: [gate, python, site]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Fail unless every CI job succeeded
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "needs results: $RESULTS"
+          jq -e 'length > 0 and all(.[]; . == "success")' <<<"$RESULTS" >/dev/null

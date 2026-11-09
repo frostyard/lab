@@ -13,9 +13,11 @@ docs/review-rubric.md and the docs rules in docs/README.md. -->
 ## Risk tier
 
 Declare the highest applicable tier, never lower; the scale is
-[docs/risk-tiers.md](../docs/risk-tiers.md) (Low, Medium, High). A `risk:high`
-label (a path in `.github/risk-paths.json`) means High: name each matched path
-and why the change is safe, and give the rollback or safe-disable step.
+[docs/risk-tiers.md](../docs/risk-tiers.md) (Low, Medium, High). A path in
+`.github/risk-paths.json` gets a `level:L1` to `level:L4` label, and `risk:high`
+for L1 and L2 (core ADR-0078). A `risk:high` label means High: name each
+matched path and why the change is safe, and give the rollback or safe-disable
+step.
 
 - Tier: Low / Medium / High
 - Rationale:
