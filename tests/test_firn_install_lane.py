@@ -325,13 +325,13 @@ def test_judge_checks_under_errexit(lane, tmp_path, change, expected):
 
 PLYMOUTH_PRESENT = {
     "plymouthd": "present", "cmdline_splash": "yes", "cmdline_quiet": "yes",
-    "plymouth_start": "active_success", "plymouth_crashes": "0",
+    "plymouth_start": "active_success", "plymouth_started": "yes", "plymouth_crashes": "0",
 }
 
 
 @pytest.mark.parametrize("change,code", [
     ({}, None),  # Floe: no Plymouth; startup and crash keys are not required.
-    ({"plymouth_start": "failed_signal", "plymouth_crashes": "unknown"}, None),
+    ({"plymouth_start": "failed_signal", "plymouth_started": "no", "plymouth_crashes": "unknown"}, None),
     ({"plymouthd": None}, "plymouth_check_missing"),
     ({"plymouthd": ""}, "plymouth_check_missing"),
     ({"plymouthd": "other"}, "plymouth_check_unknown"),
@@ -359,6 +359,15 @@ PLYMOUTH_PRESENT = {
     ({**PLYMOUTH_PRESENT, "plymouth_start": "unknown_unknown"}, "plymouth_start_unknown"),
     ({**PLYMOUTH_PRESENT, "plymouth_start": "active_success;echo bad"}, "plymouth_start_unknown"),
     ({**PLYMOUTH_PRESENT, "plymouth_start": "a" * 33 + "_success"}, "plymouth_start_unknown"),
+    ({**PLYMOUTH_PRESENT, "plymouth_started": None}, "plymouth_started_missing"),
+    ({**PLYMOUTH_PRESENT, "plymouth_started": ""}, "plymouth_started_missing"),
+    ({**PLYMOUTH_PRESENT, "plymouth_started": "no"}, "plymouth_not_started"),
+    ({**PLYMOUTH_PRESENT, "plymouth_started": "unknown"}, "plymouth_started_unknown"),
+    ({**PLYMOUTH_PRESENT, "plymouth_started": "YES"}, "plymouth_started_unknown"),
+    ({**PLYMOUTH_PRESENT, "plymouth_start": "inactive_success", "plymouth_started": "no"}, "plymouth_not_started"),
+    ({**PLYMOUTH_PRESENT, "plymouth_start": "failed_signal", "plymouth_started": "no"}, "plymouth_start_failed_signal"),
+    ({**PLYMOUTH_PRESENT, "plymouth_started": "no", "plymouth_crashes": "3"}, "plymouth_not_started"),
+    ({**PLYMOUTH_PRESENT, "plymouth_crashes": "1" * 20}, "plymouth_crashes_unknown"),
     ({**PLYMOUTH_PRESENT, "plymouth_crashes": None}, "plymouth_crashes_unknown"),
     ({**PLYMOUTH_PRESENT, "plymouth_crashes": "unknown"}, "plymouth_crashes_unknown"),
     ({**PLYMOUTH_PRESENT, "plymouth_crashes": "-1"}, "plymouth_crashes_unknown"),
@@ -473,9 +482,10 @@ def test_guest_check_login_poll_has_safe_unit_budget(lane):
     # and additional startup margin.
     # The fs-verity probe adds the composefs scan (180s), the journal read (20s)
     # and the canary (60s plus a few seconds of cleanup).
-    # Plymouth adds 2 token scans (5s each), 2 unit queries (10s each),
-    # a journal read (20s), a crash scan (5s) and a theme query (10s).
-    assert 300 + 3 * 10 + 120 + 180 + 20 + 60 + 15 + 30 + 2 * 10 + 10 + 65 < int(budget.group(1))
+    # Plymouth adds token splitting (5s), 2 token scans (5s each),
+    # 3 unit queries (10s each), a journal read (20s), a crash scan (5s),
+    # diagnostics (5s plus 2s kill grace) and a theme query (10s).
+    assert 300 + 3 * 10 + 120 + 180 + 20 + 60 + 15 + 30 + 2 * 10 + 10 + 87 < int(budget.group(1))
     assert "timeout 180 xargs" in check and "timeout 20 journalctl" in check and "timeout -k 5 60 bash" in check
     params = {p["name"]: p for p in lane["inputs"]["parameters"]}
     assert int(params["installed-boot-timeout-seconds"]["value"]) >= int(budget.group(1))
@@ -538,8 +548,19 @@ def test_guest_login_poll_reports_final_state_without_hanging(
     ]
 
 
+NORMAL_PLYMOUTH_BOOT = (
+    "Starting plymouth-quit-wait.service - Hold until boot process finishes up...\n"
+    "plymouth-quit-wait.service: Deactivated successfully.\n"
+    "plymouth-start.service: Deactivated successfully.\n"
+    "Finished plymouth-read-write.service - Tell Plymouth To Write Out Runtime Data.\n"
+    "plymouth-start.service: Consumed 1.2s CPU time.\n"
+    "plymouth-start.service: Unit configured to use KillMode=none. This is unsafe...\n"
+)
+
+
 @pytest.mark.parametrize("changes,expected", [
     ({}, {}),
+    ({"journal": NORMAL_PLYMOUTH_BOOT}, {"plymouth_crashes": "0"}),
     ({"payload": "absent", "cmdline": "console=ttyS0 root=UUID=abc"},
      {"plymouthd": "absent", "cmdline_splash": "no", "cmdline_quiet": "no"}),
     ({"journal": "kernel: plymouthd[42]: segfault at 0\n"
@@ -554,6 +575,10 @@ def test_guest_login_poll_reports_final_state_without_hanging(
     ({"journal": " \n\t"}, {"plymouth_crashes": "unknown"}),
     ({"cmdline": "nosplash splashy quietish noquiet console=ttyS0"},
      {"cmdline_splash": "no", "cmdline_quiet": "no"}),
+    ({"cmdline": "splash=silent plymouth.splash=x key=quiet"},
+     {"cmdline_splash": "no", "cmdline_quiet": "no"}),
+    ({"cmdline": "console=ttyS0 quiet splash"}, {}),
+    ({"cmdline": "console=ttyS0\tsplash\tquiet"}, {}),
     ({"cmdline": None}, {"cmdline_splash": "unknown", "cmdline_quiet": "unknown"}),
     ({"payload": "symlink"}, {"plymouthd": "other"}),
     ({"payload": "dangling"}, {"plymouthd": "other"}),
@@ -562,7 +587,16 @@ def test_guest_login_poll_reports_final_state_without_hanging(
     ({"active": "active; echo unsafe", "result": "success\nforged=value"},
      {"plymouth_start": "unknown_unknown"}),
     ({"active": "", "result": ""}, {"plymouth_start": "unknown_unknown"}),
-    ({"systemctl_rc": "1"}, {"plymouth_start": "unknown_unknown"}),
+    ({"systemctl_rc": "1"}, {"plymouth_start": "unknown_unknown", "plymouth_started": "unknown"}),
+    ({"timestamp": "0"}, {"plymouth_started": "no"}),
+    ({"timestamp": "000"}, {"plymouth_started": "no"}),
+    ({"timestamp": "000123"}, {"plymouth_started": "yes"}),
+    ({"timestamp": "9" * 20}, {"plymouth_started": "yes"}),
+    ({"timestamp": "1" * 21}, {"plymouth_started": "unknown"}),
+    ({"timestamp": "-1"}, {"plymouth_started": "unknown"}),
+    ({"timestamp": "123; echo forged"}, {"plymouth_started": "unknown"}),
+    ({"timestamp": ""}, {"plymouth_started": "unknown"}),
+    ({"timestamp_rc": "1"}, {"plymouth_started": "unknown"}),
     ({"active": "inactive", "result": "exit-code"}, {"plymouth_start": "inactive_exit-code"}),
     ({"theme": "breeze\nignored second line"}, {"plymouth_theme": "breeze"}),
     ({"theme": "../../bad theme"}, {"plymouth_theme": "none"}),
@@ -570,10 +604,28 @@ def test_guest_login_poll_reports_final_state_without_hanging(
     ({"theme_rc": "1"}, {"plymouth_theme": "none"}),
 ])
 def test_guest_plymouth_probe(lane, tmp_path, changes, expected):
+    _check_plymouth_probe(lane, tmp_path, changes, expected)
+
+
+def test_guest_plymouth_large_journal(lane, tmp_path):
+    journal = "systemd[1]: Normal boot progress.\n" * 65536 + "kernel: plymouthd[42]: segfault at 0\n"
+    assert len(journal) >= 2 * 1024 * 1024
+    _check_plymouth_probe(lane, tmp_path, {"journal": journal}, {"plymouth_crashes": "1"})
+
+
+def test_guest_plymouth_crash_diagnostics(lane, tmp_path):
+    hostile = "plymouthd[42]: segfault at /@=,'()[] - \x1b[31m\t€<bad>" + "x" * 250
+    sanitized = ("plymouthd[42]: segfault at /@=,'()[] - _[31m___bad_" + "x" * 250)[:200]
+    _check_plymouth_probe(lane, tmp_path, {"journal": (hostile + "\n") * 7},
+                         {"plymouth_crashes": "7"}, diagnostics=[sanitized] * 5)
+
+
+def _check_plymouth_probe(lane, tmp_path, changes, expected, diagnostics=None):
     config = {"payload": "present", "cmdline": "root=UUID=abc splash quiet console=ttyS0",
               "journal": "systemd[1]: Reached target multi-user.target\n",
               "journal_rc": "0", "active": "active", "result": "success",
-              "systemctl_rc": "0", "theme": "snow", "theme_rc": "0"}
+              "systemctl_rc": "0", "timestamp": "123456", "timestamp_rc": "0",
+              "theme": "snow", "theme_rc": "0"}
     config.update(changes)
     payload = tmp_path / "plymouthd"
     if config["payload"] in ("present", "nonexec"):
@@ -593,16 +645,22 @@ def test_guest_plymouth_probe(lane, tmp_path, changes, expected):
     assert generated.index("# --- END login-poll ---") < generated.index("# --- BEGIN plymouth-probe ---")
     probe = generated.split("# --- BEGIN plymouth-probe ---\n", 1)[1].split("# --- END plymouth-probe ---", 1)[0]
     probe = _sandboxed(probe, tmp_path)
+    # A file avoids ARG_MAX limits for the large-journal guard.
+    journal = tmp_path / "journal"
+    journal.write_text(config["journal"])
     # Function stubs exercise failures under errexit without the guest services.
-    # Real timeout still bounds grep; the outer test bounds the stubbed calls.
+    # Real timeout still bounds tools; the outer test bounds the stubbed calls.
     script = r'''set -euo pipefail
 emit() { printf '%s=%s\n' "$1" "$2"; }
+kmsg() { printf '%s\n' "$1" >> "$KMSG"; }
 timeout() {
   local budget="$1"; shift
-  printf '%s %s\n' "$budget" "$*" >> "$CALLS"
+  local kill_args=()
+  if [[ "$budget" == -k ]]; then kill_args=(-k "$1"); budget="$2"; shift 2; fi
+  printf '%s %s\n' "$budget" "$1" >> "$CALLS"
   case "$1" in
     systemctl|journalctl|plymouth-set-default-theme) "$@" ;;
-    *) command timeout "$budget" "$@" ;;
+    *) command timeout "${kill_args[@]}" "$budget" "$@" ;;
   esac
 }
 systemctl() {
@@ -610,13 +668,14 @@ systemctl() {
   case "$3" in
     ActiveState) printf '%s' "$ACTIVE" ;;
     Result) printf '%s' "$RESULT" ;;
+    InactiveExitTimestampMonotonic) printf '%s' "$TIMESTAMP"; [[ "$TIMESTAMP_RC" == 0 ]] || return "$TIMESTAMP_RC" ;;
     *) return 2 ;;
   esac
   return "$SYSTEMCTL_RC"
 }
 journalctl() {
   [[ "$*" == '-q -b --no-pager -o short' ]] || return 2
-  printf '%s' "$JOURNAL"
+  command cat "$JOURNAL_FILE"
   return "$JOURNAL_RC"
 }
 plymouth-set-default-theme() { printf '%s' "$THEME"; return "$THEME_RC"; }
@@ -624,19 +683,33 @@ plymouth-set-default-theme() { printf '%s' "$THEME"; return "$THEME_RC"; }
     calls = tmp_path / "calls"
     result = subprocess.run(
         ["bash", "-c", script], env={**os.environ, "CALLS": str(calls),
-            **{key.upper(): value for key, value in config.items() if key not in ("payload", "cmdline")}},
+            "JOURNAL_FILE": str(journal), "KMSG": str(tmp_path / "kmsg"),
+            **{key.upper(): value for key, value in config.items() if key not in ("payload", "cmdline", "journal")}},
         capture_output=True, text=True, check=False, timeout=5,
     )
     assert result.returncode == 0, result.stderr
-    lines = result.stdout.splitlines()
+    prefix = "FIRN_QA__DIAG plymouth_crash="
+    diag_lines = [line for line in result.stdout.splitlines() if line.startswith(prefix)]
+    lines = [line for line in result.stdout.splitlines() if not line.startswith(prefix)]
     values = dict(line.split("=", 1) for line in lines)
     want = {"plymouthd": "present", "cmdline_splash": "yes", "cmdline_quiet": "yes",
-            "plymouth_start": "active_success", "plymouth_crashes": "0", "plymouth_theme": "snow"}
+            "plymouth_start": "active_success", "plymouth_started": "yes",
+            "plymouth_crashes": "0", "plymouth_theme": "snow"}
     want.update(expected)
     assert values == want
-    assert len(lines) == len(want)  # Exactly 1 emission of each of the 6 keys.
+    assert len(lines) == len(want)  # Exactly 1 emission of each of the 7 keys.
+    expected_count = 0 if want["plymouth_crashes"] == "unknown" else min(5, int(want["plymouth_crashes"]))
+    assert len(diag_lines) == expected_count
+    for line in diag_lines:
+        assert re.fullmatch(r"[A-Za-z0-9._:/@=,'()\[\] -]{1,200}", line.removeprefix(prefix)), line
+    if diagnostics is not None:
+        assert diag_lines == [prefix + line for line in diagnostics]
+    # All diagnostic lines use stdout, kmsg and the existing serial replay file.
+    for sink in ("kmsg", "checks.txt"):
+        path = tmp_path / sink
+        assert (path.read_text().splitlines() if path.exists() else []) == diag_lines
     for call in calls.read_text().splitlines():
-        assert re.match(r"(?:5 grep |10 (?:systemctl |plymouth-set-default-theme)|20 journalctl )", call), call
+        assert re.fullmatch(r"(?:5 (?:grep|tr|python3)|10 (?:systemctl|plymouth-set-default-theme)|20 journalctl)", call), call
 
 
 def _render_check(lane):
@@ -692,8 +765,9 @@ def test_guest_every_ttyS0_write_is_under_timeout(lane):
     assert "timeout -k 2 5 stty -a -F /dev/ttyS0" in generated
     # Every bounded kmsg, ttyS0, probe and diagnostic command also has a KILL after TERM.
     assert not re.search(r"\btimeout (5|10) (bash|python3|stty)\b", generated)
-    # emit, emit_fsverity, the 2 replays, the 2 ttyS0 openers, stty and 1 replay kmsg.
-    assert len(re.findall(r"\btimeout -k 2 (5|10) (bash|python3|stty)\b", generated)) == 7
+    # emit, emit_fsverity, the 2 replays, the 2 ttyS0 openers, stty, 1 replay kmsg
+    # and the Plymouth diagnostic sanitizer (which never opens ttyS0).
+    assert len(re.findall(r"\btimeout -k 2 (5|10) (bash|python3|stty)\b", generated)) == 8
     assert not re.search(r"^\s*(cat|printf|echo)\b[^\n]*> /dev/ttyS0", generated, re.MULTILINE)
 
 

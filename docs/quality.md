@@ -121,10 +121,15 @@ The Plymouth check proves the installed UKI's sealed command line matches the
 rootfs payload ([snosi ADR-0033](https://github.com/frostyard/snosi/blob/main/docs/adr/0033-seal-the-plymouth-splash-into-the-secure-uki-command-line.md)):
 `splash quiet` with a regular executable `/usr/sbin/plymouthd`, neither token
 without it. With Plymouth present, `plymouth-start.service` must end in success
-(active or inactive), with no Plymouth crash in this boot's journal.
+(active or inactive). `plymouth_started=yes` proves it left the inactive state
+in this boot; a never-started or condition-skipped unit does not pass.
+`plymouth_crashes` counts matching journal lines, not crashes, and must be 0.
+Up to 5 matched lines appear as `FIRN_QA__DIAG plymouth_crash=<line>`, sanitized
+and limited to 200 characters each. They use stdout, kmsg and the serial replays.
 The `boot:` failure codes are `plymouth_check_missing`, `plymouth_check_unknown`,
 `cmdline_check_unknown`, `splash_missing`, `quiet_missing`,
 `plymouth_start_missing`, `plymouth_start_unknown`, `plymouth_start_<state>_<result>`,
+`plymouth_started_missing`, `plymouth_not_started`, `plymouth_started_unknown`,
 `plymouth_crashes_unknown`, `plymouth_crashes_<N>`, `splash_unexpected` and
 `quiet_unexpected`. `plymouth_theme` is recorded only. This does not prove a
 visible splash on real graphics; a VM cell has a serial console.

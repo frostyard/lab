@@ -476,9 +476,10 @@ spec:
         emit plymouthd "\${PLYMOUTHD}"
         CMDLINE_SPLASH=unknown
         CMDLINE_QUIET=unknown
-        if [[ -r /proc/cmdline ]]; then
-          if timeout 5 grep -qw splash /proc/cmdline 2>/dev/null; then CMDLINE_SPLASH=yes; else CMDLINE_SPLASH=no; fi
-          if timeout 5 grep -qw quiet /proc/cmdline 2>/dev/null; then CMDLINE_QUIET=yes; else CMDLINE_QUIET=no; fi
+        # Match whole space/tab-separated tokens, not words inside key=value.
+        if [[ -r /proc/cmdline ]] && PLYMOUTH_CMDLINE="\$(timeout 5 tr -s ' \t' '\n\n' < /proc/cmdline 2>/dev/null)"; then
+          if printf '%s\n' "\${PLYMOUTH_CMDLINE}" | timeout 5 grep -qx splash; then CMDLINE_SPLASH=yes; elif [[ \$? == 1 ]]; then CMDLINE_SPLASH=no; fi
+          if printf '%s\n' "\${PLYMOUTH_CMDLINE}" | timeout 5 grep -qx quiet; then CMDLINE_QUIET=yes; elif [[ \$? == 1 ]]; then CMDLINE_QUIET=no; fi
         fi
         emit cmdline_splash "\${CMDLINE_SPLASH}"
         emit cmdline_quiet "\${CMDLINE_QUIET}"
@@ -487,13 +488,44 @@ spec:
         [[ "\${PLYMOUTH_ACTIVE}" =~ ^[a-z-]+\$ ]] || PLYMOUTH_ACTIVE=unknown
         [[ "\${PLYMOUTH_RESULT}" =~ ^[a-z-]+\$ ]] || PLYMOUTH_RESULT=unknown
         emit plymouth_start "\${PLYMOUTH_ACTIVE}_\${PLYMOUTH_RESULT}"
+        # inactive_success also describes a unit that never ran or was skipped.
+        PLYMOUTH_TIMESTAMP="\$(timeout 10 systemctl show -p InactiveExitTimestampMonotonic --value plymouth-start.service 2>/dev/null)" || PLYMOUTH_TIMESTAMP=unknown
+        PLYMOUTH_STARTED=unknown
+        if [[ "\${PLYMOUTH_TIMESTAMP}" =~ ^[0-9]{1,20}\$ ]]; then
+          # Avoid signed arithmetic overflow for a 20-digit monotonic timestamp.
+          if [[ "\${PLYMOUTH_TIMESTAMP}" == *[1-9]* ]]; then PLYMOUTH_STARTED=yes; else PLYMOUTH_STARTED=no; fi
+        fi
+        emit plymouth_started "\${PLYMOUTH_STARTED}"
         PLYMOUTH_CRASHES=unknown
         # An empty or failed journal read is not evidence of a clean boot.
-        if PLYMOUTH_LOG="\$(timeout 20 journalctl -q -b --no-pager -o short 2>/dev/null)" && [[ -n "\${PLYMOUTH_LOG//[[:space:]]/}" ]]; then
-          PLYMOUTH_CRASHES="\$(printf '%s\n' "\${PLYMOUTH_LOG}" | timeout 5 grep -Eic "plymouth[^ ]*.*(segfault|general protection|code=(dumped|killed)|dumped core|core-dump|result 'signal')" || true)"
+        # A glob tests for non-space in linear time; Bash removal is quadratic.
+        PLYMOUTH_CRASH_PATTERN="plymouth[^ ]*.*(segfault|general protection|code=(dumped|killed)|dumped core|core-dump|result 'signal')"
+        if PLYMOUTH_LOG="\$(timeout 20 journalctl -q -b --no-pager -o short 2>/dev/null)" && [[ "\${PLYMOUTH_LOG}" == *[![:space:]]* ]]; then
+          PLYMOUTH_CRASHES="\$(printf '%s\n' "\${PLYMOUTH_LOG}" | timeout 5 grep -Eic "\${PLYMOUTH_CRASH_PATTERN}" || true)"
         fi
-        [[ "\${PLYMOUTH_CRASHES}" =~ ^[0-9]+\$ ]] || PLYMOUTH_CRASHES=unknown
+        [[ "\${PLYMOUTH_CRASHES}" =~ ^[0-9]{1,9}\$ ]] || PLYMOUTH_CRASHES=unknown
         emit plymouth_crashes "\${PLYMOUTH_CRASHES}"
+        if [[ "\${PLYMOUTH_CRASHES}" != unknown ]] && (( 10#\${PLYMOUTH_CRASHES} > 0 )); then
+          # Human evidence only, never CHECK keys or an additional ttyS0 writer.
+          PLYMOUTH_DIAG="\$(printf '%s\n' "\${PLYMOUTH_LOG}" | timeout -k 2 5 python3 -c '
+        import re, sys
+        pattern = re.compile(sys.argv[1], re.IGNORECASE)
+        kept = 0
+        for line in sys.stdin:
+            if pattern.search(line):
+                print(re.sub(r"[^A-Za-z0-9._:/@=,\x27()\[\] -]", "_", line.rstrip("\n")[:200]))
+                kept += 1
+                if kept == 5:
+                    break
+        ' "\${PLYMOUTH_CRASH_PATTERN}" 2>/dev/null || true)"
+          while IFS= read -r PLYMOUTH_LINE; do
+            [[ -n "\${PLYMOUTH_LINE}" ]] || continue
+            DIAG_LINE="FIRN_QA__DIAG plymouth_crash=\${PLYMOUTH_LINE}"
+            printf '%s\n' "\${DIAG_LINE}" >> /run/firn-qa-checks.txt || true
+            printf '%s\n' "\${DIAG_LINE}" || true
+            kmsg "\${DIAG_LINE}"
+          done <<< "\${PLYMOUTH_DIAG}"
+        fi
         PLYMOUTH_THEME="\$(timeout 10 plymouth-set-default-theme 2>/dev/null)" || PLYMOUTH_THEME=none
         PLYMOUTH_THEME="\${PLYMOUTH_THEME%%\$'\n'*}"
         [[ "\${PLYMOUTH_THEME}" =~ ^[A-Za-z0-9._-]+\$ ]] || PLYMOUTH_THEME=none
@@ -903,7 +935,7 @@ spec:
 
         # ── judge: fixed order; first failing check wins ──
         judge() {
-          local checks_file="$1" bootc_image bootc_digest cfs_objects fsverity_errors fsverity_kernel fsverity_kernels fsverity_known entry fsverity_note="" serial_tty plymouthd cmdline_splash cmdline_quiet plymouth_start plymouth_crashes
+          local checks_file="$1" bootc_image bootc_digest cfs_objects fsverity_errors fsverity_kernel fsverity_kernels fsverity_known entry fsverity_note="" serial_tty plymouthd cmdline_splash cmdline_quiet plymouth_start plymouth_started plymouth_crashes
           # Kernels with the known upstream btrfs fs-verity defect (frostyard/snosi#1130,
           # kdave/linux 254e15591ee4). Remove an entry when the kernel canary says
           # `clean` on it or a fixed kernel ships. Keep identical in every lane.
@@ -998,8 +1030,12 @@ spec:
             else
               fail boot plymouth_start_unknown
             fi
+            plymouth_started="$(grep -m1 '^plymouth_started=' "${checks_file}" | cut -d= -f2- || true)"
+            if [[ -z "${plymouth_started}" ]]; then fail boot plymouth_started_missing; fi
+            if [[ "${plymouth_started}" == no ]]; then fail boot plymouth_not_started; fi
+            if [[ "${plymouth_started}" != yes ]]; then fail boot plymouth_started_unknown; fi
             plymouth_crashes="$(grep -m1 '^plymouth_crashes=' "${checks_file}" | cut -d= -f2- || true)"
-            if [[ ! "${plymouth_crashes}" =~ ^[0-9]+$ ]]; then fail boot plymouth_crashes_unknown; fi
+            if [[ ! "${plymouth_crashes}" =~ ^[0-9]{1,9}$ ]]; then fail boot plymouth_crashes_unknown; fi
             if (( 10#${plymouth_crashes} > 0 )); then fail boot "plymouth_crashes_${plymouth_crashes}"; fi
           else
             if [[ "${cmdline_splash}" != no ]]; then fail boot splash_unexpected; fi
