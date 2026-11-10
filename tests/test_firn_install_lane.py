@@ -226,6 +226,7 @@ GOOD_CHECKS = (
     f"bootc_digest={EXPECTED_DIGEST}\n"
     "cfs_compressed_objects=0\nfsverity_errors=0\nkernel=7.3.1+deb14-amd64\nkernel_btrfs_verity_canary=clean\n"
     "serial_tty=ok\n"
+    "plymouthd=absent\ncmdline_splash=no\ncmdline_quiet=no\n"
 )
 
 
@@ -319,6 +320,58 @@ GOOD_CHECKS = (
     ],
 )
 def test_judge_checks_under_errexit(lane, tmp_path, change, expected):
+    _judge_case(lane, tmp_path, change, expected)
+
+
+PLYMOUTH_PRESENT = {
+    "plymouthd": "present", "cmdline_splash": "yes", "cmdline_quiet": "yes",
+    "plymouth_start": "active_success", "plymouth_crashes": "0",
+}
+
+
+@pytest.mark.parametrize("change,code", [
+    ({}, None),  # Floe: no Plymouth; startup and crash keys are not required.
+    ({"plymouth_start": "failed_signal", "plymouth_crashes": "unknown"}, None),
+    ({"plymouthd": None}, "plymouth_check_missing"),
+    ({"plymouthd": ""}, "plymouth_check_missing"),
+    ({"plymouthd": "other"}, "plymouth_check_unknown"),
+    ({"plymouthd": "unknown", "cmdline_splash": None}, "plymouth_check_unknown"),
+    ({"cmdline_splash": None}, "cmdline_check_unknown"),
+    ({"cmdline_quiet": None}, "cmdline_check_unknown"),
+    ({"cmdline_splash": "unknown"}, "cmdline_check_unknown"),
+    ({"cmdline_quiet": "YES"}, "cmdline_check_unknown"),
+    ({"cmdline_splash": "yes"}, "splash_unexpected"),
+    ({"cmdline_quiet": "yes"}, "quiet_unexpected"),
+    ({**PLYMOUTH_PRESENT}, None),
+    ({**PLYMOUTH_PRESENT, "plymouth_start": "inactive_success"}, None),
+    ({**PLYMOUTH_PRESENT, "plymouth_crashes": "00"}, None),
+    ({**PLYMOUTH_PRESENT, "plymouth_theme": "../not-judged"}, None),
+    ({**PLYMOUTH_PRESENT, "cmdline_splash": "no"}, "splash_missing"),
+    ({**PLYMOUTH_PRESENT, "cmdline_quiet": "no"}, "quiet_missing"),
+    ({**PLYMOUTH_PRESENT, "cmdline_splash": None}, "cmdline_check_unknown"),
+    ({**PLYMOUTH_PRESENT, "cmdline_quiet": "unknown"}, "cmdline_check_unknown"),
+    ({**PLYMOUTH_PRESENT, "plymouth_start": None}, "plymouth_start_missing"),
+    ({**PLYMOUTH_PRESENT, "plymouth_start": ""}, "plymouth_start_missing"),
+    ({**PLYMOUTH_PRESENT, "plymouth_start": "failed_signal"}, "plymouth_start_failed_signal"),
+    ({**PLYMOUTH_PRESENT, "plymouth_start": "inactive_exit-code"}, "plymouth_start_inactive_exit-code"),
+    ({**PLYMOUTH_PRESENT, "plymouth_start": "unknown_success"}, "plymouth_start_unknown"),
+    ({**PLYMOUTH_PRESENT, "plymouth_start": "active_unknown"}, "plymouth_start_unknown"),
+    ({**PLYMOUTH_PRESENT, "plymouth_start": "unknown_unknown"}, "plymouth_start_unknown"),
+    ({**PLYMOUTH_PRESENT, "plymouth_start": "active_success;echo bad"}, "plymouth_start_unknown"),
+    ({**PLYMOUTH_PRESENT, "plymouth_start": "a" * 33 + "_success"}, "plymouth_start_unknown"),
+    ({**PLYMOUTH_PRESENT, "plymouth_crashes": None}, "plymouth_crashes_unknown"),
+    ({**PLYMOUTH_PRESENT, "plymouth_crashes": "unknown"}, "plymouth_crashes_unknown"),
+    ({**PLYMOUTH_PRESENT, "plymouth_crashes": "-1"}, "plymouth_crashes_unknown"),
+    ({**PLYMOUTH_PRESENT, "plymouth_crashes": "3x"}, "plymouth_crashes_unknown"),
+    ({**PLYMOUTH_PRESENT, "plymouth_crashes": "3"}, "plymouth_crashes_3"),
+    ({**PLYMOUTH_PRESENT, "plymouth_crashes": "08"}, "plymouth_crashes_08"),
+    # Existing checks win; within Plymouth, the sealed command line wins.
+    ({"serial_tty": "stalled", "plymouthd": None}, "serial_tty_stalled"),
+    ({**PLYMOUTH_PRESENT, "cmdline_splash": "no", "plymouth_crashes": "3"}, "splash_missing"),
+])
+def test_judge_plymouth(lane, tmp_path, change, code):
+    expected = (f"FAILED: boot:{code} (bootc/floe/none/sb=false)" if code else
+                f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST}")
     _judge_case(lane, tmp_path, change, expected)
 
 
@@ -420,7 +473,9 @@ def test_guest_check_login_poll_has_safe_unit_budget(lane):
     # and additional startup margin.
     # The fs-verity probe adds the composefs scan (180s), the journal read (20s)
     # and the canary (60s plus a few seconds of cleanup).
-    assert 300 + 3 * 10 + 120 + 180 + 20 + 60 + 15 + 30 + 2 * 10 + 10 < int(budget.group(1))
+    # Plymouth adds 2 token scans (5s each), 2 unit queries (10s each),
+    # a journal read (20s), a crash scan (5s) and a theme query (10s).
+    assert 300 + 3 * 10 + 120 + 180 + 20 + 60 + 15 + 30 + 2 * 10 + 10 + 65 < int(budget.group(1))
     assert "timeout 180 xargs" in check and "timeout 20 journalctl" in check and "timeout -k 5 60 bash" in check
     params = {p["name"]: p for p in lane["inputs"]["parameters"]}
     assert int(params["installed-boot-timeout-seconds"]["value"]) >= int(budget.group(1))
@@ -483,6 +538,107 @@ def test_guest_login_poll_reports_final_state_without_hanging(
     ]
 
 
+@pytest.mark.parametrize("changes,expected", [
+    ({}, {}),
+    ({"payload": "absent", "cmdline": "console=ttyS0 root=UUID=abc"},
+     {"plymouthd": "absent", "cmdline_splash": "no", "cmdline_quiet": "no"}),
+    ({"journal": "kernel: plymouthd[42]: segfault at 0\n"
+                 "systemd[1]: plymouth-start.service: Failed with result 'core-dump'\n"
+                 "kernel: another-daemon segfault at 0\n"}, {"plymouth_crashes": "2"}),
+    ({"journal": "PLYMOUTHD: GENERAL PROTECTION fault\n"
+                 "plymouthd: code=killed\nplymouthd: code=dumped\n"
+                 "plymouthd: dumped core\nplymouth: Failed with result 'signal'\n"},
+     {"plymouth_crashes": "5"}),
+    ({"journal_rc": "1"}, {"plymouth_crashes": "unknown"}),
+    ({"journal": ""}, {"plymouth_crashes": "unknown"}),
+    ({"journal": " \n\t"}, {"plymouth_crashes": "unknown"}),
+    ({"cmdline": "nosplash splashy quietish noquiet console=ttyS0"},
+     {"cmdline_splash": "no", "cmdline_quiet": "no"}),
+    ({"cmdline": None}, {"cmdline_splash": "unknown", "cmdline_quiet": "unknown"}),
+    ({"payload": "symlink"}, {"plymouthd": "other"}),
+    ({"payload": "dangling"}, {"plymouthd": "other"}),
+    ({"payload": "nonexec"}, {"plymouthd": "other"}),
+    ({"payload": "directory"}, {"plymouthd": "other"}),
+    ({"active": "active; echo unsafe", "result": "success\nforged=value"},
+     {"plymouth_start": "unknown_unknown"}),
+    ({"active": "", "result": ""}, {"plymouth_start": "unknown_unknown"}),
+    ({"systemctl_rc": "1"}, {"plymouth_start": "unknown_unknown"}),
+    ({"active": "inactive", "result": "exit-code"}, {"plymouth_start": "inactive_exit-code"}),
+    ({"theme": "breeze\nignored second line"}, {"plymouth_theme": "breeze"}),
+    ({"theme": "../../bad theme"}, {"plymouth_theme": "none"}),
+    ({"theme": ""}, {"plymouth_theme": "none"}),
+    ({"theme_rc": "1"}, {"plymouth_theme": "none"}),
+])
+def test_guest_plymouth_probe(lane, tmp_path, changes, expected):
+    config = {"payload": "present", "cmdline": "root=UUID=abc splash quiet console=ttyS0",
+              "journal": "systemd[1]: Reached target multi-user.target\n",
+              "journal_rc": "0", "active": "active", "result": "success",
+              "systemctl_rc": "0", "theme": "snow", "theme_rc": "0"}
+    config.update(changes)
+    payload = tmp_path / "plymouthd"
+    if config["payload"] in ("present", "nonexec"):
+        payload.write_text("#!/bin/sh\n")
+        payload.chmod(0o755 if config["payload"] == "present" else 0o644)
+    elif config["payload"] in ("symlink", "dangling"):
+        target = tmp_path / "target"
+        if config["payload"] == "symlink":
+            target.write_text("#!/bin/sh\n")
+            target.chmod(0o755)
+        payload.symlink_to(target)
+    elif config["payload"] == "directory":
+        payload.mkdir()
+    if config["cmdline"] is not None:
+        (tmp_path / "cmdline").write_text(config["cmdline"] + "\n")
+    generated = _render_check(lane)
+    assert generated.index("# --- END login-poll ---") < generated.index("# --- BEGIN plymouth-probe ---")
+    probe = generated.split("# --- BEGIN plymouth-probe ---\n", 1)[1].split("# --- END plymouth-probe ---", 1)[0]
+    probe = _sandboxed(probe, tmp_path)
+    # Function stubs exercise failures under errexit without the guest services.
+    # Real timeout still bounds grep; the outer test bounds the stubbed calls.
+    script = r'''set -euo pipefail
+emit() { printf '%s=%s\n' "$1" "$2"; }
+timeout() {
+  local budget="$1"; shift
+  printf '%s %s\n' "$budget" "$*" >> "$CALLS"
+  case "$1" in
+    systemctl|journalctl|plymouth-set-default-theme) "$@" ;;
+    *) command timeout "$budget" "$@" ;;
+  esac
+}
+systemctl() {
+  [[ "$1 $2 $4 $5" == "show -p --value plymouth-start.service" ]] || return 2
+  case "$3" in
+    ActiveState) printf '%s' "$ACTIVE" ;;
+    Result) printf '%s' "$RESULT" ;;
+    *) return 2 ;;
+  esac
+  return "$SYSTEMCTL_RC"
+}
+journalctl() {
+  [[ "$*" == '-q -b --no-pager -o short' ]] || return 2
+  printf '%s' "$JOURNAL"
+  return "$JOURNAL_RC"
+}
+plymouth-set-default-theme() { printf '%s' "$THEME"; return "$THEME_RC"; }
+''' + probe
+    calls = tmp_path / "calls"
+    result = subprocess.run(
+        ["bash", "-c", script], env={**os.environ, "CALLS": str(calls),
+            **{key.upper(): value for key, value in config.items() if key not in ("payload", "cmdline")}},
+        capture_output=True, text=True, check=False, timeout=5,
+    )
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.splitlines()
+    values = dict(line.split("=", 1) for line in lines)
+    want = {"plymouthd": "present", "cmdline_splash": "yes", "cmdline_quiet": "yes",
+            "plymouth_start": "active_success", "plymouth_crashes": "0", "plymouth_theme": "snow"}
+    want.update(expected)
+    assert values == want
+    assert len(lines) == len(want)  # Exactly 1 emission of each of the 6 keys.
+    for call in calls.read_text().splitlines():
+        assert re.match(r"(?:5 grep |10 (?:systemctl |plymouth-set-default-theme)|20 journalctl )", call), call
+
+
 def _render_check(lane):
     source = lane["script"]["source"]
     creation = source[source.index("CHECK_SH=$(cat <<SCRIPT"):source.index("\nC_B64=", source.index("CHECK_SH=$(cat <<SCRIPT"))]
@@ -493,11 +649,13 @@ def _render_check(lane):
 
 
 def _sandboxed(generated, tmp_path, kmsg="kmsg", ttys0="ttyS0"):
-    """Point the guest's kernel log, serial port and results file into tmp_path."""
+    """Point guest device, payload, command line and results paths into tmp_path."""
     return (generated.replace("> /dev/kmsg", ">> " + str(tmp_path / kmsg))
             .replace("> /dev/ttyS0", ">> " + str(tmp_path / ttys0))
             .replace("/dev/ttyS0", str(tmp_path / ttys0))
-            .replace("/run/firn-qa-checks.txt", str(tmp_path / "checks.txt")))
+            .replace("/run/firn-qa-checks.txt", str(tmp_path / "checks.txt"))
+            .replace("/proc/cmdline", str(tmp_path / "cmdline"))
+            .replace("/usr/sbin/plymouthd", str(tmp_path / "plymouthd")))
 
 
 def test_guest_check_uses_fresh_serial_opens_not_long_lived_tee(lane):
