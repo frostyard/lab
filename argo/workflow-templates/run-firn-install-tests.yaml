@@ -73,10 +73,10 @@ spec:
         value: "420"
       - name: install-timeout-seconds
         value: "2400"
-      # 900: the post-install probe also scans the composefs objects and runs
+      # 1000: the post-install probe also checks Plymouth, scans composefs objects and runs
       # the kernel canary (see the fsverity-probe block).
       - name: installed-boot-timeout-seconds
-        value: "900"
+        value: "1000"
       # How long a luks-passphrase cell waits for the serial passphrase prompt
       # before it fails boot:passphrase_prompt_missing (ADR-0015).
       - name: passphrase-prompt-timeout-seconds
@@ -463,6 +463,79 @@ spec:
         emit login "\${LOGIN:-unknown}"
         emit login_unit "\${LOGIN_UNIT}"
         # --- END login-poll ---
+        # --- BEGIN plymouth-probe ---
+        # The installed UKI seals splash/quiet according to the rootfs payload.
+        # Check its boot state too: plymouthd has had crashes (snosi#850).
+        # https://github.com/frostyard/snosi/blob/main/docs/adr/0033-seal-the-plymouth-splash-into-the-secure-uki-command-line.md
+        PLYMOUTHD=other
+        if [[ -f /usr/sbin/plymouthd && -x /usr/sbin/plymouthd && ! -L /usr/sbin/plymouthd ]]; then
+          PLYMOUTHD=present
+        elif [[ ! -e /usr/sbin/plymouthd && ! -L /usr/sbin/plymouthd ]]; then
+          PLYMOUTHD=absent
+        fi
+        emit plymouthd "\${PLYMOUTHD}"
+        CMDLINE_SPLASH=unknown
+        CMDLINE_QUIET=unknown
+        # Match whole space/tab-separated tokens, not words inside key=value.
+        if [[ -r /proc/cmdline ]] && PLYMOUTH_CMDLINE="\$(timeout 5 tr -s ' \t' '\n\n' < /proc/cmdline 2>/dev/null)"; then
+          if printf '%s\n' "\${PLYMOUTH_CMDLINE}" | timeout 5 grep -qx splash; then CMDLINE_SPLASH=yes; elif [[ \$? == 1 ]]; then CMDLINE_SPLASH=no; fi
+          if printf '%s\n' "\${PLYMOUTH_CMDLINE}" | timeout 5 grep -qx quiet; then CMDLINE_QUIET=yes; elif [[ \$? == 1 ]]; then CMDLINE_QUIET=no; fi
+        fi
+        emit cmdline_splash "\${CMDLINE_SPLASH}"
+        emit cmdline_quiet "\${CMDLINE_QUIET}"
+        PLYMOUTH_ACTIVE="\$(timeout 10 systemctl show -p ActiveState --value plymouth-start.service 2>/dev/null)" || PLYMOUTH_ACTIVE=unknown
+        PLYMOUTH_RESULT="\$(timeout 10 systemctl show -p Result --value plymouth-start.service 2>/dev/null)" || PLYMOUTH_RESULT=unknown
+        [[ "\${PLYMOUTH_ACTIVE}" =~ ^[a-z-]+\$ ]] || PLYMOUTH_ACTIVE=unknown
+        [[ "\${PLYMOUTH_RESULT}" =~ ^[a-z-]+\$ ]] || PLYMOUTH_RESULT=unknown
+        emit plymouth_start "\${PLYMOUTH_ACTIVE}_\${PLYMOUTH_RESULT}"
+        # inactive_success also describes a unit that never ran or was skipped.
+        PLYMOUTH_TIMESTAMP="\$(timeout 10 systemctl show -p InactiveExitTimestampMonotonic --value plymouth-start.service 2>/dev/null)" || PLYMOUTH_TIMESTAMP=unknown
+        PLYMOUTH_STARTED=unknown
+        if [[ "\${PLYMOUTH_TIMESTAMP}" =~ ^[0-9]{1,20}\$ ]]; then
+          # Avoid signed arithmetic overflow for a 20-digit monotonic timestamp.
+          if [[ "\${PLYMOUTH_TIMESTAMP}" == *[1-9]* ]]; then PLYMOUTH_STARTED=yes; else PLYMOUTH_STARTED=no; fi
+        fi
+        emit plymouth_started "\${PLYMOUTH_STARTED}"
+        PLYMOUTH_CRASHES=unknown
+        # An empty or failed journal read is not evidence of a clean boot.
+        # A glob tests for non-space in linear time; Bash removal is quadratic.
+        PLYMOUTH_CRASH_PATTERN="plymouth[^ ]*.*(segfault|general protection|code=(dumped|killed)|dumped core|core-dump|result 'signal')"
+        if PLYMOUTH_LOG="\$(timeout 20 journalctl -q -b --no-pager -o short 2>/dev/null)" && [[ "\${PLYMOUTH_LOG}" == *[![:space:]]* ]]; then
+          PLYMOUTH_CRASHES="\$(printf '%s\n' "\${PLYMOUTH_LOG}" | timeout 5 grep -Eic "\${PLYMOUTH_CRASH_PATTERN}" || true)"
+        fi
+        [[ "\${PLYMOUTH_CRASHES}" =~ ^[0-9]{1,9}\$ ]] || PLYMOUTH_CRASHES=unknown
+        emit plymouth_crashes "\${PLYMOUTH_CRASHES}"
+        if [[ "\${PLYMOUTH_CRASHES}" != unknown ]] && (( 10#\${PLYMOUTH_CRASHES} > 0 )); then
+          # Human evidence only, never CHECK keys or an additional ttyS0 writer.
+          PLYMOUTH_DIAG="\$(printf '%s\n' "\${PLYMOUTH_LOG}" | timeout -k 2 5 python3 -c '
+        import re, sys
+        sys.stdin.reconfigure(errors="replace")
+        pattern = re.compile(sys.argv[1], re.IGNORECASE)
+        kept = 0
+        for line in sys.stdin:
+            match = pattern.search(line)
+            # Skip our records, but retain crash lines with embedded marker text.
+            if match is None or "FIRN_QA__CHECK" in line[:match.start()]:
+                continue
+            safe = re.sub(r"[^A-Za-z0-9._:/@=,\x27()\[\] -]", "_", line.rstrip("\n")[:200])
+            print(safe.replace("FIRN_QA__", "FIRN_QA_x_")[:200])
+            kept += 1
+            if kept == 5:
+                break
+        ' "\${PLYMOUTH_CRASH_PATTERN}" 2>/dev/null || true)"
+          while IFS= read -r PLYMOUTH_LINE; do
+            [[ -n "\${PLYMOUTH_LINE}" ]] || continue
+            DIAG_LINE="FIRN_QA__DIAG plymouth_crash=\${PLYMOUTH_LINE}"
+            printf '%s\n' "\${DIAG_LINE}" >> /run/firn-qa-checks.txt || true
+            printf '%s\n' "\${DIAG_LINE}" || true
+            kmsg "\${DIAG_LINE}"
+          done <<< "\${PLYMOUTH_DIAG}"
+        fi
+        PLYMOUTH_THEME="\$(timeout 10 plymouth-set-default-theme 2>/dev/null)" || PLYMOUTH_THEME=none
+        PLYMOUTH_THEME="\${PLYMOUTH_THEME%%\$'\n'*}"
+        [[ "\${PLYMOUTH_THEME}" =~ ^[A-Za-z0-9._-]+\$ ]] || PLYMOUTH_THEME=none
+        emit plymouth_theme "\${PLYMOUTH_THEME}"
+        # --- END plymouth-probe ---
         BOOTC_STATUS="\$(timeout 120 bootc status --json 2>/dev/null || true)"
         BOOTC_FIELDS="\$(printf '%s' "\${BOOTC_STATUS}" | python3 -c '
         import json, sys
@@ -686,7 +759,7 @@ spec:
         After=multi-user.target
         [Service]
         Type=oneshot
-        TimeoutStartSec=900
+        TimeoutStartSec=1000
         RemainAfterExit=yes
         StandardOutput=journal+console
         StandardError=journal+console
@@ -867,7 +940,7 @@ spec:
 
         # ── judge: fixed order; first failing check wins ──
         judge() {
-          local checks_file="$1" bootc_image bootc_digest cfs_objects fsverity_errors fsverity_kernel fsverity_kernels fsverity_known entry fsverity_note="" serial_tty
+          local checks_file="$1" bootc_image bootc_digest cfs_objects fsverity_errors fsverity_kernel fsverity_kernels fsverity_known entry fsverity_note="" serial_tty plymouthd cmdline_splash cmdline_quiet plymouth_start plymouth_started plymouth_crashes
           # Kernels with the known upstream btrfs fs-verity defect (frostyard/snosi#1130,
           # kdave/linux 254e15591ee4). Remove an entry when the kernel canary says
           # `clean` on it or a fixed kernel ships. Keep identical in every lane.
@@ -941,6 +1014,38 @@ spec:
           if [[ -z "${serial_tty}" ]]; then fail boot serial_check_missing; fi
           if [[ "${serial_tty}" == stalled ]]; then fail boot serial_tty_stalled; fi
           if [[ "${serial_tty}" != ok ]]; then fail boot serial_tty_unknown; fi
+          # Fourth: snosi ADR-0033 seals splash/quiet only for a Plymouth rootfs.
+          # Require successful startup and no crash in this boot, not a visible
+          # graphical splash (this VM has a serial console). Theme is record-only.
+          plymouthd="$(grep -m1 '^plymouthd=' "${checks_file}" | cut -d= -f2- || true)"
+          if [[ -z "${plymouthd}" ]]; then fail boot plymouth_check_missing; fi
+          if [[ "${plymouthd}" != present && "${plymouthd}" != absent ]]; then fail boot plymouth_check_unknown; fi
+          cmdline_splash="$(grep -m1 '^cmdline_splash=' "${checks_file}" | cut -d= -f2- || true)"
+          cmdline_quiet="$(grep -m1 '^cmdline_quiet=' "${checks_file}" | cut -d= -f2- || true)"
+          if [[ ! "${cmdline_splash}" =~ ^(yes|no)$ || ! "${cmdline_quiet}" =~ ^(yes|no)$ ]]; then fail boot cmdline_check_unknown; fi
+          if [[ "${plymouthd}" == present ]]; then
+            if [[ "${cmdline_splash}" != yes ]]; then fail boot splash_missing; fi
+            if [[ "${cmdline_quiet}" != yes ]]; then fail boot quiet_missing; fi
+            plymouth_start="$(grep -m1 '^plymouth_start=' "${checks_file}" | cut -d= -f2- || true)"
+            if [[ -z "${plymouth_start}" ]]; then fail boot plymouth_start_missing; fi
+            if [[ "${plymouth_start}" =~ ^(active|inactive)_success$ ]]; then
+              :
+            elif [[ "${plymouth_start}" =~ ^[a-z-]{1,32}_[a-z-]{1,32}$ && "${plymouth_start}" != unknown_* && "${plymouth_start}" != *_unknown ]]; then
+              fail boot "plymouth_start_${plymouth_start}"
+            else
+              fail boot plymouth_start_unknown
+            fi
+            plymouth_started="$(grep -m1 '^plymouth_started=' "${checks_file}" | cut -d= -f2- || true)"
+            if [[ -z "${plymouth_started}" ]]; then fail boot plymouth_started_missing; fi
+            if [[ "${plymouth_started}" == no ]]; then fail boot plymouth_not_started; fi
+            if [[ "${plymouth_started}" != yes ]]; then fail boot plymouth_started_unknown; fi
+            plymouth_crashes="$(grep -m1 '^plymouth_crashes=' "${checks_file}" | cut -d= -f2- || true)"
+            if [[ ! "${plymouth_crashes}" =~ ^[0-9]{1,9}$ ]]; then fail boot plymouth_crashes_unknown; fi
+            if (( 10#${plymouth_crashes} > 0 )); then fail boot "plymouth_crashes_${plymouth_crashes}"; fi
+          else
+            if [[ "${cmdline_splash}" != no ]]; then fail boot splash_unexpected; fi
+            if [[ "${cmdline_quiet}" != no ]]; then fail boot quiet_unexpected; fi
+          fi
           printf '%s' "PASS: ${CELL} image=${bootc_image} digest=${bootc_digest}${fsverity_note}${UNLOCK_NOTE} firn=${FIRN_VERSION}" > /tmp/results/result-summary.txt
           cat /tmp/results/result-summary.txt >&2
         }
