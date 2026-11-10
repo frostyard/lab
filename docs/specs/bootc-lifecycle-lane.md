@@ -160,8 +160,10 @@ fails, the guest unit runs `systemctl --no-block poweroff` and the runner waits
 (bounded by the `reboot` timeout) for the VM to stop, never `--force`, so bootc
 finalizes the staged deployment at shutdown; a VM that does not stop fails with
 `guest_shutdown`. Each serial write is bounded, and the record also travels
-through `/dev/kmsg` as `SNOW_QA_KMSG1` chunks that the runner joins back
-([ADR-0014](../adr/0014-lifecycle-lane-records-also-travel-through-the-kernel-log.md)),
+through `/dev/kmsg` at level 3 (err), so it prints on a `quiet` console, as
+`SNOW_QA_KMSG1` chunks that the runner joins back
+([ADR-0014](../adr/0014-lifecycle-lane-records-also-travel-through-the-kernel-log.md),
+[ADR-0019](../adr/0019-kernel-log-copies-use-level-err.md)),
 so a stalled ttyS0 costs one boot rather than the phase window. See
 [private evidence and verdict limits](../quality.md#manual-snow-bootc-lifecycle-evidence)
 before treating any result as evidence.

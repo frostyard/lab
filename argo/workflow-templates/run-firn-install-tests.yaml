@@ -400,12 +400,16 @@ spec:
         # Kernel printk still reaches the serial console when userspace writes to
         # ttyS0 stall (lab run bootc-only-iso-install-ffbw7, ADR-0013), so every
         # marker also goes to /dev/kmsg. Open it afresh for each line: devkmsg
-        # rate-limits per open (10 lines per 5 s). Level 4 prints on the console
-        # at console_loglevel 7. The write runs in a bounded child (TERM, then KILL),
+        # rate-limits per open (10 lines per 5 s). Level 3 (err) prints on the
+        # serial console at console_loglevel 4 or higher: the kernel prints a
+        # console message only when its level is lower than console_loglevel.
+        # quiet (sealed on Snow, Snowfield and Sundog, snosi ADR-0033) sets
+        # console_loglevel 4, so a level 4 copy would not print (ADR-0019,
+        # lab#215). The write runs in a bounded child (TERM, then KILL),
         # so it never stops the script.
         kmsg() {
           # shellcheck disable=SC2016  # \$1 expands in the inner bash
-          timeout -k 2 5 bash -c 'printf "<4>%s\n" "\$1" 2>/dev/null > /dev/kmsg' _ "\$1" 2>/dev/null || true
+          timeout -k 2 5 bash -c 'printf "<3>%s\n" "\$1" 2>/dev/null > /dev/kmsg' _ "\$1" 2>/dev/null || true
         }
         : > /run/firn-qa-checks.txt || true
         # The file, stdout (journal) and kmsg come first. The ttyS0 write comes

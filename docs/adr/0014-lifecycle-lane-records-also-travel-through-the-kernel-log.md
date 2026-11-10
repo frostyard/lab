@@ -126,3 +126,4 @@ second channel and a bounded guest, not a rerun.
   [tests/test_snow_bootc_lifecycle.py](../../tests/test_snow_bootc_lifecycle.py)
 - Related: [ADR-0009](0009-no-artifact-store-logs-are-the-surface.md),
   [ADR-0010](0010-vacuous-success-is-forbidden.md)
+- Amended by: [ADR-0019](0019-kernel-log-copies-use-level-err.md)

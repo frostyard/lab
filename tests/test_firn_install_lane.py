@@ -769,11 +769,22 @@ def test_guest_emit_writes_the_kernel_log_before_ttyS0(lane):
     generated = _render_check(lane)
     kmsg = generated.split("kmsg() {", 1)[1].split("\n}\n", 1)[0]
     # A fresh bounded child per line: its own open of /dev/kmsg, killed after TERM and KILL if it hangs.
-    assert """timeout -k 2 5 bash -c 'printf "<4>%s\\n" "$1" 2>/dev/null > /dev/kmsg' _ "$1" 2>/dev/null || true""" in kmsg
+    assert """timeout -k 2 5 bash -c 'printf "<3>%s\\n" "$1" 2>/dev/null > /dev/kmsg' _ "$1" 2>/dev/null || true""" in kmsg
     assert "devkmsg" in generated.split("kmsg() {", 1)[0]  # the why is written down
     emit = generated.split("emit() {", 1)[1].split("\n}\n", 1)[0]
     assert emit.index('>> /run/firn-qa-checks.txt') < emit.index('kmsg "$line"') < emit.index("/dev/ttyS0")
     assert emit.index('printf \'%s\\n\' "$line"\n') < emit.index('kmsg "$line"')
+
+
+def test_guest_kmsg_level_prints_on_a_quiet_console(lane):
+    generated = _render_check(lane)
+    kmsg = generated.split("kmsg() {", 1)[1].split("\n}\n", 1)[0]
+    match = re.search(r'printf "<(\d)>%s', kmsg)
+    assert match, kmsg
+    level = int(match.group(1))
+    # CONSOLE_LOGLEVEL_QUIET is 4, and the kernel prints a console message only
+    # when its level is lower than console_loglevel (lab#215, ADR-0019).
+    assert 1 <= level < 4
 
 
 def test_guest_every_ttyS0_write_is_under_timeout(lane):
@@ -803,7 +814,7 @@ def test_guest_blocked_ttyS0_never_stops_the_kernel_log_copy(lane, tmp_path):
                             capture_output=True, text=True, check=False, timeout=20)
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines() == ["FIRN_QA__CHECK a=b", "after"]
-    assert (tmp_path / "kmsg").read_text() == "<4>FIRN_QA__CHECK a=b\n"
+    assert (tmp_path / "kmsg").read_text() == "<3>FIRN_QA__CHECK a=b\n"
 
 
 def test_guest_emit_orders_file_journal_kmsg_then_ttyS0(lane, tmp_path):
@@ -811,7 +822,7 @@ def test_guest_emit_orders_file_journal_kmsg_then_ttyS0(lane, tmp_path):
     head = generated[:generated.index("emit booted ok")]
     result = subprocess.run(["bash", "-c", head + "emit a b\n"], capture_output=True, text=True, check=False, timeout=10)
     assert result.returncode == 0, result.stderr
-    assert (tmp_path / "both").read_text().splitlines() == ["<4>FIRN_QA__CHECK a=b", "FIRN_QA__CHECK a=b"]
+    assert (tmp_path / "both").read_text().splitlines() == ["<3>FIRN_QA__CHECK a=b", "FIRN_QA__CHECK a=b"]
 
 
 def _run_check_tail(lane, tmp_path, getty_state, getty_pid, python_rc=0, real_tools=False, serial=None):
@@ -889,11 +900,11 @@ def test_guest_final_replay_is_bounded_and_repeated(lane, tmp_path, state, pid, 
 def test_guest_replays_go_through_the_kernel_log_and_end_with_the_done_marker(lane, tmp_path):
     result, serial, sleeps = _run_check_tail(lane, tmp_path, "inactive", "0")
     lines = CHECK_LINES + [SERIAL_OK]
-    block = [f"<4>{line}" for line in lines] + ["<4>FIRN_QA__CHECKS_DONE"]
+    block = [f"<3>{line}" for line in lines] + ["<3>FIRN_QA__CHECKS_DONE"]
     kmsg = (tmp_path / "kmsg").read_text().splitlines()
     # 1 kernel-log line per open: each emit once, then the whole block twice.
-    assert kmsg == [f"<4>{line}" for line in lines] + block + block
-    assert kmsg[-1] == "<4>FIRN_QA__CHECKS_DONE" and serial[-1] == "FIRN_QA__CHECKS_DONE"
+    assert kmsg == [f"<3>{line}" for line in lines] + block + block
+    assert kmsg[-1] == "<3>FIRN_QA__CHECKS_DONE" and serial[-1] == "FIRN_QA__CHECKS_DONE"
     # Static order: kmsg lines, then the done marker, then the bounded ttyS0 block; twice, with sync between.
     generated = _render_check(lane)
     fn = generated.split("replay_checks() {", 1)[1].split("\n}\n", 1)[0]
@@ -918,7 +929,7 @@ def test_guest_serial_probe_reports_ok_stalled_or_unknown(lane, tmp_path, python
     else:
         # Diagnostics reach the journal and the kernel log, never the CHECK file or the host's greps.
         assert [line for line in result.stdout.splitlines() if "FIRN_QA__DIAG" in line] == diag
-        assert [line for line in kmsg if "FIRN_QA__DIAG" in line] == [f"<4>{line}" for line in diag]
+        assert [line for line in kmsg if "FIRN_QA__DIAG" in line] == [f"<3>{line}" for line in diag]
         assert not any("DIAG" in line for line in checks)
         assert not re.search(r"FIRN_QA__CHECK [a-z_]+=", "\n".join(diag))
     # The probe runs after the getty wait and before the replays.

@@ -4103,15 +4103,14 @@ data:
 
 
     # On Snow, Snowfield and Sundog, /dev/console is tty0 (graphical); Snowfield
-    # uses the GNOME desktop with the linux-surface kernel. On Floe (headless, no graphical
-    # stack) it can be ttyS0 itself, so the guest then writes the same line twice
-    # to ttyS0 and the host, which treats identical copies as one record, is
-    # unaffected. The host reads ttyS0 and joins kmsg records under ADR-0014
-    # (run-snow-bootc-lifecycle-2tnjh: the installed N booted, but its record
-    # never reached the serial log). serial-getty@ttyS0 runs vhangup and may
-    # flush output during its TTY setup, so the line is written to a fresh
+    # uses the GNOME desktop with the linux-surface kernel. On Floe (headless) it
+    # can be ttyS0 itself, so the line goes twice to ttyS0, and the host treats
+    # identical copies as one record. The host reads ttyS0 and joins kmsg records
+    # under ADR-0014 (run-snow-bootc-lifecycle-2tnjh: the installed N booted, but
+    # its record never reached the serial log). serial-getty@ttyS0 runs vhangup
+    # and may flush output during its TTY setup, so the line is written to a fresh
     # ttyS0 handle now and again once agetty runs (as the Firn lane does,
-    # frostyard/snosi#1123). The host treats identical copies as one line.
+    # frostyard/snosi#1123).
     GUEST_CONSOLES = ("/dev/ttyS0", "/dev/console")
     # lab#177: a stalled ttyS0 blocked the unbounded write, so the unit never
     # reached its poweroff and the host waited out the whole phase window. Now
@@ -4126,6 +4125,7 @@ data:
     GUEST_KMSG = "/dev/kmsg"
     KMSG_CHUNK = 384
     KMSG_MAX_CHUNKS = 64
+    KMSG_LEVEL_PREFIX = b"<3>"  # err: below the quiet console_loglevel 4 (ADR-0019, lab#215)
 
 
     def kmsg_lines(line):
@@ -4153,7 +4153,7 @@ data:
             except OSError:
                 continue
             try:
-                os.write(handle, b"<4>" + chunk.encode() + b"\n")
+                os.write(handle, KMSG_LEVEL_PREFIX + chunk.encode() + b"\n")
             except OSError:
                 pass
             finally:
