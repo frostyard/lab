@@ -32,6 +32,7 @@ Docs are split by the question they answer
 - [0016 — The first-login probe is a report-only lane mode](adr/0016-first-login-probe-is-a-report-only-lane-mode.md)
 - [0017 — The problems probe is a report-only lane mode](adr/0017-problems-probe-is-a-report-only-lane-mode.md)
 - [0018 — The report probe is a report-only lane mode](adr/0018-report-probe-is-a-report-only-lane-mode.md)
+- [0019 — Kernel-log marker copies use level err](adr/0019-kernel-log-copies-use-level-err.md) (amends 0013, 0014)
 
 Org-wide decisions binding this repo: [org-adrs.md](org-adrs.md).
 

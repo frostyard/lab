@@ -4773,7 +4773,7 @@ def kmsg_copy(qa, line, prefix=b"[   12.345678] ", end=b"\r\n"):
 
 def kmsg_bytes(qa, line):
     """What the guest writes to /dev/kmsg for one record line."""
-    return b"".join(b"<4>" + chunk.encode() + b"\n" for chunk in qa.kmsg_lines(line))
+    return b"".join(b"<3>" + chunk.encode() + b"\n" for chunk in qa.kmsg_lines(line))
 
 
 def split_chunk(chunk):
@@ -4816,6 +4816,21 @@ def test_kmsg_lines_chunk_the_record_with_id_index_and_crc(qa):
     assert len(chunks) == qa.KMSG_MAX_CHUNKS
     assert split_chunk(chunks[-1])[2] == f"{qa.KMSG_MAX_CHUNKS}/{qa.KMSG_MAX_CHUNKS}"
     assert decode_chunks(chunks) != long.encode()
+
+
+def test_guest_kmsg_copy_prints_on_a_quiet_console(qa, tmp_path, monkeypatch):
+    kmsg = tmp_path / "kmsg"
+    kmsg.write_bytes(b"")
+    monkeypatch.setattr(qa, "GUEST_KMSG", str(kmsg))
+    qa.emit_kmsg("SNOW_QA_V1 abc")
+    lines = kmsg.read_text().splitlines()
+    assert lines
+    for line in lines:
+        assert line.startswith("<3>SNOW_QA_KMSG1 ")
+        # CONSOLE_LOGLEVEL_QUIET is 4, and the kernel prints a console message
+        # only when its level is lower than console_loglevel (lab#215, ADR-0019).
+        level = int(re.match(r"<(\d)>", line).group(1))
+        assert level < 4
 
 
 @pytest.mark.parametrize("line", [

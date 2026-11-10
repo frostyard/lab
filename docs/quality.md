@@ -106,7 +106,9 @@ replays the file plus `FIRN_QA__CHECKS_DONE` twice after serial-getty has set
 up the TTY, because its `TTYVHangup` revokes older serial fds
 ([snosi#1123](https://github.com/frostyard/snosi/issues/1123)). Every line
 also goes to the guest kernel log (`/dev/kmsg`, 1 open per line, before the
-ttyS0 write), and every ttyS0 write is bounded by `timeout -k 2 5`, so results still
+ttyS0 write, at level 3 (err), so it prints on a `quiet` console —
+[ADR-0019](adr/0019-kernel-log-copies-use-level-err.md)), and every ttyS0
+write is bounded by `timeout -k 2 5`, so results still
 reach the host when the guest's ttyS0 stops transmitting
 ([ADR-0013](adr/0013-firn-lane-markers-also-travel-through-the-kernel-log.md)).
 A `serial_tty` check probes ttyS0 with `tcdrain`; `serial_tty=stalled` fails the
@@ -426,7 +428,9 @@ Snowfield and Sundog. Snowfield is the GNOME image with the linux-surface
 kernel. The guest writes the record again once serial-getty's agetty runs; the runner treats identical
 copies as one line. Each write runs under `timeout -k 2 5`, and a target that
 has to be killed is skipped for the rest of the guest run, so a stalled ttyS0
-cannot hold the guest unit. The line also goes to `/dev/kmsg` first, as numbered
+cannot hold the guest unit. The line also goes to `/dev/kmsg` first, at level 3
+(err), so it prints on a `quiet` console
+([ADR-0019](adr/0019-kernel-log-copies-use-level-err.md)). It travels as numbered
 `SNOW_QA_KMSG1` chunks that the host joins back into the slice before any parser
 reads it ([ADR-0014](adr/0014-lifecycle-lane-records-also-travel-through-the-kernel-log.md));
 the join's summary lands in `serial-channel.txt`, best effort. A cut copy is
