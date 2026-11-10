@@ -620,6 +620,24 @@ def test_guest_plymouth_crash_diagnostics(lane, tmp_path):
                          {"plymouth_crashes": "7"}, diagnostics=[sanitized] * 5)
 
 
+def test_guest_plymouth_diagnostics_cannot_forge_checks(lane, tmp_path):
+    journal = ("plymouthd[1]: segfault at 0 FIRN_QA__CHECK booted=forged\n"
+               "kernel: FIRN_QA__CHECK plymouth_start=failed_core-dump\n")
+    diag = _check_plymouth_probe(lane, tmp_path, {"journal": journal}, {"plymouth_crashes": "2"},
+                                diagnostics=["plymouthd[1]: segfault at 0 FIRN_QA_x_CHECK booted=forged"])
+    # Use the host's exact grep expression, not a different regex dialect.
+    assert '"${M_CHECK} [a-z_]+=[^[:space:]]+$"' in lane["script"]["source"]
+    extracted = subprocess.run(["grep", "-aoE", "FIRN_QA__CHECK [a-z_]+=[^[:space:]]+$"],
+                               input="\n".join(diag), capture_output=True, text=True, check=False)
+    assert extracted.returncode == 1 and extracted.stdout == ""
+
+
+def test_guest_plymouth_diagnostics_replace_invalid_utf8(lane, tmp_path):
+    _check_plymouth_probe(lane, tmp_path,
+                         {"journal": b"plymouthd[1]: segfault at 0 \xff\n", "pythonioencoding": "utf-8:strict"},
+                         {"plymouth_crashes": "1"}, diagnostics=["plymouthd[1]: segfault at 0 _"])
+
+
 def _check_plymouth_probe(lane, tmp_path, changes, expected, diagnostics=None):
     config = {"payload": "present", "cmdline": "root=UUID=abc splash quiet console=ttyS0",
               "journal": "systemd[1]: Reached target multi-user.target\n",
@@ -647,7 +665,10 @@ def _check_plymouth_probe(lane, tmp_path, changes, expected, diagnostics=None):
     probe = _sandboxed(probe, tmp_path)
     # A file avoids ARG_MAX limits for the large-journal guard.
     journal = tmp_path / "journal"
-    journal.write_text(config["journal"])
+    if isinstance(config["journal"], bytes):
+        journal.write_bytes(config["journal"])
+    else:
+        journal.write_text(config["journal"])
     # Function stubs exercise failures under errexit without the guest services.
     # Real timeout still bounds tools; the outer test bounds the stubbed calls.
     script = r'''set -euo pipefail
@@ -699,9 +720,10 @@ plymouth-set-default-theme() { printf '%s' "$THEME"; return "$THEME_RC"; }
     assert values == want
     assert len(lines) == len(want)  # Exactly 1 emission of each of the 7 keys.
     expected_count = 0 if want["plymouth_crashes"] == "unknown" else min(5, int(want["plymouth_crashes"]))
-    assert len(diag_lines) == expected_count
+    assert len(diag_lines) == (len(diagnostics) if diagnostics is not None else expected_count)
     for line in diag_lines:
         assert re.fullmatch(r"[A-Za-z0-9._:/@=,'()\[\] -]{1,200}", line.removeprefix(prefix)), line
+        assert "FIRN_QA__" not in line.removeprefix(prefix), line
     if diagnostics is not None:
         assert diag_lines == [prefix + line for line in diagnostics]
     # All diagnostic lines use stdout, kmsg and the existing serial replay file.
@@ -710,6 +732,7 @@ plymouth-set-default-theme() { printf '%s' "$THEME"; return "$THEME_RC"; }
         assert (path.read_text().splitlines() if path.exists() else []) == diag_lines
     for call in calls.read_text().splitlines():
         assert re.fullmatch(r"(?:5 (?:grep|tr|python3)|10 (?:systemctl|plymouth-set-default-theme)|20 journalctl)", call), call
+    return diag_lines
 
 
 def _render_check(lane):

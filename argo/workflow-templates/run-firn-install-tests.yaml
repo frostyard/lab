@@ -509,14 +509,19 @@ spec:
           # Human evidence only, never CHECK keys or an additional ttyS0 writer.
           PLYMOUTH_DIAG="\$(printf '%s\n' "\${PLYMOUTH_LOG}" | timeout -k 2 5 python3 -c '
         import re, sys
+        sys.stdin.reconfigure(errors="replace")
         pattern = re.compile(sys.argv[1], re.IGNORECASE)
         kept = 0
         for line in sys.stdin:
-            if pattern.search(line):
-                print(re.sub(r"[^A-Za-z0-9._:/@=,\x27()\[\] -]", "_", line.rstrip("\n")[:200]))
-                kept += 1
-                if kept == 5:
-                    break
+            match = pattern.search(line)
+            # Skip our records, but retain crash lines with embedded marker text.
+            if match is None or "FIRN_QA__CHECK" in line[:match.start()]:
+                continue
+            safe = re.sub(r"[^A-Za-z0-9._:/@=,\x27()\[\] -]", "_", line.rstrip("\n")[:200])
+            print(safe.replace("FIRN_QA__", "FIRN_QA_x_")[:200])
+            kept += 1
+            if kept == 5:
+                break
         ' "\${PLYMOUTH_CRASH_PATTERN}" 2>/dev/null || true)"
           while IFS= read -r PLYMOUTH_LINE; do
             [[ -n "\${PLYMOUTH_LINE}" ]] || continue
