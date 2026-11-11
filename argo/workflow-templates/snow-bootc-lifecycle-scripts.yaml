@@ -1193,9 +1193,10 @@ data:
     # Kernels with the known upstream btrfs fs-verity defect (frostyard/snosi#1130,
     # kdave/linux 254e15591ee4). Remove an entry when the kernel canary (Firn lane)
     # says `clean` on it or a fixed kernel ships. Keep identical in every lane.
-    # 7.2.15+deb14-amd64 is Debian testing's linux 7.2.15-1; its changelog and upstream ChangeLog-7.2.15 have no btrfs fix.
+    # 7.2.15+deb14-amd64 is Debian linux 7.2.15-1; its changelog and upstream ChangeLog-7.2.15 have no btrfs fix.
+    # 7.3.3+deb14-amd64 is Debian linux 7.3.3-1; its changelog and upstream ChangeLog-7.3.1 to -7.3.3 have no btrfs fix.
     # 7.2.15-1-surface is Snowfield's linux-surface kernel; upstream 7.2.15 btrfs lacks the fix.
-    known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64 7.2.15+deb14-amd64 7.2.15-1-surface"
+    known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64 7.2.15+deb14-amd64 7.3.3+deb14-amd64 7.2.15-1-surface"
     fsverity_bad=0
     fsverity_known=""
     for phase in "${phase_plan[@]}"; do
@@ -2740,7 +2741,7 @@ data:
 
     def fsverity_error_count(log):
         """Count fs-verity corruption messages in a kernel log; never edits the log."""
-        # Kernels 7.2.11 to 7.2.15 log "FILE CORRUPTED" when btrfs readahead verifies
+        # Kernels 7.2.11 to 7.3.3 log "FILE CORRUPTED" when btrfs readahead verifies
         # a large folio of an fs-verity file too early; the re-read succeeds
         # (frostyard/snosi#1130; upstream kdave/linux 254e15591ee4). Compressed
         # extents hit it almost always; uncompressed files rarely, at extent

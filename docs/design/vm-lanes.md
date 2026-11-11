@@ -82,11 +82,16 @@ upstream fix `254e15591ee4` in kdave/linux). It emits
 The judge fails the cell when `cfs_compressed_objects` is above zero, and when
 `fsverity_errors` is missing, not a number, or above zero on a kernel that is
 not on the known-defect list (`7.2.11+deb14-amd64` through
-`7.2.15+deb14-amd64`, and `7.2.15-1-surface`, Snowfield's linux-surface
+`7.2.15+deb14-amd64`, `7.3.3+deb14-amd64`, and `7.2.15-1-surface`, Snowfield's linux-surface
 kernel; see [quality.md](../quality.md#fs-verity-regression-checks-snosi1130)).
 `7.2.15+deb14-amd64` is Debian testing linux 7.2.15-1, signed by
 `linux-signed-amd64` 7.2.15+1. Its Debian changelog has no btrfs entry;
 upstream `ChangeLog-7.2.15`, `-7.3.2` and `-7.3.3` do not contain the fix.
+`7.3.3+deb14-amd64` is Debian linux 7.3.3-1, signed by `linux-signed-amd64`
+7.3.3+1. Its Debian changelog has no btrfs fs-verity fix; the upstream
+`ChangeLog-7.3.1` to `-7.3.3` do not contain the fix, and v7.3.3
+`fs/btrfs/extent_io.c` still calls `fsverity_verify_folio()` in
+`btrfs_verify_folio()`.
 On a listed kernel a positive count is recorded with
 `fsverity_known_defect=<kernel>` and does not fail the cell. The informational
 `kernel_btrfs_verity_canary=defect|clean|skipped` never fails a cell. The bootc
