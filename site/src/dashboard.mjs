@@ -8,11 +8,24 @@ export function state(phase) {
 }
 
 export const PRODUCTS = ['snow', 'floe', 'snowfield', 'sundog'];
-const productKey = (name) => PRODUCTS.map((p) => `image-poll-${p}-latest`)
+const laneKeyOf = (product) => `image-poll-${product}-latest`;
+const productKey = (name) => PRODUCTS.map(laneKeyOf)
   .find((key) => name === key || name?.startsWith(`${key}-`));
 
 export function productOf(run) {
   return productKey(run?.laneKey) || productKey(run?.name);
+}
+
+const isProductLane = (lane) => Boolean(productKey(lane.laneKey) || productOf(lane.latest));
+
+// QA evidence that counts as a pass, including an unchanged-digest carry-over.
+const qaPassed = (outcome) => outcome === 'passed' || outcome === 'carried';
+
+function pollLane(laneKey, latest, runs) {
+  return {
+    laneKey, label: 'Registry digest poll', kind: 'poll', template: 'image-poller',
+    latest, runs, everGreen: false,
+  };
 }
 
 export function legacyProductLanes(runs) {
@@ -23,10 +36,7 @@ export function legacyProductLanes(runs) {
     if (byProduct.has(key)) {
       byProduct.get(key).runs++;
     } else {
-      byProduct.set(key, {
-        laneKey: key, label: 'Registry digest poll', kind: 'poll', template: 'image-poller',
-        latest: run, runs: 1, everGreen: false,
-      });
+      byProduct.set(key, pollLane(key, run, 1));
     }
   }
   return [...byProduct.values()];
@@ -36,13 +46,11 @@ export function legacyProductLanes(runs) {
 // have a single image-poller lane: do not reuse its mixed-product latest run.
 export function productLanes(lanes, generated) {
   const existing = lanes.filter((lane) => lane.template !== 'image-poller' || productKey(lane.laneKey));
-  return [...existing.filter((lane) => !productKey(lane.laneKey) && !productOf(lane.latest)),
+  return [...existing.filter((lane) => !isProductLane(lane)),
     ...PRODUCTS.map((product) => {
-      const key = `image-poll-${product}-latest`;
-      return existing.find((lane) => lane.laneKey === key || productOf(lane.latest) === key) || {
-        laneKey: key, label: 'Registry digest poll', kind: 'poll', template: 'image-poller',
-        latest: null, runs: 0, everGreen: false,
-      };
+      const key = laneKeyOf(product);
+      return existing.find((lane) => lane.laneKey === key || productOf(lane.latest) === key)
+        || pollLane(key, null, 0);
     })];
 }
 
@@ -95,13 +103,13 @@ export function snapshotAgeText(generated, nowMs = Date.now()) {
 // A non-product lane that has never succeeded is unproven rather than a
 // product finding. Product failures with actual QA evidence retain their red.
 export function laneState(lane, generated) {
-  if (productKey(lane.laneKey) || productOf(lane.latest)) {
+  if (isProductLane(lane)) {
     if (!lane.latest) return 'unknown';
     if (evidenceAge(lane, generated) === null) return 'unknown';
     if (lane.latest.qaOutcome === 'failed') return 'danger';
     if (staleEvidence(lane, generated)) return 'stale';
     // An unchanged-digest poll carries the last pass for that digest.
-    if (lane.latest.qaOutcome === 'passed' || lane.latest.qaOutcome === 'carried') return 'ok';
+    if (qaPassed(lane.latest.qaOutcome)) return 'ok';
     return 'unknown';
   }
   if (lane.everGreen === false && state(lane.latest.phase) === 'danger') return 'unproven';
@@ -110,7 +118,7 @@ export function laneState(lane, generated) {
 
 export function laneLabel(lane, generated) {
   const status = laneState(lane, generated);
-  if (productKey(lane.laneKey) || productOf(lane.latest)) {
+  if (isProductLane(lane)) {
     if (status === 'ok') {
       return lane.latest.qaOutcome === 'carried' ? 'QA passed (digest unchanged)' : 'QA passed';
     }
@@ -118,7 +126,7 @@ export function laneLabel(lane, generated) {
     if (!lane.latest) return 'no poll record';
     // The stale state keeps old passes from looking green, but age must not
     // erase whether this poll ever provided verifiable QA evidence.
-    if (status === 'stale' && (lane.latest.qaOutcome === 'passed' || lane.latest.qaOutcome === 'carried')) return 'stale';
+    if (status === 'stale' && qaPassed(lane.latest.qaOutcome)) return 'stale';
     const qa = !lane.latest.qaOutcome ? 'QA unknown (legacy)'
       : lane.latest.qaOutcome === 'not-run' ? 'QA not run' : 'QA unknown';
     if (status !== 'stale') return qa;
@@ -132,11 +140,11 @@ export function laneLabel(lane, generated) {
 export function productEvidenceCounts(lanes, generated) {
   const counts = { passed: 0, failed: 0, unknown: 0, stale: 0 };
   for (const lane of lanes) {
-    if (!productKey(lane.laneKey) && !productOf(lane.latest)) continue;
+    if (!isProductLane(lane)) continue;
     const status = laneState(lane, generated);
     if (status === 'ok') counts.passed++;
     if (status === 'danger') counts.failed++;
-    if (status === 'unknown' || (status === 'stale' && lane.latest.qaOutcome !== 'passed' && lane.latest.qaOutcome !== 'carried')) counts.unknown++;
+    if (status === 'unknown' || (status === 'stale' && !qaPassed(lane.latest.qaOutcome))) counts.unknown++;
     if (staleEvidence(lane, generated)) counts.stale++;
   }
   return counts;

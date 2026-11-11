@@ -85,16 +85,19 @@ const retained = runs.length;
             <span class="count">{group.lanes.length} lane{group.lanes.length === 1 ? '' : 's'}</span>
           </div>
           <div class="cards">
-            {group.lanes.map((lane) => (
-              <article class={`card ${laneState(lane, generated)}`}>
+            {group.lanes.map((lane) => {
+              const product = productName(lane.latest) || productName({ laneKey: lane.laneKey });
+              const status = laneState(lane, generated);
+              return (
+              <article class={`card ${status}`}>
                 <div class="card-head">
-                  <strong class="name">{productName(lane.latest) || productName({ laneKey: lane.laneKey }) ? `${productName(lane.latest) || productName({ laneKey: lane.laneKey })} · ` : ''}{lane.label}</strong>
-                  <span class={`badge ${laneState(lane, generated)}`}>{laneLabel(lane, generated)}</span>
+                  <strong class="name">{product ? `${product} · ` : ''}{lane.label}</strong>
+                  <span class={`badge ${status}`}>{laneLabel(lane, generated)}</span>
                 </div>
-                {laneState(lane, generated) === 'unproven' && (
+                {status === 'unproven' && (
                   <p class="unproven-note">This lane has never passed. Treat its red as a question about the lane, not a finding about the image.</p>
                 )}
-                {productName(lane.latest) || productName({ laneKey: lane.laneKey }) ? (
+                {product ? (
                   <p class="meta">Poll execution: <span class={`badge ${lane.latest ? state(lane.latest.phase) : 'unknown'}`}>{lane.latest?.phase || 'no record'}</span> · Last actual QA in retained runs: {runs.find((run) => productOf(run) === lane.laneKey && ['passed', 'failed'].includes(run.qaOutcome))?.qaOutcome || 'not verified in this snapshot'} (historical, not current status)</p>
                 ) : <p class="meta">Workflow phase: {lane.latest?.phase || 'no record'} · not product QA</p>}
                 {lane.latest?.result && <p class="result">Reported result: {lane.latest.result}{!lane.latest.qaOutcome ? ' (legacy, unverified)' : ''}</p>}
@@ -116,7 +119,8 @@ const retained = runs.length;
                   {when(lane.latest?.finished || lane.latest?.started)} · {duration(lane.latest?.durationSeconds)} · {lane.runs} run{lane.runs === 1 ? '' : 's'} retained
                 </p>
               </article>
-            ))}
+              );
+            })}
           </div>
         </section>
       ))}
