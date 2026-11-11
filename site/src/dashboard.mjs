@@ -19,9 +19,7 @@ export function productOf(run) {
 const isProductLane = (lane) => Boolean(productKey(lane.laneKey) || productOf(lane.latest));
 
 // QA evidence that counts as a pass, including an unchanged-digest carry-over.
-export function qaPassed(outcome) {
-  return outcome === 'passed' || outcome === 'carried';
-}
+const qaPassed = (outcome) => outcome === 'passed' || outcome === 'carried';
 
 function pollLane(laneKey, latest, runs) {
   return {

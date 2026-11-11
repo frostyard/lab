@@ -1,6 +1,6 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import { displayLanes, duration, laneLabel, laneState, productEvidenceCounts, productOf, qaPassed, stampOf, state, when } from '../dashboard.mjs';
+import { displayLanes, duration, laneLabel, laneState, productEvidenceCounts, productOf, stampOf, state, when } from '../dashboard.mjs';
 import data from '../data/runs.json';
 
 const { generated, runs = [] } = data;
@@ -142,7 +142,7 @@ const retained = runs.length;
                   <td class="mono nowrap">{run.name}</td>
                   <td>{productName(run) ? `${productName(run)} · ` : ''}{run.label}</td>
                   <td><span class={`badge ${state(run.phase)}`}>{run.phase}</span></td>
-                  <td><span class={`badge ${productName(run) ? (qaPassed(run.qaOutcome) ? 'ok' : run.qaOutcome === 'failed' ? 'danger' : 'unknown') : 'unknown'}`}>{productName(run) ? (run.qaOutcome || 'legacy unknown') : 'not product QA'}</span></td>
+                  <td><span class={`badge ${productName(run) ? (run.qaOutcome === 'passed' || run.qaOutcome === 'carried' ? 'ok' : run.qaOutcome === 'failed' ? 'danger' : 'unknown') : 'unknown'}`}>{productName(run) ? (run.qaOutcome || 'legacy unknown') : 'not product QA'}</span></td>
                   <td class="nowrap mono dim">{when(run.started)}</td>
                   <td class="nowrap mono dim">{duration(run.durationSeconds)}</td>
                   <td class="result-cell">{run.result || '—'}{productName(run) && !run.qaOutcome && run.result ? ' (legacy, unverified)' : ''}</td>
