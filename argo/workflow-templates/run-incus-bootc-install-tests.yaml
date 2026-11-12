@@ -483,7 +483,7 @@ spec:
         else                                                                    emit backend MISSING; fi
         emit osrelease "$(. /etc/os-release; echo "${IMAGE_ID:-?}-${IMAGE_VERSION:-?}")"
         # frostyard/snosi#1130: count fs-verity corruption messages in this boot's
-        # kernel log (only read, never filtered). Kernels 7.2.11 to 7.3.3 log them
+        # kernel log (only read, never filtered). Kernels 7.2.11 to 7.3.4 log them
         # for btrfs fs-verity files (upstream fix kdave/linux 254e15591ee4).
         # Uncompressed objects (bootc install to-disk, updates) hit it rarely,
         # when a large folio spans two bios at an extent boundary; the judge
@@ -588,7 +588,7 @@ spec:
         emit osrelease "$(. /etc/os-release; echo "${IMAGE_ID:-?}-${IMAGE_VERSION:-?}")"
         emit failedunits "$(systemctl list-units --state=failed --no-legend --plain 2>/dev/null | wc -l)"
         # frostyard/snosi#1130: count fs-verity corruption messages in this boot's
-        # kernel log (only read, never filtered). Kernels 7.2.11 to 7.3.3 log them
+        # kernel log (only read, never filtered). Kernels 7.2.11 to 7.3.4 log them
         # for btrfs fs-verity files (upstream fix kdave/linux 254e15591ee4).
         # Uncompressed objects (bootc install to-disk, updates) hit it rarely,
         # when a large folio spans two bios at an extent boundary; the judge
@@ -691,8 +691,9 @@ spec:
         # Keep this list identical in every lane.
         # 7.2.15+deb14-amd64 is Debian linux 7.2.15-1; its changelog and upstream ChangeLog-7.2.15 have no btrfs fix.
         # 7.3.3+deb14-amd64 is Debian linux 7.3.3-1; its changelog and upstream ChangeLog-7.3.1 to -7.3.3 have no btrfs fix.
+        # 7.3.4+deb14-amd64 is Debian linux 7.3.4-1; its changelog and upstream ChangeLog-7.3.4 have no btrfs fix.
         # 7.2.15-1-surface is Snowfield's linux-surface kernel; upstream 7.2.15 btrfs lacks the fix.
-        known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64 7.2.15+deb14-amd64 7.3.3+deb14-amd64 7.2.15-1-surface"
+        known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64 7.2.15+deb14-amd64 7.3.3+deb14-amd64 7.3.4+deb14-amd64 7.2.15-1-surface"
         fsverity_note=""
         fsverity_errors="$(grep '^fsverity_errors=' /tmp/results/checks.txt | cut -d= -f2- | grep -E '^[0-9]+$' | sort -n | tail -n 1 || true)"
         if [[ ! "${fsverity_errors}" =~ ^[0-9]+$ ]]; then

@@ -287,6 +287,8 @@ GOOD_CHECKS = (
          f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST} fsverity_known_defect=7.2.15+deb14-amd64"),
         ({"fsverity_errors": "5", "kernel": "7.3.3+deb14-amd64"},
          f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST} fsverity_known_defect=7.3.3+deb14-amd64"),
+        ({"fsverity_errors": "6", "kernel": "7.3.4+deb14-amd64"},
+         f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST} fsverity_known_defect=7.3.4+deb14-amd64"),
         ({"fsverity_errors": "0", "kernel": "7.2.11+deb14-amd64"},
          f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST}"),
         # Any other kernel with errors fails, as does an unknown, missing or look-alike kernel.
@@ -2025,8 +2027,8 @@ def test_judge_records_the_known_defect_note_in_the_checks_file(lane, tmp_path):
     assert result.returncode == 0, result.stderr
     assert "fsverity_known_defect=7.2.12+deb14-amd64" in checks.read_text().splitlines()
     assert "known-defect kernel 7.2.12+deb14-amd64" in result.stderr   # visible note
-    # One list per template, with the seven kernels of snosi#1130.
-    assert source.count('known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64 7.2.15+deb14-amd64 7.3.3+deb14-amd64 7.2.15-1-surface"') == 1
+    # One list per template, with the eight kernels of snosi#1130.
+    assert source.count('known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64 7.2.15+deb14-amd64 7.3.3+deb14-amd64 7.3.4+deb14-amd64 7.2.15-1-surface"') == 1
 
 
 def test_probe_emits_the_kernel_before_the_canary_in_every_run(lane):
@@ -2127,10 +2129,50 @@ DEBIAN_733_KERNEL = "7.3.3+deb14-amd64"
     ("7.3.3+deb13-amd64", False),
     ("7.3.3+deb14-arm64", False),
     ("7.3.3-1+deb14-amd64", False),
-    ("7.3.4+deb14-amd64", False),
+    ("7.3.5+deb14-amd64", False),
     ("7.3.3", False),
 ])
 def test_judge_debian_733_exact_match_and_lookalikes(lane, tmp_path, kernel, known_defect):
+    source = lane["script"]["source"]
+    fail = source[source.index("fail() {"):source.index("\n}", source.index("fail() {")) + 2]
+    judge = source[source.index("judge() {"):source.index("\n}", source.index("judge() {")) + 2]
+    values = dict(line.split("=", 1) for line in GOOD_CHECKS.splitlines())
+    values.update(fsverity_errors="2")
+    lines = [f"{key}={value}" for key, value in values.items() if key != "kernel"] + [f"kernel={kernel}"]
+    checks = tmp_path / "checks.txt"
+    checks.write_text("".join(line + "\n" for line in lines))
+    result = subprocess.run(
+        ["bash", "-c", "set -euo pipefail\nFIRN_VERSION=firn_0.6.0\nUNLOCK_NOTE=\n"
+         + fail.replace("/tmp/results", str(tmp_path))
+         + "\n" + judge.replace("/tmp/results", str(tmp_path)) + '\njudge "$CHECKS"'],
+        env={**os.environ, "CELL": "c", "IMAGE": "floe", "ENC": "none",
+             "IMAGE_DIGEST": EXPECTED_DIGEST, "CHECKS": str(checks)},
+        text=True, capture_output=True, check=False)
+    summary = (tmp_path / "result-summary.txt").read_text()
+    if known_defect:
+        assert result.returncode == 0, result.stderr
+        assert f" fsverity_known_defect={kernel} firn=" in summary
+        assert checks.read_text().splitlines().count(f"fsverity_known_defect={kernel}") == 1
+    else:
+        assert result.returncode == 1
+        assert summary.startswith("FAILED: boot:fsverity_errors_2")
+        assert "fsverity_known_defect" not in summary
+
+
+DEBIAN_734_KERNEL = "7.3.4+deb14-amd64"
+
+
+@pytest.mark.parametrize("kernel,known_defect", [
+    (DEBIAN_734_KERNEL, True),
+    (DEBIAN_734_KERNEL + "-extra", False),
+    ("7.3.4+deb14", False),
+    ("7.3.4+deb13-amd64", False),
+    ("7.3.4+deb14-arm64", False),
+    ("7.3.4-1+deb14-amd64", False),
+    ("7.3.5+deb14-amd64", False),
+    ("7.3.4", False),
+])
+def test_judge_debian_734_exact_match_and_lookalikes(lane, tmp_path, kernel, known_defect):
     source = lane["script"]["source"]
     fail = source[source.index("fail() {"):source.index("\n}", source.index("fail() {")) + 2]
     judge = source[source.index("judge() {"):source.index("\n}", source.index("judge() {")) + 2]

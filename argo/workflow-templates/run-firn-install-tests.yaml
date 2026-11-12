@@ -560,7 +560,7 @@ spec:
         emit bootc_image "\$(printf '%s\n' "\${BOOTC_FIELDS}" | head -n 1)"
         emit bootc_digest "\$(printf '%s\n' "\${BOOTC_FIELDS}" | tail -n 1)"
         # --- BEGIN fsverity-probe ---
-        # frostyard/snosi#1130: Debian kernels 7.2.11 to 7.3.3 verify a whole
+        # frostyard/snosi#1130: Debian kernels 7.2.11 to 7.3.4 verify a whole
         # large folio of a btrfs fs-verity file before all of it is read and log
         # "fs-verity ... FILE CORRUPTED! ... level=-1". The synchronous re-read
         # succeeds, so no bad bytes reach user space. Upstream fix: kdave/linux
@@ -950,8 +950,9 @@ spec:
           # `clean` on it or a fixed kernel ships. Keep identical in every lane.
           # 7.2.15+deb14-amd64 is Debian linux 7.2.15-1; its changelog and upstream ChangeLog-7.2.15 have no btrfs fix.
           # 7.3.3+deb14-amd64 is Debian linux 7.3.3-1; its changelog and upstream ChangeLog-7.3.1 to -7.3.3 have no btrfs fix.
+          # 7.3.4+deb14-amd64 is Debian linux 7.3.4-1; its changelog and upstream ChangeLog-7.3.4 have no btrfs fix.
           # 7.2.15-1-surface is Snowfield's linux-surface kernel; upstream 7.2.15 btrfs lacks the fix.
-          local known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64 7.2.15+deb14-amd64 7.3.3+deb14-amd64 7.2.15-1-surface"
+          local known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64 7.2.15+deb14-amd64 7.3.3+deb14-amd64 7.3.4+deb14-amd64 7.2.15-1-surface"
           if ! grep -qx 'booted=ok' "${checks_file}"; then fail boot no_report; fi
           if ! grep -qx "osrelease=${IMAGE}" "${checks_file}"; then fail boot wrong_image; fi
           if [[ "${ENC}" != none ]]; then
