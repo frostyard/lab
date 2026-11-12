@@ -20,8 +20,8 @@ Docs are split by the question they answer
 - [0004 — Evidence flows one way: checks.txt → collector → runs.json → Pages](adr/0004-one-way-evidence-pipeline.md) (product roster exception: [0011](adr/0011-product-poll-qa-evidence-is-rostered-and-fresh.md))
 - [0005 — Console markers over serial + SMBIOS credentials drive agentless guests](adr/0005-console-marker-protocol-for-agentless-guests.md)
 - [0006 — Lanes reach the host's incus by mounting /usr/incus and the API socket, never SSH](adr/0006-host-daemon-access-by-mount-never-ssh.md)
-- [0007 — Cross-workflow concurrency is bounded only by template-level semaphores](adr/0007-cross-workflow-concurrency-via-template-semaphores.md)
-- [0008 — Host media cache with origin-fingerprint sidecars](adr/0008-media-cache-with-fingerprint-sidecars.md)
+- [0007 — Cross-workflow concurrency is bounded only by template-level semaphores](adr/0007-cross-workflow-concurrency-via-template-semaphores.md) (semaphore holders superseded in part: [0020](adr/0020-retire-the-native-ab-and-live-iso-vm-lanes.md))
+- [0008 — Host media cache with origin-fingerprint sidecars](adr/0008-media-cache-with-fingerprint-sidecars.md) (`-latest` fingerprint and native variants superseded in part: [0020](adr/0020-retire-the-native-ab-and-live-iso-vm-lanes.md))
 - [0009 — No artifact store: the workflow log is the surface, host disk the fallback](adr/0009-no-artifact-store-logs-are-the-surface.md)
 - [0010 — Vacuous success is forbidden: green must mean work was done](adr/0010-vacuous-success-is-forbidden.md)
 - [0011 — Roster product polls and qualify their QA evidence by digest and freshness](adr/0011-product-poll-qa-evidence-is-rostered-and-fresh.md) (product-only refinement to 0003/0004)
@@ -33,6 +33,7 @@ Docs are split by the question they answer
 - [0017 — The problems probe is a report-only lane mode](adr/0017-problems-probe-is-a-report-only-lane-mode.md)
 - [0018 — The report probe is a report-only lane mode](adr/0018-report-probe-is-a-report-only-lane-mode.md)
 - [0019 — Kernel-log marker copies use level err](adr/0019-kernel-log-copies-use-level-err.md) (amends 0013, 0014)
+- [0020 — Retire the native A/B and live-ISO VM lanes](adr/0020-retire-the-native-ab-and-live-iso-vm-lanes.md) (supersedes parts of 0007, 0008)
 
 Org-wide decisions binding this repo: [org-adrs.md](org-adrs.md).
 

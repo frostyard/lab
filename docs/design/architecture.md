@@ -98,11 +98,11 @@ The trade is real and bounded — a container cannot assert on:
   not covered by its container lane
 - **a graphical seat**, so "GDM actually starts a session" is out of reach;
   the desktop suite asserts installation and configuration only
-- **the disk layout** — EROFS, dm-verity, Secure Boot, TPM/LUKS `/var`, and the
-  A/B update path all need a real boot
+- **the disk layout** — the partitions an installer writes, Secure Boot,
+  TPM-unlocked LUKS, and updates all need a real boot
 
-Those belong to the incus VM lane below. The container lanes cover the large
-majority of what breaks, cheaply and fast.
+Those belong to the incus VM lanes ([vm-lanes.md](vm-lanes.md)). The container
+lanes cover the large majority of what breaks, cheaply and fast.
 
 ## Image lanes
 
@@ -182,30 +182,16 @@ lab/
   ships with no `[Install]` section, so the `systemctl enable gdm.service` in
   snosi's postinst is a no-op and `/etc/systemd/system/display-manager.service`
   is absent from the built image. Whether GDM still starts on a real boot is
-  unresolved — a container cannot answer it. Tracked for the VM lane.
+  unresolved — a container cannot answer it. Tracked for the VM lanes.
 - **Published summaries are not full diagnostics.** The collector commits
   bounded, retained workflow summaries to `runs.json`, not per-step Behave or
   full VM console artifacts. Diagnose a failure using the original workflow
   and logs while retained; a missing/expired workflow is not a passed run.
 - **No artifact storage.** Argo needs a configured artifact repository to save
-  output artifacts, and the lab has no object store. The VM lane's full serial
+  output artifacts, and the lab has no object store. A VM lane's full serial
   console therefore goes to the workflow log rather than an artifact — 400
   lines on failure, 40 on success. Standing up an object store would let the
   whole console and the behave `results.json` be retained per run.
-- **The native A/B signed boot chain is not covered end to end.** Its install
-  lane runs `secureboot=false` because of [the MOK gap above](vm-lanes.md#native-ab-secure-boot-remains-a-separate-gap). Successful bootc
-  secure runs enforce Secure Boot, but that is a separate path; closing native
-  A/B coverage is still a decision — see ["Native A/B Secure Boot remains a
-  separate gap"](vm-lanes.md#native-ab-secure-boot-remains-a-separate-gap).
-- **No A/B update or rollback coverage.** The install lane proves a system gets
-  built correctly; it does not yet stage a `systemd-sysupdate` run, switch
-  slots, and boot the other side. That is the natural next lane and the
-  machinery (SMBIOS credentials, console assertions) already exists.
-- **The install lane needs 8 GiB of guest RAM.** `snosi-install` stages a UKI
-  copy in `/var/tmp`, a tmpfs sized from guest memory; at 4 GiB the install
-  fails partway with `objcopy: ...[.initrd]: No space left on device`. Worth
-  knowing outside the lab — a real user on a low-memory machine hits the same
-  wall, with the same unhelpful error.
 - **No registry pull-through cache.** Every lane pulls from ghcr.io directly.
   Fine at three lanes on a 3-hour poll; revisit if lane count grows.
 
