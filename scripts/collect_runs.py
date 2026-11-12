@@ -29,10 +29,6 @@ LANE_KINDS = {
     "snosi-qa-pipeline": ("container", "Container smoke suites"),
     "run-container-tests": ("container", "Container smoke suites"),
     "image-poller": ("poll", "Registry digest poll"),
-    "run-incus-vm-tests": ("vm", "ISO boot (Secure Boot)"),
-    "run-incus-disk-tests": ("vm", "Published A/B disk artifact"),
-    "run-incus-install-tests": ("install", "Native A/B installer"),
-    "run-incus-bootc-install-tests": ("install", "bootc installer (mechanics)"),
     "run-firn-install-tests": ("install", "firn installer matrix"),
     "orphan-pod-gc": ("maintenance", "Orphan pod GC"),
 }

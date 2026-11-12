@@ -4,10 +4,10 @@
 #
 #   kubectl create -f argo/firn-install-test.yaml
 #
-# firn is the single snosi installer (core ADR-0027/0028). This lane is its
-# analogue of snosi-install-test: only an install produces the partitioning,
-# encryption, TPM enrollment, and boot entries under test — none of it appears
-# in a published image.
+# firn is the single snosi installer (core ADR-0027/0028). This lane tests the
+# installer itself: only an install produces the partitioning, encryption, TPM
+# enrollment and boot entries under test — none of it appears in a published
+# image.
 #
 # Cells fan out with withItems but SERIALIZE on the snosi-vm-qa semaphore
 # (one VM at a time), so the full matrix runs back-to-back — budget hours, not

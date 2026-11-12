@@ -11,9 +11,10 @@
 #                         so 4 concurrent lanes is comfortable; the real
 #                         constraint is registry egress during the pull phase,
 #                         not node memory.
-#   snosi-vm-qa         — Reserved for the phase-2 incus VM lanes. Native A/B
-#                         guests own a fixed disk/TPM fixture on the host, so
-#                         they must run one at a time.
+#   snosi-vm-qa         — Cross-workflow capacity limit for the incus VM lanes
+#                         (run-firn-install-tests, run-snow-bootc-lifecycle).
+#                         Each owns a VM, a vTPM and scratch disks on the host,
+#                         so they run one at a time.
 apiVersion: v1
 kind: ConfigMap
 metadata:

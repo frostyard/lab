@@ -226,8 +226,8 @@ How often it hits depends on the extents:
   defect and not from a regression.
 
 So `fsverity_errors` is judged against a **known-defect kernel list**, the same
-in every template that judges it (`known_defect_kernels` in the Firn judge, the
-bootc install judge and the lifecycle `run.sh`): `7.2.11+deb14-amd64`,
+in every template that judges it (`known_defect_kernels` in the Firn judge and
+the lifecycle `run.sh`): `7.2.11+deb14-amd64`,
 `7.2.12+deb14-amd64`, `7.2.13+deb14-amd64`, `7.2.14+deb14-amd64`,
 `7.2.15+deb14-amd64`, `7.3.3+deb14-amd64`, `7.3.4+deb14-amd64` and
 `7.2.15-1-surface` (linux-surface, Snowfield). The linux-surface entry has
@@ -256,13 +256,9 @@ them.
 | Check | Where | Meaning | Judged? |
 |---|---|---|---|
 | `cfs_compressed_objects=<N>` | Firn install probe | Regular files under `/sysroot/composefs/objects` with at least one `encoded` extent in `filefrag -v`. `n/a` = `findmnt` succeeded and `/sysroot` is not btrfs; `unknown` = `findmnt` failed, or `filefrag` or the directory is missing. | **FAIL** when N > 0. Also FAIL when the value is absent. On an attested composefs root (`rootfs=overlay` and `sysroot=btrfs`) the value must be the number 0: `n/a`, `unknown` or a malformed value fails (a guard that did not run is not a pass, [ADR-0010](adr/0010-vacuous-success-is-forbidden.md)). |
-| `fsverity_errors=<N>` | Firn install probe, bootc install probe (agent and console channels), lifecycle guest record | Count of `FILE CORRUPTED` lines in `journalctl -q -k -b`, plus the numbers in `fsverity_msg: N callbacks suppressed` lines. Empty output or only `-- No entries --` (exit 0, no kernel entry read) gives `unknown` (`fsverity_log` in `qa.py`), never 0. | Missing or non-numeric: **FAIL** in all three lanes (bootc install: `FAILED: fs-verity guard did not report (snosi#1130)`; with both channels the largest number counts). N > 0: **FAIL** unless the kernel is on the known-defect list (see above). |
-| `kernel=<uname -r>` | All three lanes (the lifecycle record has an attested `kernel` field) | Kernel release the count belongs to. | Used to judge `fsverity_errors`. |
+| `fsverity_errors=<N>` | Firn install probe, lifecycle guest record | Count of `FILE CORRUPTED` lines in `journalctl -q -k -b`, plus the numbers in `fsverity_msg: N callbacks suppressed` lines. Empty output or only `-- No entries --` (exit 0, no kernel entry read) gives `unknown` (`fsverity_log` in `qa.py`), never 0. | Missing or non-numeric: **FAIL** in both lanes. N > 0: **FAIL** unless the kernel is on the known-defect list (see above). |
+| `kernel=<uname -r>` | Both lanes (the lifecycle record has an attested `kernel` field) | Kernel release the count belongs to. | Used to judge `fsverity_errors`. |
 | `kernel_btrfs_verity_canary=defect\|clean\|skipped` | Firn install probe only | Informational canary, **never fails a lane**. See below. | No |
-
-The bootc install lane also widened its console and agent key patterns from
-`[a-z]+` to `[a-z_]+`: before, any check key with an underscore was silently
-dropped.
 
 **Kernel canary.** After the error count (so its own log lines never count),
 the Firn probe, as root in the disposable guest, makes a 64 MiB Btrfs image
@@ -300,7 +296,7 @@ The count says how often the defect hit; the lines say which files it hit. Each
 lane keeps the matching kernel lines in `fsverity.txt`, next to `checks.txt`, one
 line per kernel line and **never the hashes**: a `FILE CORRUPTED` message also
 carries a wanted and a real `sha512`, and those identify content, not a file.
-The format is the same in all three lanes:
+The format is the same in both lanes:
 
 ```
 phase=<phase> seq=<n> device=<dev> inode=<ino> pos=<pos> level=<lvl>
@@ -313,11 +309,11 @@ are kept (the first 32 matches; the rest are dropped, never rotated or
 sampled). The guest extracts one line per matching kernel line with
 `fs-verity \(([A-Za-z0-9._-]{1,32}), inode ([0-9]{1,20})\): FILE CORRUPTED! pos=([0-9]{1,20}), level=(-?[0-9]{1,2})(,|$)`
 (a line that does not match is ignored, and it still counts in
-`fsverity_errors`). The phase is `installed-boot` in the Firn and bootc install
-lanes and the lifecycle phase (`installed-n`, `stage`, `boot-n-plus-1`,
+`fsverity_errors`). The phase is `installed-boot` in the Firn install lane and
+the lifecycle phase (`installed-n`, `stage`, `boot-n-plus-1`,
 `rollback`, `boot-n`) in the lifecycle lane; the sysext-probe boots keep nothing.
-In the Firn and bootc install lanes the lines travel as their own console
-markers (`FIRN_QA__FSVERITY`, `SNOSI_QA__FSVERITY`), never as CHECK lines: the
+In the Firn install lane the lines travel as their own console markers
+(`FIRN_QA__FSVERITY`), never as CHECK lines: the
 host drops a record that kernel printk cut into, merges identical copies, drops
 both copies of a `seq` that arrived with 2 different contents (it never
 guesses), sorts by `seq` and bounds at 32. In the lifecycle lane they travel
@@ -327,7 +323,7 @@ of `[device, inode, pos, level]`, at most 32 entries and never more than
 bound grew from 4096 to 8192 encoded characters for it. The file always exists
 after collection and is empty when no line matched.
 
-Where it lives: the Firn, bootc install and lifecycle WorkflowTemplates expose
+Where it lives: the Firn and lifecycle WorkflowTemplates expose
 it as the output parameter `fsverity` (from `/tmp/results/fsverity.txt`; the
 lifecycle lane also persists it as
 `/var/lib/snosi-lab/snow-bootc-evidence/<run>/fsverity.txt`), and

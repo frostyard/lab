@@ -23,13 +23,17 @@ its source, [generated runs.json](../site/src/data/runs.json) (check its
 `generated` timestamp). Product poll evidence and its freshness are interpreted
 under [ADR-0011](adr/0011-product-poll-qa-evidence-is-rostered-and-fresh.md).
 
+On 2026-11-11 the native A/B installer, the published A/B disk, the ISO boot
+and the bootc mechanics lanes were retired
+([ADR-0020](adr/0020-retire-the-native-ab-and-live-iso-vm-lanes.md)).
+
 | Lane | State |
 |---|---|
 | Container smoke suites (×3 products) | 🟢 |
-| Native A/B installer | 🟢 (Secure Boot off — Phase F) |
-| Published A/B disk artifact | 🟢 |
-| ISO boot, Secure Boot enforced | 🟢 |
-| bootc installer (mechanics) | 🟢 — latest committed run `fkplf` |
+| Native A/B installer | ⚫ retired 2026-11-11 — snosi removed native A/B, so its installer ISO returns HTTP 404 (ADR-0020); was 🟢 (Secure Boot off — Phase F) |
+| Published A/B disk artifact | ⚫ retired 2026-11-11 — snosi no longer publishes an A/B disk (ADR-0020); was 🟢 |
+| ISO boot, Secure Boot enforced | ⚫ retired 2026-11-11 — no snosi build makes the live ISO, and its `-latest` name had no SHA-256 (ADR-0020); was 🟢 |
+| bootc installer (mechanics) | ⚫ retired 2026-11-11 — the live ISO it booted is frozen, and its `-latest` names had no SHA-256 (ADR-0020); was 🟢 — latest committed run `fkplf` |
 | **bootc secure installer** | ⚫ retired 2026-08-12 — superseded by the firn install matrix (core ADR-0027/0028); was red on assembly-compatibility validation, first 18/18 green 2026-08-07 |
 | firn installer matrix | 🟢 historical — `firn-install-matrix-sz9rv`, all 10 cells green 2026-08-12, included native A/B cells since removed; the revised bootc-only matrix has not yet run |
 | Registry digest poll, orphan GC | 🟢 |
@@ -663,20 +667,25 @@ lane itself, ETag cache validation, and host-persisted harness logs.
 
 The names on the dashboard are ambiguous. Concretely:
 
+The 4 incus rows marked ⚫ retired were removed on 2026-11-11
+([ADR-0020](adr/0020-retire-the-native-ab-and-live-iso-vm-lanes.md)); this
+table is kept as the record of what they tested.
+
 | Dashboard name | Template | Artifact under test | Install step? | Secure Boot |
 |---|---|---|---|---|
 | Container smoke suites | `run-container-tests` | `ghcr.io/frostyard/{snow,snowfield,floe}:latest`, booted as nested systemd containers | no | n/a |
-| ISO boot (Secure Boot) | `run-incus-vm-tests` | `isos/snow-live-latest.iso` — the **bootc live desktop ISO**, booted to its live session | no | **on** |
-| Published A/B disk artifact | `run-incus-disk-tests` | `os/native/v1/floe/x86-64/floe-ab_<ver>.disk.raw.xz` — the **complete shipped GPT disk**, booted directly | no | off |
-| Native A/B installer | `run-incus-install-tests` | `isos/native/v1/snosi-native-installer-latest-x86-64.iso` → runs `/usr/libexec/snosi-install --product floe-ab` → reboots | **yes** | off, `--skip-mok` |
-| bootc installer | `run-incus-bootc-install-tests` | boots the snow-live ISO, then `bootc install to-disk` from `ghcr.io/frostyard/snow:latest` → reboots | **yes** | off |
+| ⚫ retired — ISO boot (Secure Boot) | `run-incus-vm-tests` | `isos/snow-live-latest.iso` — the **bootc live desktop ISO**, booted to its live session | no | **on** |
+| ⚫ retired — Published A/B disk artifact | `run-incus-disk-tests` | `os/native/v1/floe/x86-64/floe-ab_<ver>.disk.raw.xz` — the **complete shipped GPT disk**, booted directly | no | off |
+| ⚫ retired — Native A/B installer | `run-incus-install-tests` | `isos/native/v1/snosi-native-installer-latest-x86-64.iso` → runs `/usr/libexec/snosi-install --product floe-ab` → reboots | **yes** | off, `--skip-mok` |
+| ⚫ retired — bootc installer | `run-incus-bootc-install-tests` | boots the snow-live ISO, then `bootc install to-disk` from `ghcr.io/frostyard/snow:latest` → reboots | **yes** | off |
+| firn installer matrix | `run-firn-install-tests` | the pinned Firn ISO (SHA-256 from snosi's signed `SHA256SUMS.gpg` index) → `firn install` → reboots | **yes** | per cell |
 
-Two clarifications that matter:
+Two clarifications that mattered, about lanes that are now retired:
 
 - **"ISO boot (Secure Boot)" is the bootc lane, not the installer.** It boots
   `snow-live-latest.iso` — bootc-format live media — and never installs
-  anything. It is the only thing in this lab proven under real enforced Secure
-  Boot, and what it proves is that the *live ISO's* signing chain is trusted by
+  anything. It was the only thing in this lab proven under real enforced Secure
+  Boot, and what it proved is that the *live ISO's* signing chain is trusted by
   stock OVMF. It says nothing about the native installer ISO, which is a
   different artifact at a different URL.
 - **"Published A/B disk artifact" is not a DDI install.** There is no install
@@ -790,6 +799,9 @@ assumed to be a finding rather than a question about the harness.
 
 Green means proven in this lab. Items marked *snosi* are proven by snosi's own
 test suite but not continuously, and not against published artifacts.
+
+The native A/B table and the snow-live ISO row are history: the lanes that
+proved them are retired (ADR-0020), and snosi no longer ships native A/B.
 
 ### Native A/B
 
@@ -927,6 +939,9 @@ produced two false findings in a week.
 
 ### Phase B — publish mechanics images (cheap, unblocks the existing lane)
 
+Its only consumer, the bootc mechanics lane, is retired (ADR-0020). B1, B2 and
+open questions 1 and 2 apply only if a new mechanics lane is planned.
+
 The bootc mechanics lane is fully built and has never had a legal target,
 because `:latest` is always `secureboot-capable=true` and `mechanics-build` is
 non-publishing by design.
@@ -940,9 +955,10 @@ non-publishing by design.
       `io.snosi.bootc.secureboot-capable=false`, add an explicit
       "QA-only, not for installation" annotation, never reference it in install
       docs, and never move a user-facing tag to it.
-- [ ] **B3.** Point `run-incus-bootc-install-tests` at the mechanics tag. Its
+- [ ] **B3.** ~~Point `run-incus-bootc-install-tests` at the mechanics tag. Its
       guard then passes and the lane gets its first green — which also proves
-      the lane's plumbing, still unverified end to end.
+      the lane's plumbing, still unverified end to end.~~ Obsolete: the
+      mechanics lane is retired (ADR-0020).
 
 Worth being clear about what B buys: it validates *installation mechanics only*
 and carries no security evidence. It is a real regression signal for the
@@ -1029,9 +1045,11 @@ Independent of everything above; adopt snosi's existing pattern.
       would be worse, not better. Secure Boot is genuinely enforced — Microsoft's
       KEK/db are untouched and firmware still rejects everything except the one
       certificate granted.
-- [ ] **F3.** Negative proof — a wrongly-signed binary must be rejected by shim,
-      or the positive result proves nothing.
-- [ ] **F4.** Published-disk lane under enforced SB with the MOK pre-seeded.
+- [ ] **F3.** ~~Negative proof — a wrongly-signed binary must be rejected by
+      shim, or the positive result proves nothing.~~ Obsolete: native A/B was
+      removed (snosi ADR-0018) and the lanes are retired (ADR-0020).
+- [ ] **F4.** ~~Published-disk lane under enforced SB with the MOK pre-seeded.~~
+      Obsolete: the published-disk lane is retired (ADR-0020).
 
 Note the two formats need *different* MOK handling: native pre-seeds host-side,
 while the secure bootc installer generates a one-time MokManager password and
