@@ -251,7 +251,7 @@ def test_judge_requires_a_numeric_count_and_judges_it_by_kernel(source, tmp_path
         if known_errors and kernel in ("7.2.11+deb14-amd64", "7.2.12+deb14-amd64",
                                          "7.2.13+deb14-amd64", "7.2.14+deb14-amd64",
                                          "7.2.15+deb14-amd64", "7.3.3+deb14-amd64",
-                                         "7.2.15-1-surface"):
+                                         "7.3.4+deb14-amd64", "7.2.15-1-surface"):
             assert (tmp_path / "checks.txt").read_text().splitlines().count(f"fsverity_known_defect={kernel}") == 1
             # Visible note in the summary, the checks file and the log.
             assert summary_file.read_text() == f"bootc installed and verified: snow (secureboot=true) fsverity_known_defect={kernel}"
@@ -344,7 +344,7 @@ DEBIAN_733_KERNEL = "7.3.3+deb14-amd64"
     ("7.3.3+deb13-amd64", False),
     ("7.3.3+deb14-arm64", False),
     ("7.3.3-1+deb14-amd64", False),
-    ("7.3.4+deb14-amd64", False),
+    ("7.3.5+deb14-amd64", False),
     ("7.3.3", False),
 ])
 def test_judge_debian_733_exact_match_and_lookalikes(source, tmp_path, kernel, known_defect):
@@ -370,7 +370,43 @@ def test_judge_debian_733_exact_match_and_lookalikes(source, tmp_path, kernel, k
         assert "fsverity_known_defect" not in summary
 
 
-KNOWN_DEFECT_LIST = 'known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64 7.2.15+deb14-amd64 7.3.3+deb14-amd64 7.2.15-1-surface"'
+DEBIAN_734_KERNEL = "7.3.4+deb14-amd64"
+
+
+@pytest.mark.parametrize("kernel,known_defect", [
+    (DEBIAN_734_KERNEL, True),
+    (DEBIAN_734_KERNEL + "-extra", False),
+    ("7.3.4+deb14", False),
+    ("7.3.4+deb13-amd64", False),
+    ("7.3.4+deb14-arm64", False),
+    ("7.3.4-1+deb14-amd64", False),
+    ("7.3.5+deb14-amd64", False),
+    ("7.3.4", False),
+])
+def test_judge_debian_734_exact_match_and_lookalikes(source, tmp_path, kernel, known_defect):
+    block = source[source.index("# frostyard/snosi#1130: the guard must have run"):
+                   source.index('printf \'%s\' "bootc installed and verified')]
+    tail = source[source.index('printf \'%s\' "bootc installed and verified'):]
+    tail = tail[:tail.index("cat /tmp/results/result-summary.txt")]
+    (tmp_path / "checks.txt").write_text("booted=ok\nfsverity_errors=2\nkernel=" + kernel + "\n")
+    script = ("set -euo pipefail\nSECUREBOOT=true\nIMAGE=snow\n"
+              + (block + tail).replace("/tmp/results", str(tmp_path))
+              + "\necho reached-pass")
+    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
+    summary = (tmp_path / "result-summary.txt").read_text()
+    if known_defect:
+        assert result.returncode == 0, result.stderr
+        assert "reached-pass" in result.stdout
+        assert summary == f"bootc installed and verified: snow (secureboot=true) fsverity_known_defect={kernel}"
+        assert (tmp_path / "checks.txt").read_text().splitlines().count(f"fsverity_known_defect={kernel}") == 1
+    else:
+        assert result.returncode == 1
+        assert "reached-pass" not in result.stdout
+        assert summary.startswith("FAILED: installed system logged 2")
+        assert "fsverity_known_defect" not in summary
+
+
+KNOWN_DEFECT_LIST = 'known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64 7.2.15+deb14-amd64 7.3.3+deb14-amd64 7.3.4+deb14-amd64 7.2.15-1-surface"'
 UPSTREAM_FIX = "254e15591ee4"   # kdave/linux next-fixes; dcf8811f63af before a rebase
 
 
@@ -384,6 +420,24 @@ def test_known_defect_list_is_identical_in_every_lane():
         assert lists == [KNOWN_DEFECT_LIST], name
         assert UPSTREAM_FIX in text, name
         assert "dcf8811f63af" not in text, name   # the unreachable pre-rebase hash
+
+
+# The documented evidence has to back every listed kernel, and the lifecycle
+# template trades its per-entry comment lines for a pointer to it.
+QUALITY_DOC = "docs/quality.md"
+EVIDENCE_POINTER = "The source evidence for each entry is in lab docs/quality.md"
+
+
+def test_every_known_defect_kernel_is_evidenced_in_quality_md():
+    root = Path(__file__).resolve().parents[1]
+    words = KNOWN_DEFECT_LIST.split('"')[1].split()
+    assert "7.3.4+deb14-amd64" in words
+    assert "7.3.3+deb14-amd64" in words
+    quality = (root / QUALITY_DOC).read_text(encoding="utf-8")
+    for kernel in words:
+        assert f"`{kernel}`" in quality, kernel
+    lifecycle = (TEMPLATE.parent / "snow-bootc-lifecycle-scripts.yaml").read_text(encoding="utf-8")
+    assert EVIDENCE_POINTER in lifecycle
 
 
 def test_known_defect_list_matches_the_other_lanes(source):
