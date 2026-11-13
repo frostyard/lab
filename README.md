@@ -67,8 +67,9 @@ and [reporting](docs/design/reporting.md).
   be stale ([reporting](docs/design/reporting.md)).
 - The lab has no artifact store: the workflow log is the evidence surface
   ([ADR-0009](docs/adr/0009-no-artifact-store-logs-are-the-surface.md)).
-- More known gaps are in [architecture](docs/design/architecture.md#known-gaps)
-  and the [roadmap](docs/roadmap.md).
+- More known gaps are in [architecture](docs/design/architecture.md#known-gaps).
+  The superseded [roadmap](docs/roadmap.md) is history; it still holds G4
+  pre-promotion gating and the open questions.
 
 ## Develop
 

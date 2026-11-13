@@ -66,8 +66,13 @@ the roadmap or an ADR; git keeps them. -->
 
 ### Uncategorized (indexed where they stand)
 
-- [roadmap.md](roadmap.md) — the working roadmap: lane status, phases, and
-  the evidence audit
+- [roadmap.md](roadmap.md) — superseded 2026-11-11 (history, not current
+  lane status). Current lanes and evidence:
+  [design/architecture.md](design/architecture.md),
+  [design/vm-lanes.md](design/vm-lanes.md),
+  [specs/bootc-lifecycle-lane.md](specs/bootc-lifecycle-lane.md) and
+  [quality.md](quality.md). It still holds the open items: G4 pre-promotion
+  gating and the [Open questions](roadmap.md#open-questions) register
 - [ops/bootstrap.md](ops/bootstrap.md) — from a bare k3s node to a
   reconciling lab
 - [ops/operating.md](ops/operating.md) — operator clients, the `just` recipes

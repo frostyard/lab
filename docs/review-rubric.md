@@ -30,7 +30,7 @@ Apply the rows relevant to the pull request:
 | Manifests and Argo CD | Resource ownership is not duplicated; bootstrap prerequisites remain distinct from reconciled resources; explanatory header comments still match the configuration; offline pytest contracts and `just validate` cover the YAML. |
 | Scripts | Errors are surfaced rather than converted into success-shaped output; external commands and API responses are bounded and checked; relevant `pytest` tests pass. |
 | Reporting site | Displayed status agrees with the collected data contract; empty and failure states remain clear; the site build or targeted Playwright tests pass. |
-| Documentation | Commands and paths exist, links resolve, prose is specific about limitations, and lane status agrees with both `docs/design/` and `docs/roadmap.md`. |
+| Documentation | Commands and paths exist, links resolve, prose is specific about limitations, and lane status agrees with `docs/design/`, `docs/specs/` and `docs/quality.md` (`docs/roadmap.md` is superseded history). |
 
 ## Review findings
 
