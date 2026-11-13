@@ -32,7 +32,7 @@ sites:
   nested, "the lane's failure became a handled branch and this workflow
   reported Succeeded over a failed run — and collect_runs.py maps by node
   templateRef, so that green would have reached the dashboard as a passing
-  secure install" ([argo/secure-install-watch.yaml](../../argo/secure-install-watch.yaml)).
+  secure install" ([argo/secure-install-watch.yaml](https://github.com/frostyard/lab/blob/dbacca4b1960065931b6af80c896d26ddacd6a41/argo/secure-install-watch.yaml)).
   (It also must not hold the VM semaphore for the lane's ~25 minutes,
   [ADR-0007](0007-cross-workflow-concurrency-via-template-semaphores.md).)
 - **CI test globs** — `.github/workflows/ci.yml` asserts
@@ -78,7 +78,7 @@ sites:
 - Shapes: [design/architecture.md — Suites](../design/architecture.md#suites)
 - Implemented by:
   [argo/workflow-templates/snosi-qa-pipeline.yaml](../../argo/workflow-templates/snosi-qa-pipeline.yaml),
-  [argo/secure-install-watch.yaml](../../argo/secure-install-watch.yaml),
+  [argo/secure-install-watch.yaml](https://github.com/frostyard/lab/blob/dbacca4b1960065931b6af80c896d26ddacd6a41/argo/secure-install-watch.yaml),
   [.github/workflows/ci.yml](../../.github/workflows/ci.yml),
   [tests/test_kubernetes_manifests.py](../../tests/test_kubernetes_manifests.py)
 - Builds on: [ADR-0003](0003-unproven-is-distinct-from-failed.md); related:

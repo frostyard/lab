@@ -111,8 +111,9 @@ lanes cover the large majority of what breaks, cheaply and fast.
 | `ghcr.io/frostyard/snow` | `latest` | digest poll, `0 */3 * * *` | smoke |
 | `ghcr.io/frostyard/floe` | `latest` | digest poll, `20 */3 * * *` | smoke |
 | `ghcr.io/frostyard/snowfield` | `latest` | digest poll, `40 */3 * * *` | smoke |
+| `ghcr.io/frostyard/sundog` | `latest` | digest poll, `50 */3 * * *` | smoke |
 
-All three CronWorkflows are declared `suspend: false` in git. For retained
+All four CronWorkflows are declared `suspend: false` in git. For retained
 polls and QA evidence, see the [dashboard](https://frostyard.github.io/lab/)
 and its source, the committed [`runs.json`](../../site/src/data/runs.json).
 `generated` marks when that snapshot was collected; the publisher replaces it
@@ -193,7 +194,7 @@ lab/
   lines on failure, 40 on success. Standing up an object store would let the
   whole console and the behave `results.json` be retained per run.
 - **No registry pull-through cache.** Every lane pulls from ghcr.io directly.
-  Fine at three lanes on a 3-hour poll; revisit if lane count grows.
+  Fine at four lanes on a 3-hour poll; revisit if lane count grows.
 
 ## References
 

@@ -71,7 +71,7 @@ Two ownership rules make the state safe:
   ordering, the `when` guards, and the CAS text in `update-local` are
   pinned literally).
 - The pattern is duplicated once, deliberately simplified: the temporary
-  [argo/secure-install-watch.yaml](../../argo/secure-install-watch.yaml)
+  [argo/secure-install-watch.yaml](https://github.com/frostyard/lab/blob/dbacca4b1960065931b6af80c896d26ddacd6a41/argo/secure-install-watch.yaml)
   watcher uses its own state key (`secure-install-cayo-latest`) so it and
   the poller advance independently, records the digest at *submission* (not
   after QA — the lane it launches is standalone, see

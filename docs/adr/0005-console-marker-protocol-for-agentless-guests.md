@@ -24,7 +24,7 @@ mechanisms that work against unmodified images:
   work at boot with no cooperation from the image. The same mechanism
   carries a second unit set for post-install assertions after the ISO is
   detached
-  ([argo/workflow-templates/run-incus-install-tests.yaml](../../argo/workflow-templates/run-incus-install-tests.yaml)).
+  ([argo/workflow-templates/run-incus-install-tests.yaml](https://github.com/frostyard/lab/blob/7371508597e2c14f8996243b81398845461b9358/argo/workflow-templates/run-incus-install-tests.yaml)).
 - **Outbound — marker lines on the serial console.** The injected scripts
   `tee` to `/dev/console` and print deliberately distinctive markers that
   cannot collide with boot chatter: `SNOSI_QA__INSTALL_BEGIN`,
@@ -71,10 +71,10 @@ mechanisms that work against unmodified images:
 
 - Shapes: [design/vm-lanes.md — Driving a guest with no agent and no SSH](../design/vm-lanes.md#driving-a-guest-with-no-agent-and-no-ssh)
 - Implemented by:
-  [argo/workflow-templates/run-incus-install-tests.yaml](../../argo/workflow-templates/run-incus-install-tests.yaml),
-  [argo/workflow-templates/run-incus-bootc-install-tests.yaml](../../argo/workflow-templates/run-incus-bootc-install-tests.yaml),
+  [argo/workflow-templates/run-incus-install-tests.yaml](https://github.com/frostyard/lab/blob/7371508597e2c14f8996243b81398845461b9358/argo/workflow-templates/run-incus-install-tests.yaml),
+  [argo/workflow-templates/run-incus-bootc-install-tests.yaml](https://github.com/frostyard/lab/blob/7371508597e2c14f8996243b81398845461b9358/argo/workflow-templates/run-incus-bootc-install-tests.yaml),
   [argo/workflow-templates/run-firn-install-tests.yaml](../../argo/workflow-templates/run-firn-install-tests.yaml),
-  [argo/workflow-templates/run-incus-vm-tests.yaml](../../argo/workflow-templates/run-incus-vm-tests.yaml)
+  [argo/workflow-templates/run-incus-vm-tests.yaml](https://github.com/frostyard/lab/blob/7371508597e2c14f8996243b81398845461b9358/argo/workflow-templates/run-incus-vm-tests.yaml)
 - Related: [ADR-0004](0004-one-way-evidence-pipeline.md),
   [ADR-0009](0009-no-artifact-store-logs-are-the-surface.md)
 - Amended by: [ADR-0013](0013-firn-lane-markers-also-travel-through-the-kernel-log.md),
