@@ -45,4 +45,4 @@ step.
 
 - [ ] No secrets, kubeconfigs or credentials are committed
 - [ ] No WorkflowTemplate or manifest was applied to the cluster by hand
-- [ ] Blocking review point fixed: guard added and 1 `.memory/corrections.jsonl` line added
+- [ ] Blocking review point fixed: guard added and 1 file added under `.memory/corrections/`

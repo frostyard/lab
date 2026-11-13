@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-05",
+  "scope": "run.sh lifecycle lane SMBIOS credentials",
+  "correction": "The lane bounded each SMBIOS credential value on its own and never their sum, so the desktop report boot (guest unit, snow-report.z, the login-setup unit with its base64 script) came to about 68500 characters and the guest unit never ran (most likely the firmware dropped the credentials past the 64 KiB SMBIOS table) (dev-snow-bootc-lifecycle-6swrx, BLOCKED: phase_timeout). The guest payloads now drop docstrings, the login-setup script travels xz-compressed in a credential of its own, and the whole raw.qemu of a boot is bounded at 61440 with `fail smbios_size`.",
+  "evidence": "dev run dev-snow-bootc-lifecycle-6swrx (BLOCKED: phase_timeout, no marker, no KMSG chunk, no snow-guest.service); tests/test_report_probe.py::test_each_boot_stays_well_under_the_smbios_table_total over 8 boot kinds, where the old desktop report boot was about 68500 and the bound is 61440",
+  "promoted_to": "tests/test_report_probe.py"
+}

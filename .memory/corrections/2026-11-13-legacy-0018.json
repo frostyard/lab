@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-13",
+  "scope": "claude-code-action pin bump",
+  "correction": "tests/test_claude_code_review_workflow.py pins the exact claude-code-action commit in ACTION_SHA, so a Dependabot bump of that action is red by design. Supersede it with a PR that carries the same pin and moves ACTION_SHA; never loosen the exact-SHA assertion.",
+  "evidence": "cross-review (openai/gpt-6.1-sol) of lab#228 head 02339bd6 and lab#231; tests/test_claude_code_review_workflow.py::test_claude_review_workflow_is_pinned_and_least_privilege fails at the lab#228 head and passes at lab#231",
+  "promoted_to": "tests/test_claude_code_review_workflow.py"
+}

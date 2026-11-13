@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-05",
+  "scope": "lifecycle run records (docs/plans/*-bootc-lifecycle-run.md)",
+  "correction": "The Snowfield rerun record attributed the `rollback` phase to image N, so it claimed every fs-verity error was in N and none in N+1. The lane records `rollback` in N+1 (qa.py verdict: booted_digest is N+1 for `boot-n-plus-1` and `rollback`), before the rollback takes effect; the record now has a Booted column and says N+1 logged 1 error.",
+  "evidence": "cross-review (openai/gpt-6.1-sol) of 989a7e03, lab#185; tests/test_snowfield_bootc_lifecycle.py::test_rerun_plan_attributes_each_phase_to_the_image_the_lane_boots fails with rollback attributed to N",
+  "promoted_to": "tests/test_snowfield_bootc_lifecycle.py"
+}

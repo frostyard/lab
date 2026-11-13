@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-05",
+  "scope": "qa.py / problems.py problems probe (report-only)",
+  "correction": "A report-only probe must keep every collector-content defect and command failure inside its record: the summary bound now fits all 11 failed checks, a non-object, null or invalid problems.json is a schema finding (not a refused record or unproven-too-large), duplicate keys in details.json and signal return codes no longer end the run, a read cut at the bound is never judged, and the details owner must be an int.",
+  "evidence": "cross-review (openai/gpt-6.1-sol) of 86a9f00a, lab#187; tests/test_problems_probe.py cross-review guards (12 cases fail without the fix)",
+  "promoted_to": "tests/test_problems_probe.py"
+}

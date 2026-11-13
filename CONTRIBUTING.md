@@ -66,7 +66,7 @@ Python test dependencies above, in the active environment:
 ```bash
 mise install
 make verify
-make ci BASE=origin/main   # adds the append-only corrections check
+make ci BASE=origin/main   # adds the corrections records check against the base
 ```
 
 ## Making changes

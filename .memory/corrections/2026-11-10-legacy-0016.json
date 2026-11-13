@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-10",
+  "scope": "dashboard module exports",
+  "correction": "A pure refactor of site/src/dashboard.mjs keeps its export set: a shared helper stays module-private, and a new export is an interface change that needs its own PR.",
+  "evidence": "cross-review (openai/gpt-6.1-sol) of 9a368316, lab#217; site/test/dashboard-exports.test.mjs fails when the helper qaPassed is exported",
+  "promoted_to": "site/test/dashboard-exports.test.mjs"
+}

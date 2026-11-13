@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-13",
+  "scope": "docs link guard",
+  "correction": "A Markdown link check must parse inline links with a title or angle brackets and reference definitions, not only [text](target), and print how many links it checked on a pass.",
+  "evidence": "cross-review (openai/gpt-6.1-sol) of 7e4cec25, lab#229; tests/test_docs_links.py::test_dead_link_is_reported fails (3 == 5 checked links) with the plain [text](target) pattern",
+  "promoted_to": "tests/test_docs_links.py"
+}

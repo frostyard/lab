@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-04",
+  "scope": "qa.py first-login probe (login-1)",
+  "correction": "login-1 stopped observing after the first started app plus one poll, so an app (or chairlift's journal line) that started later was never seen. Both login boots now observe the full app_wait window and mark done only after it, with one bounded journal read after the window.",
+  "evidence": "review of fae11e86; tests/test_first_login_probe.py::test_guest_login_first_boot_watches_the_whole_window_for_a_late_app",
+  "promoted_to": "tests/test_first_login_probe.py"
+}

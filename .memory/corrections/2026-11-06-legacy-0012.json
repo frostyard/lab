@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-06",
+  "scope": "make gate (Makefile verify-template)",
+  "correction": "`node --test test/*.test.mjs` exits 0 when the glob matches nothing, so `make verify-template` could pass with zero Node tests (ADR-0010). The recipe now fails first when `test/*.test.mjs` matches no file, as `verify-site` does for `site/test/`.",
+  "evidence": "cross-review (openai/gpt-6.1-sol) of 4ad64f08, lab#195; tests/test_make_gate.py::test_node_test_targets_fail_when_their_glob_matches_nothing fails without the guard",
+  "promoted_to": "tests/test_make_gate.py"
+}
