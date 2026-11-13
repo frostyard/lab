@@ -22,7 +22,7 @@ each hop, and lanes never know reporting exists:
    `/tmp/results/checks.txt` — newline-separated `key=value` pairs
    (e.g. `verity=ok`, `rootfs=erofs`) — surfaced as the Argo output
    parameters `result` and `checks` (see
-   [argo/workflow-templates/run-incus-install-tests.yaml](../../argo/workflow-templates/run-incus-install-tests.yaml)).
+   [argo/workflow-templates/run-incus-install-tests.yaml](https://github.com/frostyard/lab/blob/7371508597e2c14f8996243b81398845461b9358/argo/workflow-templates/run-incus-install-tests.yaml)).
 2. **The collector reads only the Kubernetes API.**
    [scripts/collect_runs.py](../../scripts/collect_runs.py) lists Workflow
    objects, extracts `result`/`checks` from node outputs, and identifies

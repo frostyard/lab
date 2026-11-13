@@ -28,7 +28,7 @@ sidecar file** `<path>.fingerprint`, with two rules:
   are lowercased before matching — this image's awk silently ignores
   `IGNORECASE`, which once made every ETag miss and fall through to
   content-length, a far weaker staleness signal
-  ([argo/workflow-templates/run-incus-vm-tests.yaml](../../argo/workflow-templates/run-incus-vm-tests.yaml)).
+  ([argo/workflow-templates/run-incus-vm-tests.yaml](https://github.com/frostyard/lab/blob/7371508597e2c14f8996243b81398845461b9358/argo/workflow-templates/run-incus-vm-tests.yaml)).
 - **Atomic materialization:** downloads go to `<path>.part` and are
   `mv`-ed into place only on success, so a partial file can never be a
   cache hit; the sidecar is written after the move.
@@ -39,10 +39,10 @@ embeds the build stamp (core
 the name itself is the cache key: the native-installer ISO ("the installer
 ISO redirects to an immutable versioned object, so the filename itself is
 the cache key — no ETag check needed",
-[run-incus-install-tests.yaml](../../argo/workflow-templates/run-incus-install-tests.yaml))
+[run-incus-install-tests.yaml](https://github.com/frostyard/lab/blob/7371508597e2c14f8996243b81398845461b9358/argo/workflow-templates/run-incus-install-tests.yaml))
 and the disk artifact, which is additionally digest-verified against the
 GPG-signed index
-([run-incus-disk-tests.yaml](../../argo/workflow-templates/run-incus-disk-tests.yaml)).
+([run-incus-disk-tests.yaml](https://github.com/frostyard/lab/blob/7371508597e2c14f8996243b81398845461b9358/argo/workflow-templates/run-incus-disk-tests.yaml)).
 
 The logic is **inlined in each lane rather than shared**: Argo script
 templates have no include mechanism, and each lane stays a self-contained
@@ -57,7 +57,7 @@ script readable top to bottom.
   re-download), as is deleting the whole cache directory.
 - Inlining means the copies can drift — and already have: the bootc lane's
   copy checks only `etag` → `len`, skipping `Last-Modified`
-  ([run-incus-bootc-install-tests.yaml](../../argo/workflow-templates/run-incus-bootc-install-tests.yaml)).
+  ([run-incus-bootc-install-tests.yaml](https://github.com/frostyard/lab/blob/7371508597e2c14f8996243b81398845461b9358/argo/workflow-templates/run-incus-bootc-install-tests.yaml)).
   Fixes to the pattern must be applied to every lane that carries it
   (currently `run-incus-vm-tests`, `run-secure-install-tests`,
   `run-incus-bootc-install-tests`).
@@ -83,12 +83,12 @@ script readable top to bottom.
 ## References
 
 - Implemented by:
-  [argo/workflow-templates/run-incus-vm-tests.yaml](../../argo/workflow-templates/run-incus-vm-tests.yaml),
-  [argo/workflow-templates/run-secure-install-tests.yaml](../../argo/workflow-templates/run-secure-install-tests.yaml),
-  [argo/workflow-templates/run-incus-bootc-install-tests.yaml](../../argo/workflow-templates/run-incus-bootc-install-tests.yaml);
+  [argo/workflow-templates/run-incus-vm-tests.yaml](https://github.com/frostyard/lab/blob/7371508597e2c14f8996243b81398845461b9358/argo/workflow-templates/run-incus-vm-tests.yaml),
+  [argo/workflow-templates/run-secure-install-tests.yaml](https://github.com/frostyard/lab/blob/dbacca4b1960065931b6af80c896d26ddacd6a41/argo/workflow-templates/run-secure-install-tests.yaml),
+  [argo/workflow-templates/run-incus-bootc-install-tests.yaml](https://github.com/frostyard/lab/blob/7371508597e2c14f8996243b81398845461b9358/argo/workflow-templates/run-incus-bootc-install-tests.yaml);
   versioned-name variants in
-  [run-incus-install-tests.yaml](../../argo/workflow-templates/run-incus-install-tests.yaml),
-  [run-incus-disk-tests.yaml](../../argo/workflow-templates/run-incus-disk-tests.yaml),
+  [run-incus-install-tests.yaml](https://github.com/frostyard/lab/blob/7371508597e2c14f8996243b81398845461b9358/argo/workflow-templates/run-incus-install-tests.yaml),
+  [run-incus-disk-tests.yaml](https://github.com/frostyard/lab/blob/7371508597e2c14f8996243b81398845461b9358/argo/workflow-templates/run-incus-disk-tests.yaml),
   [run-firn-install-tests.yaml](../../argo/workflow-templates/run-firn-install-tests.yaml)
 - Builds on: core
   [ADR-0004](https://github.com/frostyard/core/blob/main/docs/adr/0004-product-namespaced-filesystem-tiers.md),

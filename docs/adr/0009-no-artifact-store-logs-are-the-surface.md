@@ -13,7 +13,7 @@ and harness logs; the dashboard needs only a verdict and a checks list
 durable: kubelet rotation has truncated the decisive error of the secure
 lane "three separate times — most recently leaving ten lines that named an
 exit code with none of the output explaining it"
-([run-secure-install-tests.yaml](../../argo/workflow-templates/run-secure-install-tests.yaml)).
+([run-secure-install-tests.yaml](https://github.com/frostyard/lab/blob/dbacca4b1960065931b6af80c896d26ddacd6a41/argo/workflow-templates/run-secure-install-tests.yaml)).
 
 ## Decision
 
@@ -27,7 +27,7 @@ block exists anywhere in `argo/`. Evidence has three tiers:
    sized by outcome: success prints a short confirmation (last 40 lines),
    failure a generous dump (last 400 lines) — "with no artifact store, this
    log is the only evidence of what the guest was doing"
-   ([run-incus-vm-tests.yaml](../../argo/workflow-templates/run-incus-vm-tests.yaml)).
+   ([run-incus-vm-tests.yaml](https://github.com/frostyard/lab/blob/7371508597e2c14f8996243b81398845461b9358/argo/workflow-templates/run-incus-vm-tests.yaml)).
 3. **Host disk is the fallback for logs that outgrow pod logging.** The
    secure lane persists its full harness log and guest serial console to
    `/var/lib/snosi-lab/secure/logs/<workflow>.log` on the host,
@@ -74,9 +74,9 @@ whose whole job is leaving a trace."
 
 - Shapes: [design/reporting.md — Reporting](../design/reporting.md)
 - Implemented by:
-  [argo/workflow-templates/run-secure-install-tests.yaml](../../argo/workflow-templates/run-secure-install-tests.yaml),
-  [argo/workflow-templates/run-incus-vm-tests.yaml](../../argo/workflow-templates/run-incus-vm-tests.yaml),
-  [argo/workflow-templates/run-incus-disk-tests.yaml](../../argo/workflow-templates/run-incus-disk-tests.yaml),
+  [argo/workflow-templates/run-secure-install-tests.yaml](https://github.com/frostyard/lab/blob/dbacca4b1960065931b6af80c896d26ddacd6a41/argo/workflow-templates/run-secure-install-tests.yaml),
+  [argo/workflow-templates/run-incus-vm-tests.yaml](https://github.com/frostyard/lab/blob/7371508597e2c14f8996243b81398845461b9358/argo/workflow-templates/run-incus-vm-tests.yaml),
+  [argo/workflow-templates/run-incus-disk-tests.yaml](https://github.com/frostyard/lab/blob/7371508597e2c14f8996243b81398845461b9358/argo/workflow-templates/run-incus-disk-tests.yaml),
   and the `/tmp/results` + console-tail pattern in every lane
 - Builds on: core
   [ADR-0004](https://github.com/frostyard/core/blob/main/docs/adr/0004-product-namespaced-filesystem-tiers.md);

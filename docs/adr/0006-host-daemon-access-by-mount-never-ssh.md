@@ -16,7 +16,7 @@ in a lane image invites skew with whatever the host runs.
 
 Pods that drive incus mount three things from the host, with hostPath
 volumes, and talk to the daemon over its Unix socket
-([argo/workflow-templates/run-incus-install-tests.yaml](../../argo/workflow-templates/run-incus-install-tests.yaml)):
+([argo/workflow-templates/run-incus-install-tests.yaml](https://github.com/frostyard/lab/blob/7371508597e2c14f8996243b81398845461b9358/argo/workflow-templates/run-incus-install-tests.yaml)):
 
 - `/usr/incus` (read-only) — the host's own incus client binaries and
   libraries, put on `PATH`/`LD_LIBRARY_PATH`
@@ -40,7 +40,7 @@ qemu/swtpm/sshpass on [the host] is not merely undesirable, it is
 impossible" — and touches the host only for `/dev/kvm` and a scratch
 directory; its Microsoft-enrolled firmware comes from the container's own
 `ovmf` package
-([argo/workflow-templates/run-secure-install-tests.yaml](../../argo/workflow-templates/run-secure-install-tests.yaml)).
+([argo/workflow-templates/run-secure-install-tests.yaml](https://github.com/frostyard/lab/blob/dbacca4b1960065931b6af80c896d26ddacd6a41/argo/workflow-templates/run-secure-install-tests.yaml)).
 
 ## Consequences
 
@@ -75,11 +75,11 @@ directory; its Microsoft-enrolled firmware comes from the container's own
 
 - Shapes: [design/vm-lanes.md — The incus VM lane](../design/vm-lanes.md#the-incus-vm-lane)
 - Implemented by:
-  [argo/workflow-templates/run-incus-install-tests.yaml](../../argo/workflow-templates/run-incus-install-tests.yaml),
-  [argo/workflow-templates/run-incus-vm-tests.yaml](../../argo/workflow-templates/run-incus-vm-tests.yaml),
-  [argo/workflow-templates/run-incus-disk-tests.yaml](../../argo/workflow-templates/run-incus-disk-tests.yaml),
-  [argo/workflow-templates/run-incus-bootc-install-tests.yaml](../../argo/workflow-templates/run-incus-bootc-install-tests.yaml),
-  [argo/workflow-templates/run-secure-install-tests.yaml](../../argo/workflow-templates/run-secure-install-tests.yaml)
+  [argo/workflow-templates/run-incus-install-tests.yaml](https://github.com/frostyard/lab/blob/7371508597e2c14f8996243b81398845461b9358/argo/workflow-templates/run-incus-install-tests.yaml),
+  [argo/workflow-templates/run-incus-vm-tests.yaml](https://github.com/frostyard/lab/blob/7371508597e2c14f8996243b81398845461b9358/argo/workflow-templates/run-incus-vm-tests.yaml),
+  [argo/workflow-templates/run-incus-disk-tests.yaml](https://github.com/frostyard/lab/blob/7371508597e2c14f8996243b81398845461b9358/argo/workflow-templates/run-incus-disk-tests.yaml),
+  [argo/workflow-templates/run-incus-bootc-install-tests.yaml](https://github.com/frostyard/lab/blob/7371508597e2c14f8996243b81398845461b9358/argo/workflow-templates/run-incus-bootc-install-tests.yaml),
+  [argo/workflow-templates/run-secure-install-tests.yaml](https://github.com/frostyard/lab/blob/dbacca4b1960065931b6af80c896d26ddacd6a41/argo/workflow-templates/run-secure-install-tests.yaml)
 - Builds on: core
   [ADR-0004 — Product-namespaced filesystem tiers](https://github.com/frostyard/core/blob/main/docs/adr/0004-product-namespaced-filesystem-tiers.md)
 - Related: [ADR-0007](0007-cross-workflow-concurrency-via-template-semaphores.md)
