@@ -99,10 +99,44 @@ a passing run is removed with its pod (`podGC: OnWorkflowSuccess`); run B's
 values come from the private evidence `sysext-enable.json` and
 `sysext-reboot.json` on the lab host.
 
+## Rerun after snosi#1193 (2026-10-30): PASS in the enable boot
+
+[snosi#1193](https://github.com/frostyard/snosi/pull/1193) (merged
+2026-10-30 17:42Z, snosi ADR-0026) adds `EXTENSION_RELOAD_MANAGER=1` to every
+sysext that ships system units. After its republish, run
+`dev-snow-bootc-lifecycle-c8hfz` (lab main `28dcfdb3`, which has the Phase 1
+fields of #172; 2026-10-30 18:43Z–18:57Z) repeated run A with
+[`manifest-control.json`](snow-sysext-probe-2026-10-30/manifest-control.json):
+the same N `20261029193641`, the same ISO `snosi-installer_20261030103127`,
+features `incus`, `coder`, `nix` only (no `lodge`).
+
+**`PASS: verified_sysext_probe`.** The `installed-n` boot recorded the known
+fs-verity defect of kernel `7.2.12+deb14-amd64`
+([snosi#1130](https://github.com/frostyard/snosi/issues/1130)), which is not a
+failure.
+
+- `updex features enable … --now`: rc 0 for each; merged and linked
+  `incus_1+7.5.1-debian13-202610281111+r6`, `coder_2.37.8-1+r4` and
+  `nix_2.26.3+dfsg-1+r6`. snosi#1193 sets `EXTENSION_RELOAD_MANAGER=1` in
+  all 3; the key was checked in the published `coder` r4 and `nix` r6 raws.
+- `multi-user.target` in the enable boot: `NeedDaemonReload=no`, `Upholds=`
+  the 7 upheld units (in run A it was `yes` and empty).
+- The 9 probed units: `loaded` and active in the enable boot, with
+  `ActiveEnterTimestampMonotonic` unchanged across the 30 s settle window and
+  0 restarts; the same after the reboot.
+
+Evidence: the
+[post-merge proof comment on snosi#1189](https://github.com/frostyard/snosi/issues/1189#issuecomment-6531097735)
+(per-unit table). The pod log was removed with its pod
+(`podGC: OnWorkflowSuccess`), and the run records are private evidence on the
+lab host. Recorded here on 2026-11-13; no new dev run was submitted for this
+record.
+
+**Status: done.** Both phases and the follow-up rerun are complete.
+
 ## Open questions
 
-- None for the lane. The product follow-up is the rerun after snosi#1193
-  republishes the sysexts.
+- None.
 
 ## References
 
