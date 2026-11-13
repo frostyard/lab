@@ -395,6 +395,20 @@ def test_floe_guest_pulls_with_the_strict_update_policy_of_a_new_layout_image(
             f"{FLOE}:qa-controlled"] in calls
 
 
+def test_floe_guest_accepts_an_update_policy_without_the_retired_cayo_scope(
+        qa, floe_world, tmp_path, monkeypatch):
+    # Cayo was renamed to Floe (core ADR-0046); a snosi image that drops the
+    # cayo scope still passes the Floe policy gate.
+    strict = shipped()
+    del strict["transports"]["docker"]["ghcr.io/frostyard/cayo"]
+    creds, calls = snow.policy_world(qa, tmp_path, monkeypatch, update=strict,
+                                     system=snow.permissive_system_policy(strict))
+    with pytest.raises(qa.GateError, match="^pull_digest$"):
+        qa.guest(creds)
+    assert ["podman", "pull", "--signature-policy", str(tmp_path / "root/bootc-policy.json"),
+            f"{FLOE}:qa-controlled"] in calls
+
+
 def test_floe_guest_rejects_a_new_layout_image_that_omits_a_frostyard_scope(
         qa, floe_world, tmp_path, monkeypatch):
     # A scope missing from both files would pull unsigned through the permissive

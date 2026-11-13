@@ -2974,11 +2974,12 @@ data:
     SNOW_POLICY = [{"type": "sigstoreSigned", "keyPath": "/usr/lib/snosi/cosign.pub",
                     "signedIdentity": {"type": "matchRepository"}}]
     LOCAL_TRANSPORTS = ("containers-storage", "tarball", "docker-archive", "oci-archive", "dir", "oci")
-    # The strict update policy names these five repositories and no other. An
-    # omitted scope is not strict: with the permissive system policy default, an
-    # image of that repository would pull unsigned.
-    FROSTYARD_SCOPES = ("ghcr.io/frostyard/cayo", "ghcr.io/frostyard/floe", "ghcr.io/frostyard/snow",
+    # The strict update policy names these four repositories and no other: an
+    # omitted one would pull unsigned under the permissive system default. Cayo
+    # is now Floe (core ADR-0046); allow its scope while a tested image has it.
+    FROSTYARD_SCOPES = ("ghcr.io/frostyard/floe", "ghcr.io/frostyard/snow",
                         "ghcr.io/frostyard/snowfield", "ghcr.io/frostyard/sundog")
+    RETIRED_SCOPE = "ghcr.io/frostyard/cayo"
 
 
     def policy_ok(policy, repo=REPO):
@@ -3072,7 +3073,7 @@ data:
             # A newer image keeps the strict policy in /usr and lets /etc accept
             # workload images by default, so that policy must name every scope.
             require(policy_ok(update, product_repo(m)), "policy")
-            require(set(update["transports"]["docker"]) == set(FROSTYARD_SCOPES), "policy")
+            require(set(update["transports"]["docker"]) - {RETIRED_SCOPE} == set(FROSTYARD_SCOPES), "policy")
             require(system_policy_ok(parsed, update), "policy")
         key = GUEST_PATHS["key"].read_bytes()
         require(0 < len(key) <= 16384 and sha(key) == m["cosign_key_sha256"], "policy_key")

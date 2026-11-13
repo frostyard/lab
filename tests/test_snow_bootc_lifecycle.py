@@ -3759,6 +3759,43 @@ def test_guest_rejects_a_new_layout_image_that_omits_a_frostyard_scope(qa, tmp_p
     assert not any(command[:2] == ["podman", "pull"] for command in calls)
 
 
+CAYO = "ghcr.io/frostyard/cayo"
+
+
+@pytest.mark.parametrize("change", [
+    lambda docker: None,                # an older image still names the retired cayo scope
+    lambda docker: docker.pop(CAYO),    # a newer image names only the four products
+], ids=["with-cayo", "without-cayo"])
+def test_guest_accepts_an_update_policy_with_or_without_the_retired_cayo_scope(qa, tmp_path, monkeypatch, change):
+    # Cayo was renamed to Floe (core ADR-0046): the lane tests N and N+1 across
+    # the snosi image that drops the cayo scope, so both scope sets pass.
+    strict = json.loads(json.dumps(SHIPPED_POLICY))
+    change(strict["transports"]["docker"])
+    creds, calls = policy_world(qa, tmp_path, monkeypatch, update=strict,
+                                system=permissive_system_policy(strict))
+    with pytest.raises(qa.GateError, match="^pull_digest$"):
+        qa.guest(creds)
+    assert any(command[:3] == ["podman", "pull", "--signature-policy"] for command in calls)
+
+
+@pytest.mark.parametrize("change", [
+    lambda docker: docker.pop("ghcr.io/frostyard/floe"),
+    lambda docker: (docker.pop(CAYO), docker.pop("ghcr.io/frostyard/floe")),
+    lambda docker: docker.__setitem__("ghcr.io/frostyard/x", SIGNED),
+    lambda docker: (docker.pop(CAYO), docker.__setitem__("ghcr.io/frostyard/x", SIGNED)),
+], ids=["without-floe", "without-cayo-and-floe", "unknown-extra", "unknown-instead-of-cayo"])
+def test_guest_rejects_an_update_policy_with_another_scope_set(qa, tmp_path, monkeypatch, change):
+    # Only the four product scopes, with or without cayo, are strict: a missing
+    # product scope or an unknown extra scope fails before any pull.
+    strict = json.loads(json.dumps(SHIPPED_POLICY))
+    change(strict["transports"]["docker"])
+    creds, calls = policy_world(qa, tmp_path, monkeypatch, update=strict,
+                                system=permissive_system_policy(strict))
+    with pytest.raises(qa.GateError, match="^policy$"):
+        qa.guest(creds)
+    assert not any(command[:2] == ["podman", "pull"] for command in calls)
+
+
 def test_guest_rejects_a_present_update_policy_that_is_null(qa, tmp_path, monkeypatch):
     # The file exists, so the image is a new layout: a literal null is invalid
     # JSON for a policy and must not fall back to the old layout.
