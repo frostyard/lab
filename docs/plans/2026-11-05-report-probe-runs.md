@@ -1,5 +1,13 @@
 # Plan: Report probe on the image problem-report senders (T857 t21)
 
+**Status:** Done 2026-11-06 (recorded 2026-11-13). Phases 1 to 4 are met:
+the lane mode, 3 Floe runs, 1 production report and 3 runs per desktop merged
+in [lab#191](https://github.com/frostyard/lab/pull/191); the report deletion is in
+[lab#193](https://github.com/frostyard/lab/pull/193) and the spec link in
+[lab#205](https://github.com/frostyard/lab/pull/205). Promotion of the probe to a gate
+stays a separate decision
+([ADR-0018](../adr/0018-report-probe-is-a-report-only-lane-mode.md)).
+
 This plan proves phase 2 of plan T857 in the lab: the snosi problem-report sender
 of snosi ADR-0030 (`/usr/libexec/snosi-health-report`, the
 `snosi-health reporting on|off` commands and `snosi-health-report.timer`/`.service`)
