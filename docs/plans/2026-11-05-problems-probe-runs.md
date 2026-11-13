@@ -1,5 +1,13 @@
 # Plan: Problems probe on the snosi-health images (T857 t7)
 
+**Status:** Done 2026-11-05 (recorded 2026-11-13). Phase 1 merged in
+[lab#187](https://github.com/frostyard/lab/pull/187); Phase 2 (3 fresh runs with
+`problems=ok` per product) and Phase 3 (1 update run per product) are met
+([lab#189](https://github.com/frostyard/lab/pull/189),
+[lab#190](https://github.com/frostyard/lab/pull/190)). Promotion of the probe to a gate
+stays a separate decision
+([ADR-0017](../adr/0017-problems-probe-is-a-report-only-lane-mode.md)).
+
 This plan proves phase 1 of plan T857 in the lab: the snosi-health collector
 and systemd-coredump that [snosi#1226](https://github.com/frostyard/snosi/pull/1226)
 (merge `b6e5e076`, snosi ADR-0029) ship on every product. It uses the

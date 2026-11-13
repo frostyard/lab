@@ -1,5 +1,12 @@
 # Plan: First-login probe on today's images (T843 t2)
 
+**Status:** Done 2026-11-04 (recorded 2026-11-13). The lane mode merged in
+[lab#182](https://github.com/frostyard/lab/pull/182), and Phase 1 is met: the dev run of
+each of the 4 products passed ([lab#184](https://github.com/frostyard/lab/pull/184)).
+The probe stays report-only
+([ADR-0016](../adr/0016-first-login-probe-is-a-report-only-lane-mode.md)); a
+gate is a separate decision.
+
 This plan proves the report-only
 [first-login probe](../adr/0016-first-login-probe-is-a-report-only-lane-mode.md)
 of the [bootc lifecycle lane](../specs/bootc-lifecycle-lane.md) on

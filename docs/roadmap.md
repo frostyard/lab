@@ -1,5 +1,16 @@
 # Roadmap: from a snosi PR to proof that images install and boot
 
+**Status:** Superseded 2026-11-11 (recorded 2026-11-13).
+[lab#225](https://github.com/frostyard/lab/pull/225) retired the native A/B,
+live-ISO and bootc mechanics lanes
+([ADR-0020](adr/0020-retire-the-native-ab-and-live-iso-vm-lanes.md)), so the
+lane plan below is history. The current lanes and their evidence are in
+[design/architecture.md](design/architecture.md),
+[design/vm-lanes.md](design/vm-lanes.md),
+[specs/bootc-lifecycle-lane.md](specs/bootc-lifecycle-lane.md) and
+[quality.md](quality.md). Still open: G4 pre-promotion gating (Phase G), and
+the [Open questions](#open-questions) stay the open-question register.
+
 Written 2026-08-05, after a regroup that corrected two wrong conclusions this
 lab had been reporting. Read [What each lane actually tests](#what-each-lane-actually-tests)
 first — several lane names are misleading, and one of them misled me.
