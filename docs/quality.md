@@ -504,6 +504,28 @@ the [console marker](adr/0005-console-marker-protocol-for-agentless-guests.md),
 [private evidence limitation](adr/0009-no-artifact-store-logs-are-the-surface.md),
 and [non-vacuous success](adr/0010-vacuous-success-is-forbidden.md) decisions.
 
+The optional `sysext_probe` mode is evidence about a live
+`updex features enable … --now` and never a release gate (contract in the
+[lane spec](specs/bootc-lifecycle-lane.md#manual-snow-bootc-lifecycle)). Its
+load-state fields showed the cause of
+[snosi#1189](https://github.com/frostyard/snosi/issues/1189) on 2026-10-30:
+after the live enable of `incus`, `coder` and `nix`, `multi-user.target` kept
+`NeedDaemonReload=yes` and an empty `Upholds=`, so PID 1 did not load the
+sysexts' `multi-user.target.d` drop-ins and 9 units stayed inactive until a
+reboot (`dev-snow-bootc-lifecycle-mm4s5`, `FAILED: sysext_failed`). A merged
+`EXTENSION_RELOAD_MANAGER=1` makes the refresh reload PID 1
+(`dev-snow-bootc-lifecycle-4hr54`, `lodge` enabled first, `PASS`).
+[snosi#1193](https://github.com/frostyard/snosi/pull/1193) adds that key to
+every sysext that ships system units (snosi
+[ADR-0026](https://github.com/frostyard/snosi/blob/main/docs/adr/0026-sysexts-with-system-units-reload-the-manager.md)).
+After its republish, the control rerun `dev-snow-bootc-lifecycle-c8hfz`
+(2026-10-30, the same N and ISO, no `lodge`) passed in the enable boot, with
+`NeedDaemonReload=no` and the 7 upheld units
+([proof](https://github.com/frostyard/snosi/issues/1189#issuecomment-6531097735)).
+That PASS covers those 3 features on that N image, not every sysext. The run
+plan and its manifests are in git history
+([plan](https://github.com/frostyard/lab/blob/576736fd779f8123a141bc52614bf671f54450c6/docs/plans/2026-10-30-snow-sysext-probe-snosi1189.md)).
+
 The optional `first_login_probe` mode is report-only evidence about a desktop
 login: the installed `/etc` of the QA VM gets a test-only autologin
 configuration in `login-1`, and each login boot keeps its `SNOW_LOGIN_V1`

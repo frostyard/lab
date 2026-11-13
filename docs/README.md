@@ -57,8 +57,6 @@ Org-wide decisions binding this repo: [org-adrs.md](org-adrs.md).
 <!-- Plans for finished work are removed once their record is in quality.md,
 the roadmap or an ADR; git keeps them. -->
 
-- [2026-10-30 — Load-state evidence for the sysext probe (snosi#1189)](plans/2026-10-30-snow-sysext-probe-snosi1189.md)
-  — `LoadState` and `NeedDaemonReload` in the record, control and reload dev runs
 - [2026-11-04 — First-login probe on today's images (T843 t2)](plans/2026-11-04-first-login-probe-runs.md)
   — first-setup once on Snow and Snowfield, Sundog and Floe dev runs
 - [2026-11-05 — Problems probe on the snosi-health images (T857 t7)](plans/2026-11-05-problems-probe-runs.md)
