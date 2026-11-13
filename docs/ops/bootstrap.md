@@ -18,8 +18,8 @@ boundary are recorded in
 | Requirement | Notes |
 |---|---|
 | x86_64 host | Lab k3s host: `minideb` (10.0.1.175 since 2026-09-26). Provision 32 cores, 125 GiB RAM, and 3.4 TiB free on `/var` for four concurrent container QA lanes; these are sizing requirements, not `minideb` inventory. |
-| k3s | v1.36.2+k3s1. Stock install; Traefik and local-path are fine as-is. |
-| `kubectl` on your workstation | Talking to the node over the network is enough — no step needs a shell on the host. Use a release within one minor of the v1.36.2+k3s1 server (v1.35–v1.37). |
+| k3s | v1.36.4+k3s1: `k3s --version` on `minideb` gave `v1.36.4+k3s1 (4dedb15b)` on 2026-11-13. Re-read it there after a k3s upgrade and update this row. Stock install; Traefik and local-path are fine as-is. |
+| `kubectl` on your workstation | Talking to the node over the network is enough — no step needs a shell on the host. Use a release within one minor of the v1.36.4+k3s1 server (v1.35–v1.37). |
 | `just` on your workstation | Required for the documented `just ...` wrappers; use a maintained release. The underlying bootstrap commands can instead be run directly. |
 | Argo Workflows `argo` CLI on your workstation | Optional for bootstrap, but required by `just qa`, `just watch`, and `just logs` (including the first-run example below). Use v4.0.8 to match the installed Workflows CRDs/controller. This is not the Argo CD `argocd` CLI. |
 
