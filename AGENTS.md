@@ -20,9 +20,10 @@ ADR-0018, ADR-0029). Edit only the canonical paths.
 
 - Run `make verify` before you call a change done (template gate, policy
   check, pytest with its coverage gate, dashboard unit tests). CI job
-  `Repository gate` runs `make ci`, which also checks that
-  `.memory/corrections.jsonl` is append-only against the PR base; run
-  `make ci BASE=origin/main` for the same check locally. Install
+  `Repository gate` runs `make ci`, which also checks the corrections
+  records against the PR base: no record removed or renamed, only an empty
+  `promoted_to` filled, and the old corrections file does not come back.
+  Run `make ci BASE=origin/main` for the same check locally. Install
   `requirements-test.txt` first (CONTRIBUTING.md). Job `CI result`
   aggregates the other `ci.yml` jobs and is the required check (core
   ADR-0076), so a matrix name can change without a ruleset edit.
@@ -44,8 +45,9 @@ ADR-0018, ADR-0029). Edit only the canonical paths.
   hashes).
 - Blocker to guard: when a review finds a blocking point, the PR that fixes
   it also adds a guard (a targeted test that fails without the fix, or an
-  `AGENTS.md` rule when no test can catch it) and appends 1 line to
-  `.memory/corrections.jsonl` (see `.memory/README.md`).
+  `AGENTS.md` rule when no test can catch it) and adds 1 record file under
+  `.memory/corrections/` (name `<date>-pr-<N>-<words>.json`; see
+  `.memory/README.md`).
 - Tests that read a run record read a frozen copy in
   `tests/fixtures/run-records/`; never edit those copies.
 

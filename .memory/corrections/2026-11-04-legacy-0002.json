@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-04",
+  "scope": "qa.py first-login probe (login-1)",
+  "correction": "chairlift was counted as started from a `chairlift --first-run` process. Only the user journal line `first-run: window presented` proves a presented window, so a bare --first-run process no longer counts, and first-setup keeps the two-consecutive-polls rule.",
+  "evidence": "review of fae11e86; tests/test_first_login_probe.py::test_guest_login_counts_chairlift_only_through_its_journal_line",
+  "promoted_to": "tests/test_first_login_probe.py"
+}

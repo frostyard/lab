@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-10",
+  "scope": "firn guest Plymouth journal probe",
+  "correction": "Bash global whitespace removal is quadratic on a boot journal and can stall the probe outside any timeout. Test non-whitespace with a linear glob instead; a 2 MiB journal with 1 Plymouth segfault must complete the probe within 5 seconds.",
+  "evidence": "cross-review (anthropic/claude-opus-5-5) of 9f09dc6b, lab#214; tests/test_firn_install_lane.py::test_guest_plymouth_large_journal fails without the fix",
+  "promoted_to": "tests/test_firn_install_lane.py"
+}

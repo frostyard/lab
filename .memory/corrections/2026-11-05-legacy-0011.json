@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-05",
+  "scope": "report probe judge (report.py, report-guest.py, intake-lab.py)",
+  "correction": "The report probe's judge accepted vacuous evidence: a GlitchTip envelope with only a header counted as forwarded, the crash check passed when no crash was ever collected, and an off-state POST was ordered by the log line's completion instead of its arrival, so a slow sender looked like an on-state send. The envelope must now be 1 whole event item, the record must show an injected and a collected crash, and the intake numbers a request on arrival.",
+  "evidence": "cross-review (openai/gpt-6.1-sol) of 79fbe65d, lab#191; tests/test_report_probe.py cross-review tests (9 revert checks: each fails without its fix)",
+  "promoted_to": "tests/test_report_probe.py"
+}

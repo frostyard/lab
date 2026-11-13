@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-04",
+  "scope": "qa.py first-login probe (host)",
+  "correction": "The host accepted any session object with short strings, so a tty, a greeter or a closing session could be read as a first login. login_record_shape now requires type wayland or x11, class user, state active or online, and a bounded desktop pattern, and every other string field stays pattern-bound.",
+  "evidence": "review of fae11e86; tests/test_first_login_probe.py::test_login_phase_rejects_untrustworthy_records (record_session cases)",
+  "promoted_to": "tests/test_first_login_probe.py"
+}

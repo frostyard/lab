@@ -13,9 +13,10 @@
 #   make verify-site     the dashboard unit tests (npm ci, then npm test, in
 #                        site/).
 #   make check           the developer gate; the same as verify.
-#   make ci              verify, plus the append-only corrections check
+#   make ci              verify, plus the corrections records check
 #                        against BASE when BASE is set (CI passes the pull
-#                        request base commit).
+#                        request base commit): no record removed or renamed,
+#                        and the old corrections file does not come back.
 #
 # The Playwright suite (`just site-e2e`, e2e.yml) needs a browser and is not
 # part of this gate.

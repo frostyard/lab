@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-06",
+  "scope": "plan retirement (docs/plans/)",
+  "correction": "The baseline PR deleted the done plan 2026-10-28-snow-sysext-probe-run.md with 3 open product findings in its Open questions (maild --lodge without the lodge user, frostnotes-lodge.socket in the enable boot, start limits after a live enable). They are now snosi#1245 and roadmap Open question 6. Before a plan is deleted, each open question or live finding goes to docs/roadmap.md or to a tracking issue.",
+  "evidence": "cross-review (openai/gpt-6.1-sol) of 4ad64f08, lab#195",
+  "promoted_to": "AGENTS.md"
+}

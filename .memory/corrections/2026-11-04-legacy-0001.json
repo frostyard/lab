@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-04",
+  "scope": "argo/workflow-templates/snow-bootc-lifecycle-scripts.yaml",
+  "correction": "qa.py was zlib-compressed as raw source, so the guest unit (which base64-encodes the payload a second time, under the SMBIOS 64 KiB string bound) reached 60980 characters and login-1 ended FAILED: unit_size in a real dev run; the payload is now ast.unparse(ast.parse(source)) with an AST-equality check before injection, and a guard test builds the real unit from the real manifest for a login-1 and a five-boot phase.",
+  "evidence": "dev-snow-bootc-lifecycle-9hvgj at 46a0565e (FAILED: unit_size at login-1); gb 60980/60984 -> 47136/47140 characters; tests/test_first_login_probe.py::test_guest_unit_stays_under_the_smbios_bound",
+  "promoted_to": "tests/test_first_login_probe.py"
+}

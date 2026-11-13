@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-04",
+  "scope": "login-setup.sh and qa.py first-login probe (sddm)",
+  "correction": "SDDM reads /etc/sddm.conf after /etc/sddm.conf.d, so an active [Autologin] User= there won over the probe's zz- drop-in. login-setup.sh now comments out the active User=, Session= and Relogin= lines of that section (keeping the file mode, never creating the file), and the probe reports autologin false while such a line stays active.",
+  "evidence": "review of fae11e86; tests/test_first_login_probe.py::test_login_setup_comments_out_a_conflicting_sddm_autologin and ::test_guest_login_autologin_is_false_when_sddm_main_config_conflicts",
+  "promoted_to": "tests/test_first_login_probe.py"
+}
