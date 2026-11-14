@@ -54,14 +54,15 @@ mounts = entry["container"]["volumeMounts"]
 (mount,) = [m for m in mounts if m["name"] == volume]
 entry["container"]["volumeMounts"] = [m for m in mounts if m["name"] != volume]
 mode = mounted[0]["configMap"].get("defaultMode", 0o555)
-# Argo offloads a pod template above 128 KiB (MaxEnvVarLen) to a ConfigMap the
-# controller cannot create on this cluster, so the scripts travel gzip+base64
+# The dev run applies no scripts ConfigMap, so the scripts travel gzip+base64
 # under PACKED and the entry command unpacks them to the mount path, byte-equal.
+# Argo offloads a pod template above 128 KiB (MaxEnvVarLen) to a ConfigMap that
+# the controller creates (manifests/argo-rbac.yaml). The persisted Workflow caps
+# at 1 MiB and holds the packed scripts twice (spec and status node inputs).
 packed = mount["mountPath"] + ".packed"
 command = entry["container"]["command"]
 assert command == ["/bin/bash", mount["mountPath"] + "/run.sh"], command
-# 1 gzipped tar, not 1 artifact per key: the whole script set stays under Argo's
-# MaxEnvVarLen (128 KiB) with room to grow (one tar saves about 5 KiB of base64).
+# 1 gzipped tar, not 1 artifact per key: one tar saves about 5 KiB of base64.
 # Largest key first (name breaks a tie): the member order changes no unpacked
 # byte, and this order packs about 1 KiB smaller than name order.
 archive = io.BytesIO()

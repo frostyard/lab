@@ -532,7 +532,18 @@ def test_rbac_rules_and_bindings_remain_least_privilege(manifests):
                 frozenset({"get", "list", "watch", "delete"}),
             ),
         },
+        # Argo v4 template offload: the controller only creates the ConfigMap;
+        # the Workflow ownerReference lets garbage collection delete it.
+        "argo-controller-template-offload": {
+            (
+                frozenset({""}),
+                frozenset({"configmaps"}),
+                frozenset({"create"}),
+            )
+        },
     }
+    for name, role in roles.items():
+        assert role["metadata"]["namespace"] == "argo", name
 
     bindings = {
         manifest.body["metadata"]["name"]: manifest.body
@@ -549,10 +560,44 @@ def test_rbac_rules_and_bindings_remain_least_privilege(manifests):
             (subject["kind"], subject["name"], subject["namespace"])
             for subject in binding["subjects"]
         }
+        assert binding["metadata"]["namespace"] == "argo"
         expected = {("ServiceAccount", "argo", "argo")}
         if name == "argo-executor":
             expected.add(("ServiceAccount", "default", "argo"))
+        if name == "argo-controller-template-offload":
+            # Only the controller gets ConfigMap create through this Role;
+            # workflow pods never get it.
+            expected = {("ServiceAccount", CONTROLLER_SERVICE_ACCOUNT, "argo")}
         assert subjects == expected, name
+
+
+CONTROLLER_SERVICE_ACCOUNT = "argo-workflows-workflow-controller"
+
+
+def test_controller_service_account_name_matches_the_helm_release(manifests):
+    # The chart names the controller ServiceAccount <release>-<controller.name>
+    # when the release name contains the chart name. Argo CD uses the
+    # Application name as the release name. An override of any of these values
+    # renames the ServiceAccount and silently drops the template-offload grant.
+    (application,) = [
+        manifest.body
+        for manifest in resources_by_kind(manifests, "Application")
+        if manifest.body["metadata"]["name"] == "argo-workflows"
+    ]
+    helm = application["spec"]["source"]["helm"]
+    assert set(helm) == {"values"}
+    values = yaml.safe_load(helm["values"])
+    assert "fullnameOverride" not in values
+    assert "nameOverride" not in values
+    controller = values["controller"]
+    assert "name" not in controller
+    assert "serviceAccount" not in controller
+    assert controller["rbac"] == {"create": True}
+    assert values["singleNamespace"] is True
+    release = application["metadata"]["name"]
+    chart = application["spec"]["source"]["chart"]
+    assert chart in release
+    assert CONTROLLER_SERVICE_ACCOUNT == f"{release}-workflow-controller"
 
 
 def test_image_pollers_and_digest_state_are_one_to_one(manifests):
