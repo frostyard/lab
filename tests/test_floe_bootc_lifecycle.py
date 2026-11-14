@@ -319,10 +319,26 @@ def test_other_version_tag_forms_fail_immutable_tag(qa, which, form):
         qa.normalize(m)
 
 
-@pytest.mark.parametrize("which", ["version_tag_n", "version_tag_n_plus_1"])
-def test_target_ref_must_not_equal_a_forky_version_tag(qa, which):
-    m = forky_tags(floe_manifest(), "forky-", "forky-")
-    m["target_ref"] = m[which]
+@pytest.mark.parametrize("n, n_plus_1", [("forky-", "forky-"), ("", "forky-"), ("", "")])
+def test_target_ref_must_not_equal_the_n_version_tag(qa, n, n_plus_1):
+    m = forky_tags(floe_manifest(), n, n_plus_1)
+    m["target_ref"] = m["version_tag_n"]
+    with pytest.raises(qa.GateError, match="^target_ref$"):
+        qa.normalize(m)
+
+
+@pytest.mark.parametrize("n, n_plus_1", [("forky-", "forky-"), ("", "forky-"), ("", "")])
+def test_target_ref_may_be_the_immutable_n_plus_1_version_tag(qa, n, n_plus_1):
+    # The updater pulls whatever target_ref resolves to, so the immutable N+1 tag
+    # proves the update with no registry write (no qa-controlled move).
+    m = forky_tags(floe_manifest(), n, n_plus_1)
+    m["target_ref"] = m["version_tag_n_plus_1"]
+    assert qa.normalize(dict(m)) == m
+
+
+def test_target_ref_must_not_be_latest(qa):
+    m = floe_manifest()
+    m["target_ref"] = f"{FLOE}:latest"
     with pytest.raises(qa.GateError, match="^target_ref$"):
         qa.normalize(m)
 

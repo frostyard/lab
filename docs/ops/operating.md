@@ -56,3 +56,7 @@ product's `qa-controlled` tag. After a run, leave the tag in place; a later run
 moves it to its own N+1. Do **not** delete it through the GitHub package UI:
 GHCR deletes a package version by digest, which deletes the N+1 image itself
 with its version and `latest` tags.
+
+A run can also take the immutable N+1 version tag as `target_ref` (for example
+`floe:forky-<version>` for a forky test image): then no tag moves at all, and
+`qa-controlled` stays where it is. Prefer this when a tag move needs approval.
