@@ -30,7 +30,7 @@ Nothing in this lab proves that yet. This is the path.
 Historical status snapshot as of 2026-08-12, after the secure lane's
 retirement; the table below is **not current lane evidence**. For the latest
 published snapshot, see the [dashboard](https://frostyard.github.io/lab/) and
-its source, [generated runs.json](../site/src/data/runs.json) (check its
+its source, [generated runs.json](https://github.com/frostyard/lab/blob/data/runs/runs.json) on the `data/runs` branch (check its
 `generated` timestamp). Product poll evidence and its freshness are interpreted
 under [ADR-0011](adr/0011-product-poll-qa-evidence-is-rostered-and-fresh.md).
 
@@ -630,7 +630,8 @@ finds the next real thing, and there is no way to know how many remain.
 - **ext4 in the fisherman matrix** — done, open as
   [fisherman#25](https://github.com/frostyard/fisherman/pull/25). See G0.
 - **A live dashboard.** The current design — a 30-minute CronWorkflow that
-  commits `runs.json` and triggers a Pages rebuild — is the *least* live option
+  commits `runs.json` to the `data/runs` branch and a scheduled Pages rebuild
+  that reads it — is the *least* live option
   available, and the maintainer wants more live rather than less. So it is a
   working default, not the end state. Reference to study first:
   <https://factory.projectbluefin.io/>, projectbluefin's own build/QA surface —

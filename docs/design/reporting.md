@@ -1,6 +1,6 @@
 # Design: Reporting
 
-Living document. Rationale: [ADR-0004](../adr/0004-one-way-evidence-pipeline.md), [ADR-0003](../adr/0003-unproven-is-distinct-from-failed.md), [ADR-0011](../adr/0011-product-poll-qa-evidence-is-rostered-and-fresh.md).
+Living document. Rationale: [ADR-0004](../adr/0004-one-way-evidence-pipeline.md), [ADR-0021](../adr/0021-run-data-publishes-to-the-data-runs-branch.md), [ADR-0003](../adr/0003-unproven-is-distinct-from-failed.md), [ADR-0011](../adr/0011-product-poll-qa-evidence-is-rostered-and-fresh.md).
 
 
 `site/` is an [Astro](https://astro.build) page published to GitHub Pages,
@@ -11,14 +11,35 @@ The pipeline-results data flow is one-way: the cluster publishes a git snapshot;
 GitHub Pages does not query the cluster:
 
 ```
-publish-results CronWorkflow (in cluster)
-    │  reads the Argo API, regenerates site/src/data/runs.json
+publish-results CronWorkflow (in cluster, every 30 minutes)
+    │  reads the Argo API, regenerates runs.json (scripts/publish-runs.sh)
     ▼
-git push main
+git push → branch data/runs (orphan, 1 file: runs.json)
     │
+    ▼  scheduled at :15 and :45
+.github/workflows/pages.yml → scripts/fetch-runs-data.sh
+    │  copies runs.json over site/src/data/runs.json
     ▼
-.github/workflows/pages.yml → builds site/ → GitHub Pages
+builds site/ → GitHub Pages
 ```
+
+The data branch exists because `main` accepts changes only through a pull
+request with the required check `CI result`; a direct bot push to `main` is
+rejected ([ADR-0021](../adr/0021-run-data-publishes-to-the-data-runs-branch.md)).
+No ruleset covers `data/runs`, and none may: check that
+`gh api repos/frostyard/lab/rules/branches/data/runs` returns `[]` before a
+ruleset change. The first publish run creates the branch as an orphan root
+commit. A rejected push regenerates on the new branch tip, at most 3 times,
+and never forces. `tests/test_publish_runs.py` fails if the job pushes to
+`main` again.
+
+Pages rebuilds on a schedule, because a push to the orphan branch cannot
+trigger a workflow: GitHub runs the workflow file of the pushed commit, and
+`data/runs` holds none. A push to `main` under `site/**` and a manual
+dispatch also build. When `data/runs` does not exist, the build keeps the
+committed `site/src/data/runs.json` on `main` as its fallback; any other
+fetch error, or a file without `generated`, `lanes` and `runs`, fails the
+build and leaves the last deployment in place.
 
 The collector reads the Kubernetes API rather than being wired into each lane,
 so workflows appear without per-lane reporting hooks
@@ -87,17 +108,22 @@ palette, the page is dark-only by design.
 
 `publish-results` is declared **unsuspended** in
 `manifests/publish-results.yaml`, scheduled every 30 minutes. Publication
-requires a cluster-side `github-token` secret; if absent the job exits without
+requires a cluster-side `github-token` secret with `contents:write` on
+frostyard/lab; if absent the job fails at its guard (exit 1) without
 publishing.
 For secret creation instructions, see the header of
 [`manifests/publish-results.yaml`](../../manifests/publish-results.yaml); do not commit
 the credential to git.
-Neither the manifest nor the committed snapshot proves the credential or
-publisher is healthy now. The page always renders the last committed snapshot,
-which may be stale.
+Neither the manifest nor the snapshot proves the credential or publisher is
+healthy now. The page always renders the last snapshot on `data/runs` at its
+last build, which may be stale. To check the publisher, look at the newest
+commit on `data/runs`: an active cluster adds one within 30 minutes of a
+change in run data.
 
-Locally: `just collect` regenerates the data from the cluster, `just site-dev`
-serves the page.
+Locally: `just site-dev` and `just site-build` first run `just site-data`,
+which copies the published `runs.json` over the tracked fallback
+`site/src/data/runs.json`; do not commit that change. `just collect`
+regenerates the same file from the cluster instead.
 
 ## References
 

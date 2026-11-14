@@ -6,10 +6,11 @@ content, or credentials.
 
 | Signal | Public surface | Freshness |
 |---|---|---|
-| QA lane status and run history | [Lab dashboard](https://frostyard.github.io/lab/) | Updated from the Argo workflow collector when run data changes |
+| QA lane status and run history | [Lab dashboard](https://frostyard.github.io/lab/) | Updated from the Argo workflow collector when run data changes; Pages rebuilds every 30 minutes |
 | Pull request acceptance and time to merge | [PR metrics workflow](https://github.com/frostyard/lab/actions/workflows/pr-metrics.yml) | Calculated every Monday or on demand |
 
-The QA dashboard is generated from `site/src/data/runs.json`. It reports the
+The QA dashboard is generated from `runs.json` on the `data/runs` branch
+([ADR-0021](../adr/0021-run-data-publishes-to-the-data-runs-branch.md)). It reports the
 latest state of each test lane and recent runs, including duration, trigger,
 result summary, and lane-specific checks. The collector reads Argo directly,
 so new workflow lanes appear without a separate reporting integration.

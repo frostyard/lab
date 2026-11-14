@@ -75,16 +75,23 @@ validate:
 
 # ── reporting ────────────────────────────────────────────────────────────────
 
-# Regenerate the site's run data from the live cluster.
+# Regenerate the site's run data from the live cluster (local preview of fresh
+# cluster data; the published copy lives on the data/runs branch).
 collect:
     python3 scripts/collect_runs.py site/src/data/runs.json
 
+# Load the published run data from the data/runs branch. It refreshes the
+# local copy of the tracked fallback site/src/data/runs.json; do not commit
+# that change.
+site-data:
+    scripts/fetch-runs-data.sh
+
 # Build the reporting site locally.
-site-build:
+site-build: site-data
     cd site && npm install && npm run build
 
 # Serve the reporting site with live reload.
-site-dev:
+site-dev: site-data
     cd site && npm install && npm run dev
 
 # End-to-end tests against a real build of the reporting site.

@@ -27,7 +27,8 @@ and installer workflows provide separate, non-continuous evidence.
 
 ## Triaging product QA evidence
 
-1. Start with the committed `site/src/data/runs.json`: note `generated`, exact
+1. Start with `runs.json` on the `data/runs` branch (the published snapshot;
+   `site/src/data/runs.json` on `main` is only the build fallback): note `generated`, exact
    workflow `name`, `phase`, `started`/`finished`, `result`, `digest`, and
    whether this is a scheduled
    `image-poll-{snow,floe,snowfield,sundog}-latest-*` or a manual VM run.

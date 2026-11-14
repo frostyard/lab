@@ -1,8 +1,16 @@
 # Build the reporting site and publish it to GitHub Pages.
 #
-# The site is a pure read-only view of site/src/data/runs.json, which the
-# in-cluster publish-results CronWorkflow commits. So this runs on push (the
-# data changing IS a push) and never needs cluster access itself.
+# The site is a pure read-only view of runs.json. The in-cluster
+# publish-results CronWorkflow commits it to the orphan branch `data/runs`
+# (at :00 and :30), and the build step loads it from there
+# (scripts/fetch-runs-data.sh), so the build never needs cluster access.
+#
+# A schedule picks up new data 15 minutes after each publish run. A push
+# trigger on `data/runs` cannot work: a push runs the workflow file of the
+# pushed branch, the orphan data branch holds no workflow, and the
+# github-pages environment deploys from main. A repository_dispatch from the
+# cluster job was rejected: it needs a token scope that the cluster token is
+# not proven to have, and it adds a second write call to the job.
 name: pages
 
 on:
@@ -10,7 +18,10 @@ on:
     branches: [main]
     paths:
       - 'site/**'
+      - 'scripts/fetch-runs-data.sh'
       - '.github/workflows/pages.yml'
+  schedule:
+    - cron: '15,45 * * * *'
   workflow_dispatch:
 
 permissions: {}
@@ -35,6 +46,8 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: site/package-lock.json
+      # Load the published run data; the tracked runs.json is only a fallback.
+      - run: scripts/fetch-runs-data.sh
       - run: npm ci
         working-directory: site
       - run: npm test

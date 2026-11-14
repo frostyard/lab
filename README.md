@@ -32,7 +32,8 @@ reconciles.
 ## Use
 
 Results are public on the [QA dashboard](https://frostyard.github.io/lab/),
-which renders the committed `site/src/data/runs.json`. To look at the cluster,
+which renders `runs.json` from the `data/runs` branch
+([ADR-0021](docs/adr/0021-run-data-publishes-to-the-data-runs-branch.md)). To look at the cluster,
 start read-only with the current kubeconfig context:
 
 ```bash

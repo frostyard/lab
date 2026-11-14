@@ -2,9 +2,10 @@ import { expect, test } from '@playwright/test';
 
 import data from '../site/src/data/runs.json' with { type: 'json' };
 
-// The dashboard is a read-only view of site/src/data/runs.json, published by
-// the in-cluster collector. These specs assert the contract between that data
-// file and the rendered page, so a regression in either shows up here.
+// The dashboard is a read-only view of runs.json, published by the in-cluster
+// collector to the data/runs branch (ADR-0021). These specs use the committed
+// fallback copy, site/src/data/runs.json, and assert the contract between that
+// data file and the rendered page, so a regression in either shows up here.
 
 test('renders the dashboard shell', async ({ page }) => {
   await page.goto('/lab/');
