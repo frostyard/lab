@@ -62,9 +62,11 @@ command = entry["container"]["command"]
 assert command == ["/bin/bash", mount["mountPath"] + "/run.sh"], command
 # 1 gzipped tar, not 1 artifact per key: the whole script set stays under Argo's
 # MaxEnvVarLen (128 KiB) with room to grow (one tar saves about 5 KiB of base64).
+# Largest key first (name breaks a tie): the member order changes no unpacked
+# byte, and this order packs about 1 KiB smaller than name order.
 archive = io.BytesIO()
 with tarfile.open(fileobj=archive, mode="w") as tar:
-    for name, data in sorted(scripts["data"].items()):
+    for name, data in sorted(scripts["data"].items(), key=lambda item: (-len(item[1].encode()), item[0])):
         body = data.encode()
         info = tarfile.TarInfo(name)
         info.size, info.mtime, info.mode = len(body), 0, mode

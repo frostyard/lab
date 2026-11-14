@@ -325,6 +325,21 @@ def test_fsverity_lines_are_kept_only_when_they_match_the_grammar():
     ]
 
 
+def test_lifecycle_phase_lines_keep_old_and_new_shapes():
+    # Roadmap open question 5: new lifecycle phase lines end with the validated
+    # spec_transport. The dashboard keeps each phase line as the lane wrote it,
+    # so older runs without the field stay readable beside new ones.
+    old = ("phase=installed-n boot_id=dc0211bd-cc6a-42a6-8014-92376f25dbfb "
+           "kernel=7.2.15-1-surface fsverity_errors=2")
+    lockdown = old + " lockdown=integrity cmdline_lockdown=absent"
+    new = lockdown + " spec_transport=registry"
+    params = {"checks": "\n".join([old, lockdown, new])}
+    summary = collect_runs.summarize(
+        make_workflow(name="run-snow-bootc-lifecycle-abc12",
+                      template_ref="run-snow-bootc-lifecycle", params=params))
+    assert summary["checks"] == [old, lockdown, new]
+
+
 def test_fsverity_lines_are_absent_without_the_output_parameter():
     summary = collect_runs.summarize(make_workflow())
     assert summary["fsverity"] == []

@@ -8,12 +8,15 @@ no test reaches a cluster, a registry or a tag.
 
 from __future__ import annotations
 
+import base64
 import copy
+import io
 import json
 import os
 import re
 import subprocess
 import sys
+import tarfile
 from pathlib import Path
 
 import yaml
@@ -130,11 +133,17 @@ def test_print_renders_the_template_spec_with_script_artifacts(tmp_path):
         restored = root / MOUNT_PATH.lstrip("/") / key
         assert restored.read_bytes() == text.encode("utf-8"), key
         assert restored.stat().st_mode & 0o7777 == volume["configMap"]["defaultMode"], key
+    # The tar holds the largest key first (name breaks a tie): that order packs
+    # about 1 KiB smaller than name order and changes no unpacked byte.
+    with tarfile.open(fileobj=io.BytesIO(base64.b64decode(artifacts[0]["raw"]["data"])), mode="r:gz") as tar:
+        members = tar.getnames()
+    assert members == sorted(data, key=lambda key: (-len(data[key].encode("utf-8")), key))
     # Argo offloads a template above MaxEnvVarLen (128 KiB) to a ConfigMap. The
     # packed scripts grew with the first-login probe (qa.py and login-setup.sh)
     # and again with the report probe (report.py, report-guest.py, intake-lab.py
-    # and intake-setup.sh); the 1 tar packing bought back about 5 KiB. A further
-    # growth of this set needs a second ConfigMap, not a smaller margin.
+    # and intake-setup.sh); the 1 tar packing bought back about 5 KiB, and the
+    # largest-first member order about 1 KiB more. A further growth of this set
+    # needs a second ConfigMap, not a smaller margin.
     assert len(json.dumps(entry_template(spec))) < 131072 - 8192
 
     # spec.arguments carries the manifest text and never keeps the VM.

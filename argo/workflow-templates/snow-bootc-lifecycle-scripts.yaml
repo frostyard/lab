@@ -1389,6 +1389,7 @@ data:
           prior=$(head -n 1 "$WORK/boot-id")
           # Lines 2 and 3 are the attested fs-verity corruption count and kernel
           # release (frostyard/snosi#1130). Line 4 records lockdown evidence.
+          # Line 5 is the accepted bootc spec transport; only an allowed value is kept.
           fsverity=$(sed -n '2s/^fsverity_errors=\([0-9]\{1,10\}\)$/\1/p' "$WORK/boot-id")
           [[ -n "$fsverity" ]] || fail phase_mismatch
           kernel=$(sed -n '3s/^kernel=\([0-9A-Za-z._+~-]\{1,64\}\)$/\1/p' "$WORK/boot-id")
@@ -1396,16 +1397,18 @@ data:
           lockdown=$(sed -n '4s/^lockdown=\(integrity\|confidentiality\|unavailable\) cmdline_lockdown=\(absent\|[a-z]\{1,16\}\)$/\1/p' "$WORK/boot-id")
           cmdline_lockdown=$(sed -n '4s/^lockdown=\(integrity\|confidentiality\|unavailable\) cmdline_lockdown=\(absent\|[a-z]\{1,16\}\)$/\2/p' "$WORK/boot-id")
           [[ -n "$lockdown" && -n "$cmdline_lockdown" ]] || fail phase_mismatch
+          spec_transport=$(sed -n '5s/^spec_transport=\(registry\|containers-storage\)$/\1/p' "$WORK/boot-id")
+          [[ -n "$spec_transport" ]] || fail phase_mismatch
           [[ "$seen_boot_ids" != *":$prior:"* ]] || fail reused_boot_id
           seen_boot_ids+="$prior:"
-          printf 'phase=%s boot_id=%s kernel=%s fsverity_errors=%s lockdown=%s cmdline_lockdown=%s\n' "$phase" "$prior" "$kernel" "$fsverity" "$lockdown" "$cmdline_lockdown" >> "$OUT/checks.txt"
+          printf 'phase=%s boot_id=%s kernel=%s fsverity_errors=%s lockdown=%s cmdline_lockdown=%s spec_transport=%s\n' "$phase" "$prior" "$kernel" "$fsverity" "$lockdown" "$cmdline_lockdown" "$spec_transport" >> "$OUT/checks.txt"
           # lab#174: the kept lines of this phase, one per line, bounded at 32.
           # The command line is separate best-effort evidence; it never shapes checks.txt.
-          sed -n '6,$p' "$WORK/boot-id" \
+          sed -n '7,$p' "$WORK/boot-id" \
             | grep -E '^seq=([1-9]|[12][0-9]|3[0-2]) device=[A-Za-z0-9._-]{1,32} inode=[0-9]{1,20} pos=[0-9]{1,20} level=-?[0-9]{1,2}$' \
             | head -n 32 | sed "s/^/phase=$phase /" >> "$OUT/fsverity.txt" || true
           persist "$OUT/fsverity.txt" "$EVIDENCE/fsverity.txt" || true
-          cmdline=$(sed -n '5s/^cmdline=\(.*\)$/\1/p' "$WORK/boot-id") || cmdline=""
+          cmdline=$(sed -n '6s/^cmdline=\(.*\)$/\1/p' "$WORK/boot-id") || cmdline=""
           if [[ ${#cmdline} -ge 1 && ${#cmdline} -le 4096 ]] \
              && [[ "$cmdline" =~ ^[[:print:][:blank:]]+$ ]] \
              && [[ "$cmdline" != *$'\t'* && "$cmdline" != *$'\r'* ]]; then
@@ -4253,6 +4256,7 @@ data:
                 print("lockdown=%s cmdline_lockdown=%s" %
                       (attested["lockdown_mode"],
                        attested["cmdline_lockdown"] if attested["cmdline_lockdown"] is not None else "absent"))
+                print("spec_transport=" + attested["spec_transport"])  # as verdict() accepted it
                 print("cmdline=" + " ".join(attested["cmdline"]))
                 # lab#174: the kept lines follow as plain text, for the runner's
                 # fsverity.txt. They are not part of the record's verdict.

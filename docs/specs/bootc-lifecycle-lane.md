@@ -150,7 +150,13 @@ image (never `image_n`): `installed-n` and the pre-`stage` boot must be
 transport `registry`; after the updater (`bootc switch --transport
 containers-storage`) later phases may report `containers-storage` or
 `registry`, and the observed value is kept in the record. Any other transport
-fails. The `stage` phase runs `/usr/libexec/bootc-update-stage` and parses
+fails. `qa.py phase` prints the accepted value on its line 5, and the runner
+writes it last on the phase line of `checks.txt`
+(`... cmdline_lockdown=<value|absent> spec_transport=<registry|containers-storage>`);
+a missing line 5 or a value outside that allow-list fails `phase_mismatch`.
+The `stage` line holds the transport after the updater ran; the `rollback`
+line holds it before `bootc rollback`. Runs before this field have no
+`spec_transport` on their phase lines. The `stage` phase runs `/usr/libexec/bootc-update-stage` and parses
 `/run/snosi/update-staged` (`image=`, `digest=`, `staged_at=` lines; bounded,
 no duplicate keys) requiring `digest=sha256:<N+1 digest>` and `image=target_ref`.
 Every phase boot also injects a drop-in that skips `bootc-update-stage.service`
