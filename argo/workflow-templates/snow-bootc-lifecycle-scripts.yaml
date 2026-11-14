@@ -1669,7 +1669,8 @@ data:
     FINGERPRINT = "F37282A35CB6BDFEBFC8FE775A2EAC5C8216FD68"
     SNOSI_COMMIT = "39cf19887547f83200866e94e5753888706b49fa"
     # Snosi derives this label from the bootc version, so N and N+1 may differ.
-    ASSEMBLIES = ("bootc-1.16.8-storage-digest-v1", "bootc-1.17.1-storage-digest-v1", "bootc-1.17.3-storage-digest-v1")
+    ASSEMBLIES = ("bootc-1.16.8-storage-digest-v1", "bootc-1.17.1-storage-digest-v1", "bootc-1.17.3-storage-digest-v1",
+                  "bootc-1.17.4-storage-digest-v1")
     FIELDS = set("family product iso_url iso_sha256 iso_version image_n version_n version_tag_n image_n_plus_1 version_n_plus_1 version_tag_n_plus_1 target_ref snosi_commit index_key_sha256 cosign_key_sha256 mok_cert_sha256 trust_fingerprint secureboot encryption timeouts".split())
     CHECK_FIELDS = set("manifest_sha256 timestamp version_n version_n_plus_1 digest_n digest_n_plus_1 assembly_n assembly_n_plus_1 snosi_commit iso_sha256 firn_sha256 firn_provenance firn_compatibility index_key_sha256 cosign_key_sha256 mok_cert_sha256 tags".split())
     LIMITS = {"iso_boot": 1800, "install": 7200, "installed_boot": 1800,
@@ -1891,8 +1892,10 @@ data:
         for name in ("image_n", "image_n_plus_1"):
             require(full(re.escape(repo) + r"@sha256:[0-9a-f]{64}", m[name]), "image_ref")
         require(m["image_n"] != m["image_n_plus_1"], "digest_distinct")
+        # A trixie image has the tag <version>, a forky test image forky-<version>
+        # (snosi ADR-0038); N and N+1 choose independently, so trixie N to forky N+1 passes.
         for tag, version in (("version_tag_n", "version_n"), ("version_tag_n_plus_1", "version_n_plus_1")):
-            require(m[tag] == repo + ":" + m[version], "immutable_tag")
+            require(m[tag] in (repo + ":" + m[version], repo + ":forky-" + m[version]), "immutable_tag")
         require(full(re.escape(repo) + r":[a-z0-9][a-z0-9._-]{0,127}", m["target_ref"])
                 and m["target_ref"] not in (repo + ":latest", m["version_tag_n"], m["version_tag_n_plus_1"]), "target_ref")
         require(type(m["timeouts"]) is dict and set(m["timeouts"]) == set(LIMITS), "timeout_fields")

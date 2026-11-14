@@ -284,6 +284,49 @@ def test_floe_sysext_manifest_uses_the_floe_repository(qa):
         qa.normalize(m)
 
 
+# 2b. Forky test images (snosi ADR-0038): tag forky-<version>, bootc 1.17.4.
+
+def forky_tags(m, n, n_plus_1):
+    m.update(version_tag_n=f"{FLOE}:{n}{m['version_n']}",
+             version_tag_n_plus_1=f"{FLOE}:{n_plus_1}{m['version_n_plus_1']}")
+    return m
+
+
+@pytest.mark.parametrize("n, n_plus_1", [("forky-", "forky-"), ("", "forky-"), ("forky-", "")])
+def test_forky_version_tags_pass_for_either_image(qa, n, n_plus_1):
+    # N and N+1 choose their suite independently: trixie N to forky N+1 is a planned run.
+    m = forky_tags(floe_manifest(), n, n_plus_1)
+    assert qa.normalize(dict(m)) == m
+
+
+@pytest.mark.parametrize("which", ["version_tag_n", "version_tag_n_plus_1"])
+@pytest.mark.parametrize("form", [
+    lambda m, v, o: f"{FLOE}:forky-{o}",          # forky- with the other image's version
+    lambda m, v, o: f"{FLOE}:bookworm-{v}",
+    lambda m, v, o: f"{FLOE}:trixie-{v}",
+    lambda m, v, o: f"{FLOE}:forky{v}",           # no dash
+    lambda m, v, o: f"{FLOE}:forky-{v}-extra",
+    lambda m, v, o: f"{FLOE}:-{v}",
+    lambda m, v, o: f"{FLOE}:{v}forky",
+    lambda m, v, o: f"{FLOE}:Forky-{v}",
+    lambda m, v, o: f"{SNOW}:forky-{v}",
+])
+def test_other_version_tag_forms_fail_immutable_tag(qa, which, form):
+    m = floe_manifest()
+    version, other = ("version_n", "version_n_plus_1") if which == "version_tag_n" else ("version_n_plus_1", "version_n")
+    m[which] = form(m, m[version], m[other])
+    with pytest.raises(qa.GateError, match="^immutable_tag$"):
+        qa.normalize(m)
+
+
+@pytest.mark.parametrize("which", ["version_tag_n", "version_tag_n_plus_1"])
+def test_target_ref_must_not_equal_a_forky_version_tag(qa, which):
+    m = forky_tags(floe_manifest(), "forky-", "forky-")
+    m["target_ref"] = m[which]
+    with pytest.raises(qa.GateError, match="^target_ref$"):
+        qa.normalize(m)
+
+
 # 3. The ISO catalog.
 
 def test_catalog_with_real_shape_passes_for_floe_and_the_others(qa):
@@ -482,6 +525,44 @@ def test_preflight_for_floe_uses_the_floe_catalog_entry(qa, tmp_path, monkeypatc
     inspected = [args[-1] for args in calls if args[:2] == ["skopeo", "inspect"]]
     assert inspected and all(ref.startswith("docker://" + FLOE) for ref in inspected)
     assert f"docker://{m['target_ref']}" in inspected
+
+
+def forky_inspector(m, catalog, assembly_n, assembly_n_plus_1):
+    def inspector(args, **kwargs):
+        if args[:2] == ["skopeo", "inspect"]:
+            data = json.loads(floe_skopeo(args, m, None).stdout)
+            data["Labels"]["io.snosi.bootc.secureboot-assembly"] = (
+                assembly_n if data["Digest"] == "sha256:" + N else assembly_n_plus_1)
+            return subprocess.CompletedProcess(args, 0, json.dumps(data).encode(), b"")
+        return snow.fake_inspector(args, m, None, catalog_data=catalog, **kwargs)
+    return inspector
+
+
+@pytest.mark.parametrize("n, n_plus_1", [("forky-", "forky-"), ("", "forky-")])
+def test_preflight_accepts_forky_tags_and_the_1_17_4_assembly(qa, tmp_path, monkeypatch, n, n_plus_1):
+    # A trixie N (bootc 1.17.3) to forky N+1 (bootc 1.17.4) update crosses both.
+    m = forky_tags(floe_preflight_manifest(), n, n_plus_1)
+    assembly_n = "bootc-1.17.4-storage-digest-v1" if n else "bootc-1.17.3-storage-digest-v1"
+    monkeypatch.setattr(qa.subprocess, "run", forky_inspector(
+        m, floe_catalog(), assembly_n, "bootc-1.17.4-storage-digest-v1"))
+    checks = tmp_path / "checks.json"
+    qa.preflight(m, checks)
+    data = json.loads(checks.read_text())
+    assert data["assembly_n"] == assembly_n
+    assert data["assembly_n_plus_1"] == "bootc-1.17.4-storage-digest-v1"
+    qa.check_state(m, data)
+
+
+@pytest.mark.parametrize("assembly", ["bootc-1.17.5-storage-digest-v1", "bootc-1.17.4-storage-digest-v2",
+                                      "bootc-1.17.4-storage-digest-v1-forky"])
+def test_preflight_rejects_an_unknown_assembly_on_a_forky_image(qa, tmp_path, monkeypatch, assembly):
+    m = forky_tags(floe_preflight_manifest(), "", "forky-")
+    monkeypatch.setattr(qa.subprocess, "run", forky_inspector(
+        m, floe_catalog(), "bootc-1.17.3-storage-digest-v1", assembly))
+    checks = tmp_path / "checks.json"
+    with pytest.raises(qa.GateError, match="^oci_assembly$"):
+        qa.preflight(m, checks)
+    assert not checks.exists()
 
 
 @pytest.mark.parametrize("damage", ["floe_missing", "floe_no_key", "floe_snow_ref", "snow_only_valid"])

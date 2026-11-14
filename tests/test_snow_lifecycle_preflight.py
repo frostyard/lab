@@ -2,9 +2,12 @@
 
 import json
 import re
+import shutil
 import subprocess
 import textwrap
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOL = ROOT / "scripts/snow-lifecycle-preflight"
@@ -52,3 +55,34 @@ def test_run_record_manifest_has_the_lane_field_set():
     assert match and set(manifest) == set(match.group(1).split())
     assert manifest["target_ref"] == "ghcr.io/frostyard/snow:qa-controlled"
     assert "latest" not in manifest["iso_url"]
+
+
+def checks_assemblies():
+    match = re.search(r"jq -r --arg v \"\$ver\" '(\.v == \$v and \(([^)]*)\) and \.c == \"true\")'",
+                      (TOOL / "checks.sh").read_text())
+    assert match, "oci_labels predicate"
+    return match.group(1), re.findall(r'\.a == "([^"]+)"', match.group(2))
+
+
+def test_checks_assembly_list_is_the_qa_py_list():
+    # checks.sh repeats qa.py ASSEMBLIES; the two lists must stay the same.
+    match = re.search(r"(?m)^    ASSEMBLIES = \(([^)]*)\)", CONFIGMAP.read_text())
+    assert match
+    assert checks_assemblies()[1] == re.findall(r'"([^"]+)"', match.group(1))
+    assert "bootc-1.17.4-storage-digest-v1" in checks_assemblies()[1]
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="jq not installed")
+@pytest.mark.parametrize("assembly, ok", [
+    ("bootc-1.17.3-storage-digest-v1", True),
+    ("bootc-1.17.4-storage-digest-v1", True),
+    ("bootc-1.17.5-storage-digest-v1", False),
+    ("bootc-1.17.4-storage-digest-v2", False),
+    ("bootc-1.17.4-storage-digest-v1-forky", False),
+    (None, False),
+])
+def test_checks_oci_labels_accepts_only_listed_assemblies(assembly, ok):
+    labels = {"v": "20261113000000", "a": assembly, "c": "true"}
+    out = subprocess.run(["jq", "-r", "--arg", "v", "20261113000000", checks_assemblies()[0]],
+                         input=json.dumps(labels), capture_output=True, text=True, check=True).stdout.strip()
+    assert out == ("true" if ok else "false")
