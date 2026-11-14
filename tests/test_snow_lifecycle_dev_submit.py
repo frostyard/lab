@@ -70,6 +70,33 @@ def render(tmp_path, *args, env=None):
     return json.loads(result.stdout), manifest
 
 
+def controller_can_create_configmaps():
+    rbac = list(yaml.safe_load_all((ROOT / "manifests/argo-rbac.yaml").read_text(encoding="utf-8")))
+    controller = ("ServiceAccount", "argo-workflows-workflow-controller", "argo")
+    roles = {
+        doc["metadata"]["name"]
+        for doc in rbac
+        if doc["kind"] == "RoleBinding"
+        and doc["metadata"]["namespace"] == "argo"
+        and controller in {(s["kind"], s["name"], s.get("namespace")) for s in doc["subjects"]}
+    }
+    return any(
+        doc["kind"] == "Role"
+        and doc["metadata"]["name"] in roles
+        and any(
+            "" in rule["apiGroups"] and "configmaps" in rule["resources"] and "create" in rule["verbs"]
+            for rule in doc["rules"]
+        )
+        for doc in rbac
+    )
+
+
+def test_template_offload_needs_the_controller_configmap_grant():
+    # A template above MaxEnvVarLen depends on this grant; the size check in
+    # the render test calls it only for such a template.
+    assert controller_can_create_configmaps()
+
+
 def test_scripts_parse():
     subprocess.run(["bash", "-n", str(SCRIPT)], check=True)
 
@@ -114,7 +141,7 @@ def test_print_renders_the_template_spec_with_script_artifacts(tmp_path):
     # inputs.artifacts: 1 gzipped tar of the whole ConfigMap data under the packed
     # path; the entry command restores every key byte-equal at the mount path
     # with the ConfigMap volume's mode. 1 tar, not 1 artifact per key, keeps the
-    # rendered spec under Argo's MaxEnvVarLen.
+    # rendered spec small.
     artifacts = entry_template(spec)["inputs"]["artifacts"]
     packed = MOUNT_PATH + ".packed"
     assert len(artifacts) == 1, artifacts
@@ -138,13 +165,14 @@ def test_print_renders_the_template_spec_with_script_artifacts(tmp_path):
     with tarfile.open(fileobj=io.BytesIO(base64.b64decode(artifacts[0]["raw"]["data"])), mode="r:gz") as tar:
         members = tar.getnames()
     assert members == sorted(data, key=lambda key: (-len(data[key].encode("utf-8")), key))
-    # Argo offloads a template above MaxEnvVarLen (128 KiB) to a ConfigMap. The
-    # packed scripts grew with the first-login probe (qa.py and login-setup.sh)
-    # and again with the report probe (report.py, report-guest.py, intake-lab.py
-    # and intake-setup.sh); the 1 tar packing bought back about 5 KiB, and the
-    # largest-first member order about 1 KiB more. A further growth of this set
-    # needs a second ConfigMap, not a smaller margin.
-    assert len(json.dumps(entry_template(spec))) < 131072 - 8192
+    # Argo offloads a template above MaxEnvVarLen (128 KiB) to a ConfigMap that
+    # the workflow controller creates (Role argo-controller-template-offload in
+    # manifests/argo-rbac.yaml). Kubernetes caps ConfigMap data at 1 MiB; keep
+    # 64 KiB of that for the key and Go's JSON encoding of the same template.
+    size = len(json.dumps(entry_template(spec)))
+    assert size < 1048576 - 65536
+    if size >= 131072:
+        assert controller_can_create_configmaps()
 
     # spec.arguments carries the manifest text and never keeps the VM.
     assert spec["arguments"] == {
