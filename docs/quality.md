@@ -174,9 +174,10 @@ is claimed by the submit file alone.
 
 ## fs-verity regression checks (snosi#1130)
 
-Debian kernels 7.2.11 to 7.2.15, 7.3.3 and 7.3.4, and the linux-surface kernel
-`7.2.15-1-surface`, have a btrfs defect: on fs-verity files, readahead
-verifies a whole large folio before all of it is read. The kernel logs
+Debian kernels 7.2.11 to 7.2.15, 7.3.3 and 7.3.4, and the linux-surface
+kernels `7.2.15-1-surface` and `7.3.4-1-surface`, have a btrfs defect: on
+fs-verity files, readahead verifies a whole large folio before all of it is
+read. The kernel logs
 `fs-verity (...): FILE CORRUPTED! ... level=-1`. A synchronous re-read then
 succeeds, so no bad bytes reach user space; it is log noise with a real
 cause, not data corruption. The upstream fix is
@@ -205,7 +206,7 @@ LSM signature order, the statx flag) are different bugs. The upstream
 `ChangeLog-7.3.4` has no match for `254e15591ee4`, and v7.3.4
 `fs/btrfs/extent_io.c` is byte-identical to v7.3 and v7.3.3 and still calls
 `fsverity_verify_folio()` in `btrfs_verify_folio()`. The Debian 7.3.4-1 patch
-series has only the raid5/6 warning btrfs patch. These kernels are
+series has only the raid5/6 warning btrfs patch. These Debian kernels are
 listed from this source evidence, so the lanes do not fail when snosi's
 `linux-image-amd64/forky` moves to them; no lab run has booted them yet. See
 [snosi#1130](https://github.com/frostyard/snosi/issues/1130)
@@ -230,17 +231,36 @@ So `fsverity_errors` is judged against a **known-defect kernel list**, the same
 in every template that judges it (`known_defect_kernels` in the Firn judge and
 the lifecycle `run.sh`): `7.2.11+deb14-amd64`,
 `7.2.12+deb14-amd64`, `7.2.13+deb14-amd64`, `7.2.14+deb14-amd64`,
-`7.2.15+deb14-amd64`, `7.3.3+deb14-amd64`, `7.3.4+deb14-amd64` and
-`7.2.15-1-surface` (linux-surface, Snowfield). The linux-surface entry has
-the same unfixed code: upstream v7.2.15 `fs/btrfs/extent_io.c` is
+`7.2.15+deb14-amd64`, `7.3.3+deb14-amd64`, `7.3.4+deb14-amd64`,
+`7.2.15-1-surface` and `7.3.4-1-surface` (linux-surface, Snowfield). The
+linux-surface entries have the same unfixed code. For `7.2.15-1-surface`:
+upstream v7.2.15 `fs/btrfs/extent_io.c` is
 byte-identical to v7.2.12 and still calls `fsverity_verify_folio()` in
 `btrfs_verify_folio()`, the upstream `ChangeLog-7.2.13` to `-7.2.15` have no
 btrfs commit, and the linux-surface `patches/7.2` set (base v7.2.15) touches no
 file under `fs/` or `mm/`. Snowfield run `dev-snow-bootc-lifecycle-v4cgb`
 ([record](https://github.com/frostyard/lab/blob/cc3e68a4d51b346f05182ab565aa43a0e8ed34af/docs/plans/2026-11-04-snowfield-bootc-lifecycle-run.md)) logged 2, 1, 0,
 1 and 2 errors in its five boots, all `level=-1` on `dm-0`; its kept serial
-log (the `boot-n` boot) has no btrfs checksum or I/O error. Only that exact name is listed: another linux-surface
-build fails until it is checked the same way. A
+log (the `boot-n` boot) has no btrfs checksum or I/O error. For
+`7.3.4-1-surface` (linux-surface release `debian-7.3.4-1`): upstream v7.3.4
+`fs/btrfs/extent_io.c` is byte-identical to v7.3 and v7.3.3 and still calls
+`fsverity_verify_folio()` in `btrfs_verify_folio()` (see the Debian 7.3.4
+evidence above), and the 15 patches of the linux-surface
+[`patches/7.3`](https://github.com/linux-surface/linux-surface/tree/8a0f031fc6597af7ce708a96da2c7f9bfbfda1be/patches/7.3)
+set (`BASE` v7.3.4, `0001-secureboot` to `0015-hid-surface`) touch no file
+under `fs/` or `mm/`. Unlike the Debian 7.3.4 entry, the lab has booted this
+kernel. Snowfield lifecycle runs `dev-snow-bootc-lifecycle-bkfzw` and
+`dev-snow-bootc-lifecycle-g58f8` (2026-11-14) logged 6, 5, 1, 0, 0 and 2, 2,
+0, 0, 0 errors in the phases `installed-n`, `stage`, `boot-n-plus-1`,
+`rollback` and `boot-n`, all `level=-1` on `dm-0`. Every phase completed, and
+the fs-verity check was their only failure. The forky-to-forky Snowfield run
+`dev-snow-bootc-lifecycle-6tvjf` on the same kernel logged 0 errors and passed
+(snosi#1130 evidence:
+[1](https://github.com/frostyard/snosi/issues/1130#issuecomment-6883235460),
+[2](https://github.com/frostyard/snosi/issues/1130#issuecomment-6884907836)).
+Older published Snowfield images carry `7.2.15-1-surface`, so both stay listed.
+Only these exact linux-surface names are listed: another linux-surface build
+fails until it is checked the same way. A
 missing or non-numeric count always fails. A count of 0
 passes. A count above 0 on a listed kernel is recorded with a visible note
 (`fsverity_known_defect=<kernel>` in the checks and in the summary line) and
