@@ -66,10 +66,10 @@ secret in the manifest, workflow parameters, or submission command.
 | `iso_version` | 14-digit ISO version matching the URL and extracted release metadata. |
 | `image_n` | `ghcr.io/frostyard/<product>@sha256:<64 lowercase hex>` for N. |
 | `version_n` | 14-digit OCI image version for N. |
-| `version_tag_n` | Immutable `ghcr.io/frostyard/<product>:<version_n>` mapping to `image_n`. |
+| `version_tag_n` | Immutable `ghcr.io/frostyard/<product>:<version_n>` (trixie) or `ghcr.io/frostyard/<product>:forky-<version_n>` (forky test image, [snosi ADR-0038](https://github.com/frostyard/snosi/blob/main/docs/adr/0038-publish-signed-forky-test-images.md)) mapping to `image_n`. |
 | `image_n_plus_1` | Distinct signed `ghcr.io/frostyard/<product>@sha256:<64 lowercase hex>` for N+1. |
 | `version_n_plus_1` | 14-digit OCI version newer than N. |
-| `version_tag_n_plus_1` | Immutable `ghcr.io/frostyard/<product>:<version_n_plus_1>` mapping to `image_n_plus_1`. |
+| `version_tag_n_plus_1` | Immutable `ghcr.io/frostyard/<product>:<version_n_plus_1>` or `ghcr.io/frostyard/<product>:forky-<version_n_plus_1>` mapping to `image_n_plus_1`; N and N+1 choose the form independently, so trixie N to forky N+1 passes. |
 | `target_ref` | Operator-owned, non-`latest` mutable `ghcr.io/frostyard/<product>:<controlled-tag>` mapping to N+1; not either version tag. |
 | `snosi_commit` | Exact pinned source commit `39cf19887547f83200866e94e5753888706b49fa`. |
 | `index_key_sha256` | SHA-256 of public `shared/native-ab/keys/import-pubring.gpg` at that commit. |
@@ -129,7 +129,8 @@ Preflight authenticates the ISO and embedded public keys, records Firn provenanc
 and its hash, verifies signed OCI images with the pinned cosign key and checks
 version/tag mapping. Each image must carry one of the listed bootc
 secure-assembly labels, `bootc-1.16.8-storage-digest-v1`,
-`bootc-1.17.1-storage-digest-v1`, or `bootc-1.17.3-storage-digest-v1`, and
+`bootc-1.17.1-storage-digest-v1`, `bootc-1.17.3-storage-digest-v1`, or
+`bootc-1.17.4-storage-digest-v1` (forky test images), and
 preflight records the observed label for N and N+1, so an N to N+1 run may cross a bootc version. The disposable
 installer VM then checks the Firn hash and narrow Firn v2 recipe validation
 before install (validator only, not full installed compatibility). Installed
