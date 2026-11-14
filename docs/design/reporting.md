@@ -41,6 +41,18 @@ committed `site/src/data/runs.json` on `main` as its fallback; any other
 fetch error, or a file without `generated`, `lanes` and `runs`, fails the
 build and leaves the last deployment in place.
 
+The `pages` job `freshness` makes a stall visible: on every `pages` run it
+loads `runs.json` from `data/runs` (with no fallback copy) and runs
+`scripts/check_runs_freshness.py`, which fails when the newest run (the latest
+`started` or `finished` of any run) is older than 6 hours, or when the branch
+or a run time is missing. The 4 product polls each run every 3 hours and every
+publish run records itself, so healthy data is never more than about 30
+minutes old; 6 hours is 2 missed poll cycles and the age at which the
+dashboard already calls poll evidence stale
+([ADR-0011](../adr/0011-product-poll-qa-evidence-is-rostered-and-fresh.md)).
+The job does not block the deploy: a red `freshness` check with a green
+deploy means the site is up and its data is stale.
+
 The collector reads the Kubernetes API rather than being wired into each lane,
 so workflows appear without per-lane reporting hooks
 ([ADR-0004](../adr/0004-one-way-evidence-pipeline.md); the `unproven`

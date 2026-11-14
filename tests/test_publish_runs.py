@@ -333,6 +333,35 @@ def test_publish_never_prints_the_remote_credentials(lab):
     assert secret not in result.stdout + result.stderr
 
 
+
+@needs_git
+def test_publish_masks_credentials_in_a_git_error(lab):
+    # A git stub on PATH fails `ls-remote` with the credential URL in its
+    # stderr, as git does for an https error, so the masking itself is tested.
+    secret = "ghp_testSECRETtoken"
+    url = f"https://x-access-token:{secret}@github.invalid/frostyard/lab.git"
+    git(lab.env, "remote", "set-url", "origin", url, cwd=lab.clone)
+    stub_dir = lab.tmp / "stub-bin"
+    stub_dir.mkdir()
+    stub = stub_dir / "git"
+    stub.write_text(
+        "#!/usr/bin/env bash\n"
+        'for arg in "$@"; do\n'
+        '  if [[ "$arg" == ls-remote ]]; then\n'
+        f"    echo \"fatal: unable to access '{url}/': Could not resolve host\" >&2\n"
+        "    exit 128\n"
+        "  fi\n"
+        "done\n"
+        f'exec {shutil.which("git")} "$@"\n'
+    )
+    stub.chmod(0o755)
+    lab.env["PATH"] = f"{stub_dir}{os.pathsep}{lab.env['PATH']}"
+
+    result = lab.publish(payload())
+    assert result.returncode == 1
+    assert "fatal: unable to access 'https://***@github.invalid/frostyard/lab.git/'" in result.stderr
+    assert secret not in result.stdout + result.stderr
+
 def run_fetch(lab, out, remote=None):
     env = dict(lab.env, LAB_DATA_REMOTE=remote or lab.url)
     return subprocess.run(["bash", str(FETCH), str(out)], cwd=lab.clone, env=env,

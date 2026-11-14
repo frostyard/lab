@@ -53,6 +53,11 @@
       "why": "evidence-publication: the step that loads the published runs.json into the Pages build"
     },
     {
+      "glob": "scripts/check_runs_freshness.py",
+      "level": "L2",
+      "why": "evidence-publication: the check that turns stale published run data into a red Pages run"
+    },
+    {
       "glob": "policies/**",
       "level": "L2",
       "why": "quality-gates: the agent governance policy and its checker"

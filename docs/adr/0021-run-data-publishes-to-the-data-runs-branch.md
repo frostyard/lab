@@ -16,7 +16,7 @@ branch. It requires the check `CI result` (core
 and has no bypass actors. A direct push carries no check run, so the ruleset
 rejects it. Since 2026-11-09 16:14 UTC every `publish-results` run fails after
 3 push attempts, and the last data commit on `main` is `052f46d0`
-(2026-11-09 16:00 UTC). The dashboard froze there.
+(2026-11-09 16:00 UTC). The dashboard froze there, and no check turned red for 4 days.
 
 A bot commit every 30 minutes does not belong on a branch where every change
 goes through a pull request and its checks. Adding a bypass actor for the
@@ -47,9 +47,18 @@ for the data file.
 4. **Pages rebuilds on a schedule**, at minute 15 and 45 of each hour, 15
    minutes after each publish run. A push to `main` under `site/**` and a
    manual dispatch still build too.
-5. **`site/src/data/runs.json` on `main` is the fallback, not the live
-   data.** It stays frozen at its last publish. The e2e suite and the local
-   preview use it; the dashboard's freshness banner shows its age.
+5. **A stall is a red check.** The `pages` job `freshness` fails when the
+   newest run in `runs.json` on `data/runs` is older than 6 hours, or the
+   branch is missing ([`scripts/check_runs_freshness.py`](../../scripts/check_runs_freshness.py)).
+   The 4 product polls run every 3 hours each, and each publish run records
+   itself, so 6 hours is 2 missed poll cycles; it matches the poll staleness
+   of [ADR-0011](0011-product-poll-qa-evidence-is-rostered-and-fresh.md). The
+   job does not block a deploy.
+6. **`site/src/data/runs.json` on `main` is the fallback, not the live
+   data.** It stays frozen at its last publish. The e2e suite uses it. The
+   local preview (`just site-dev`, `just site-build`) fetches `data/runs`
+   first and keeps the fallback only when that branch is missing; the
+   dashboard's freshness banner shows the age of either.
 
 ## Consequences
 
