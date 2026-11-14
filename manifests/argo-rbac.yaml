@@ -1,4 +1,5 @@
-# ServiceAccount and RBAC for workflow pods.
+# ServiceAccount and RBAC for workflow pods, plus the workflow controller's
+# ConfigMap create for Argo v4 template offload (last Role in this file).
 #
 # The argo-workflows Helm chart is installed with `workflow.serviceAccount.create:
 # false`, so the SA and its bindings are owned here and reconciled by the
@@ -101,3 +102,38 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: argo-workflow-operator
+---
+# Argo Workflows v4 offloads a pod template (ARGO_TEMPLATE) or container args
+# above MaxEnvVarLen (128 KiB) to a ConfigMap that the workflow controller
+# creates in the Workflow's namespace (workflow/controller/workflowpod.go,
+# docs/offloading-large-workflows.md). The chart's controller Role grants only
+# get, list and watch on ConfigMaps, so without this Role a large template
+# fails pod creation. The controller only calls Create: the ConfigMap has the
+# Workflow as its controller ownerReference, so Kubernetes garbage collection
+# deletes it with the Workflow, and no update or delete is granted. Create
+# cannot be limited by resourceNames (the controller names it after the pod).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: argo-controller-template-offload
+  namespace: argo
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: argo-controller-template-offload
+  namespace: argo
+subjects:
+  # The chart's controller ServiceAccount: Application `argo-workflows` as the
+  # release name plus the default controller name (argocd/argo-workflows-app.yaml).
+  - kind: ServiceAccount
+    name: argo-workflows-workflow-controller
+    namespace: argo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: argo-controller-template-offload
