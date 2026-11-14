@@ -1896,8 +1896,11 @@ data:
         # (snosi ADR-0038); N and N+1 choose independently, so trixie N to forky N+1 passes.
         for tag, version in (("version_tag_n", "version_n"), ("version_tag_n_plus_1", "version_n_plus_1")):
             require(m[tag] in (repo + ":" + m[version], repo + ":forky-" + m[version]), "immutable_tag")
+        # target_ref is the mutable qa-controlled tag, or the immutable N+1 version tag
+        # itself: the updater pulls whatever target_ref resolves to, so an immutable N+1
+        # tag proves the same update with no registry write. Never latest, never N's tag.
         require(full(re.escape(repo) + r":[a-z0-9][a-z0-9._-]{0,127}", m["target_ref"])
-                and m["target_ref"] not in (repo + ":latest", m["version_tag_n"], m["version_tag_n_plus_1"]), "target_ref")
+                and m["target_ref"] not in (repo + ":latest", m["version_tag_n"]), "target_ref")
         require(type(m["timeouts"]) is dict and set(m["timeouts"]) == set(LIMITS), "timeout_fields")
         for key, limit in LIMITS.items():
             require(type(m["timeouts"][key]) is int and 300 <= m["timeouts"][key] <= limit, "timeout_value")

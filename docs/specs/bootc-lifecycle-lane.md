@@ -70,7 +70,7 @@ secret in the manifest, workflow parameters, or submission command.
 | `image_n_plus_1` | Distinct signed `ghcr.io/frostyard/<product>@sha256:<64 lowercase hex>` for N+1. |
 | `version_n_plus_1` | 14-digit OCI version newer than N. |
 | `version_tag_n_plus_1` | Immutable `ghcr.io/frostyard/<product>:<version_n_plus_1>` or `ghcr.io/frostyard/<product>:forky-<version_n_plus_1>` mapping to `image_n_plus_1`; N and N+1 choose the form independently, so trixie N to forky N+1 passes. |
-| `target_ref` | Operator-owned, non-`latest` mutable `ghcr.io/frostyard/<product>:<controlled-tag>` mapping to N+1; not either version tag. |
+| `target_ref` | `ghcr.io/frostyard/<product>:<tag>` mapping to N+1: either the operator-owned mutable `qa-controlled` tag, or `version_tag_n_plus_1` itself (an immutable target needs no registry write; the updater pulls whatever `target_ref` resolves to). Never `latest` and never `version_tag_n`. |
 | `snosi_commit` | Exact pinned source commit `39cf19887547f83200866e94e5753888706b49fa`. |
 | `index_key_sha256` | SHA-256 of public `shared/native-ab/keys/import-pubring.gpg` at that commit. |
 | `cosign_key_sha256` | SHA-256 of public `cosign.pub` at that commit. |
@@ -140,7 +140,7 @@ product's repository exactly so) and
 signed pulls; read-only
 `skopeo inspect` tag resolution alone is **not** signature verification. Both
 immutable version tags are checked once in preflight; the
-controlled mutable target tag is rechecked before install and each phase, and
+target tag (mutable or the immutable N+1 tag) is rechecked before install and each phase, and
 after stage, N+1 boot and rollback. The lane attempts a secure UEFI
 vTPM Firn v2 encrypted-btrfs install, then five distinct fresh boots:
 `installed-n`, `stage`, `boot-n-plus-1`, `rollback`, `boot-n`. The guest
