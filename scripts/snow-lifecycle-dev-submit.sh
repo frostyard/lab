@@ -57,7 +57,8 @@ mode = mounted[0]["configMap"].get("defaultMode", 0o555)
 # The dev run applies no scripts ConfigMap, so the scripts travel gzip+base64
 # under PACKED and the entry command unpacks them to the mount path, byte-equal.
 # Argo offloads a pod template above 128 KiB (MaxEnvVarLen) to a ConfigMap that
-# the controller creates (manifests/argo-rbac.yaml); that ConfigMap caps at 1 MiB.
+# the controller creates (manifests/argo-rbac.yaml). The persisted Workflow caps
+# at 1 MiB and holds the packed scripts twice (spec and status node inputs).
 packed = mount["mountPath"] + ".packed"
 command = entry["container"]["command"]
 assert command == ["/bin/bash", mount["mountPath"] + "/run.sh"], command
