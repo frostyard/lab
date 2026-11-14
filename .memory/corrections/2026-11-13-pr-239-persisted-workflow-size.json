@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-13",
+  "scope": "dev-submit Workflow size",
+  "correction": "Argo copies the entry template inputs, the raw packed scripts included, into status.nodes, and the packer caps the persisted Workflow at 1 MiB (MAX_WORKFLOW_SIZE). Bound a dev-submit render by the persisted Workflow with the scripts counted twice, not only by the offload ConfigMap limit.",
+  "evidence": "cross-review (openai/gpt-6.1-sol) of lab#239 head 378d7c4f; Argo v4.0.8 workflow/controller/operator.go initializeExecutableNode and workflow/packer/packer.go; tests/test_snow_lifecycle_dev_submit.py::test_size_problems_counts_the_scripts_twice_in_the_persisted_workflow",
+  "promoted_to": "tests/test_snow_lifecycle_dev_submit.py"
+}
