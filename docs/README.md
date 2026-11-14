@@ -17,7 +17,7 @@ Docs are split by the question they answer
 - [0001 — Two locally-sourced Argo CD Applications with a hand-applied bootstrap boundary](adr/0001-two-argocd-applications-and-hand-applied-bootstrap.md)
 - [0002 — Digest-gated QA with compare-and-swap state, persisted only after QA passes](adr/0002-digest-gated-qa-with-compare-and-swap-state.md)
 - [0003 — A never-green lane reports `unproven`, not Failed](adr/0003-unproven-is-distinct-from-failed.md) (product-only refinement: [0011](adr/0011-product-poll-qa-evidence-is-rostered-and-fresh.md))
-- [0004 — Evidence flows one way: checks.txt → collector → runs.json → Pages](adr/0004-one-way-evidence-pipeline.md) (product roster exception: [0011](adr/0011-product-poll-qa-evidence-is-rostered-and-fresh.md))
+- [0004 — Evidence flows one way: checks.txt → collector → runs.json → Pages](adr/0004-one-way-evidence-pipeline.md) (product roster exception: [0011](adr/0011-product-poll-qa-evidence-is-rostered-and-fresh.md); publication target superseded in part: [0021](adr/0021-run-data-publishes-to-the-data-runs-branch.md))
 - [0005 — Console markers over serial + SMBIOS credentials drive agentless guests](adr/0005-console-marker-protocol-for-agentless-guests.md)
 - [0006 — Lanes reach the host's incus by mounting /usr/incus and the API socket, never SSH](adr/0006-host-daemon-access-by-mount-never-ssh.md)
 - [0007 — Cross-workflow concurrency is bounded only by template-level semaphores](adr/0007-cross-workflow-concurrency-via-template-semaphores.md) (semaphore holders superseded in part: [0020](adr/0020-retire-the-native-ab-and-live-iso-vm-lanes.md))
@@ -34,6 +34,7 @@ Docs are split by the question they answer
 - [0018 — The report probe is a report-only lane mode](adr/0018-report-probe-is-a-report-only-lane-mode.md)
 - [0019 — Kernel-log marker copies use level err](adr/0019-kernel-log-copies-use-level-err.md) (amends 0013, 0014)
 - [0020 — Retire the native A/B and live-ISO VM lanes](adr/0020-retire-the-native-ab-and-live-iso-vm-lanes.md) (supersedes parts of 0007, 0008)
+- [0021 — Run data publishes to the `data/runs` branch, not to `main`](adr/0021-run-data-publishes-to-the-data-runs-branch.md) (supersedes decision 4 of 0004)
 
 Org-wide decisions binding this repo: [org-adrs.md](org-adrs.md).
 

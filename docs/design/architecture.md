@@ -115,7 +115,7 @@ lanes cover the large majority of what breaks, cheaply and fast.
 
 All four CronWorkflows are declared `suspend: false` in git. For retained
 polls and QA evidence, see the [dashboard](https://frostyard.github.io/lab/)
-and its source, the committed [`runs.json`](../../site/src/data/runs.json).
+and its source, [`runs.json` on the `data/runs` branch](https://github.com/frostyard/lab/blob/data/runs/runs.json).
 `generated` marks when that snapshot was collected; the publisher replaces it
 as runs arrive and old records leave its retention window. Neither the table
 nor a missing record establishes current cluster or image status. See
@@ -184,7 +184,7 @@ lab/
   snosi's postinst is a no-op and `/etc/systemd/system/display-manager.service`
   is absent from the built image. Whether GDM still starts on a real boot is
   unresolved — a container cannot answer it. Tracked for the VM lanes.
-- **Published summaries are not full diagnostics.** The collector commits
+- **Published summaries are not full diagnostics.** The collector publishes
   bounded, retained workflow summaries to `runs.json`, not per-step Behave or
   full VM console artifacts. Diagnose a failure using the original workflow
   and logs while retained; a missing/expired workflow is not a passed run.

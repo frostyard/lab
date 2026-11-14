@@ -1,8 +1,16 @@
 # Build the reporting site and publish it to GitHub Pages.
 #
-# The site is a pure read-only view of site/src/data/runs.json, which the
-# in-cluster publish-results CronWorkflow commits. So this runs on push (the
-# data changing IS a push) and never needs cluster access itself.
+# The site is a pure read-only view of runs.json. The in-cluster
+# publish-results CronWorkflow commits it to the orphan branch `data/runs`
+# (at :00 and :30), and the build step loads it from there
+# (scripts/fetch-runs-data.sh), so the build never needs cluster access.
+#
+# A schedule picks up new data 15 minutes after each publish run. A push
+# trigger on `data/runs` cannot work: a push runs the workflow file of the
+# pushed branch, the orphan data branch holds no workflow, and the
+# github-pages environment deploys from main. A repository_dispatch from the
+# cluster job was rejected: it needs a token scope that the cluster token is
+# not proven to have, and it adds a second write call to the job.
 name: pages
 
 on:
@@ -10,7 +18,11 @@ on:
     branches: [main]
     paths:
       - 'site/**'
+      - 'scripts/fetch-runs-data.sh'
+      - 'scripts/check_runs_freshness.py'
       - '.github/workflows/pages.yml'
+  schedule:
+    - cron: '15,45 * * * *'
   workflow_dispatch:
 
 permissions: {}
@@ -35,6 +47,8 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: site/package-lock.json
+      # Load the published run data; the tracked runs.json is only a fallback.
+      - run: scripts/fetch-runs-data.sh
       - run: npm ci
         working-directory: site
       - run: npm test
@@ -45,6 +59,23 @@ jobs:
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: site/dist
+
+  # A red check when the published data is stale: the newest run on the
+  # data/runs branch is older than 6 hours (scripts/check_runs_freshness.py
+  # says why 6), or the branch is missing. It is a separate job, so stale data
+  # never blocks a deploy of a site change.
+  freshness:
+    permissions:
+      contents: read  # to checkout the repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # A path with no fallback copy: a missing data/runs branch leaves no
+      # file, and the check fails.
+      - run: scripts/fetch-runs-data.sh "$RUNNER_TEMP/runs.json"
+      - run: python3 scripts/check_runs_freshness.py "$RUNNER_TEMP/runs.json" --max-age-hours 6
 
   deploy:
     permissions:
