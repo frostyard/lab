@@ -1072,16 +1072,25 @@ data:
     # The manifest decides the boots. Without a probe key the lane makes the five
     # lifecycle boots. With sysext_probe the lane installs N, attests it, then makes
     # the two sysext-probe boots: N+1 is never staged, it is only the controlled
-    # tag's target. With first_login_probe it makes the test-only first-login boots.
+    # tag's target. With sysext_probe.suite_switch it stages N+1 (another Debian
+    # suite) between the enable boot and the switch boot, then rolls back to N and
+    # probes N once more. With first_login_probe it makes the test-only first-login boots.
     # With problems_probe it makes the report-only problems boots.
     sysext_mode=$(python3 -c 'import json,sys; print(1 if "sysext_probe" in json.load(open(sys.argv[1])) else 0)' "$WORK/normalized.json") || fail manifest_read
+    sysext_switch=$(python3 -c 'import json,sys; print(1 if json.load(open(sys.argv[1])).get("sysext_probe", {}).get("suite_switch") is True else 0)' "$WORK/normalized.json") || fail manifest_read
     login_mode=$(python3 -c 'import json,sys; print(1 if "first_login_probe" in json.load(open(sys.argv[1])) else 0)' "$WORK/normalized.json") || fail manifest_read
     problems_mode=$(python3 -c 'import json,sys; print(1 if "problems_probe" in json.load(open(sys.argv[1])) else 0)' "$WORK/normalized.json") || fail manifest_read
     problems_path=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("problems_probe", {}).get("path", "none"))' "$WORK/normalized.json") || fail manifest_read
     report_mode=$(python3 -c 'import json,sys; print(1 if "report_probe" in json.load(open(sys.argv[1])) else 0)' "$WORK/normalized.json") || fail manifest_read
     report_intake=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("report_probe", {}).get("intake", "none"))' "$WORK/normalized.json") || fail manifest_read
     if [[ "$sysext_mode" == 1 ]]; then
-      phase_plan=(installed-n sysext-enable sysext-reboot)
+      if [[ "$sysext_switch" == 1 ]]; then
+        # stage and rollback are the unchanged lifecycle boots; sysext-switch is the
+        # first boot of N+1 and sysext-rollback the boot of N after the rollback.
+        phase_plan=(installed-n sysext-enable stage sysext-switch rollback sysext-rollback)
+      else
+        phase_plan=(installed-n sysext-enable sysext-reboot)
+      fi
     elif [[ "$login_mode" == 1 ]]; then
       # No installed-n attestation boot in this mode: it proves first login only,
       # and Snowfield's installed-n boot is BLOCKED on kernel lockdown
@@ -1216,7 +1225,7 @@ data:
       # starts a unit (dev-snow-bootc-lifecycle-mjhb4). The explicit After= removes
       # that implicit order for the two probe modes only.
       case "$phase" in
-        sysext-enable|sysext-reboot) guest_mode=sysext; guest_after=" multi-user.target";;
+        sysext-*) guest_mode=sysext; guest_after=" multi-user.target";;
         login-1|login-2) guest_mode=login; guest_after=" multi-user.target";;
         problems|problems-reboot) guest_mode=problems; guest_after=" multi-user.target";;
         report) guest_mode=report; guest_after=" multi-user.target";;
@@ -1293,7 +1302,7 @@ data:
       timeout 60 incus config set "$VM" raw.qemu="$smbios" >/dev/null 2>&1 || fail phase_injection
       timeout 120 incus start "$VM" >/dev/null 2>&1 || fail guest_start
       case "$phase" in
-        sysext-enable|sysext-reboot)
+        sysext-*)
           await SNOW_SYSEXT_V1 "$((budget + 300))" SNOW_SYSEXT_ERR
           # The reboot record is compared with the enable record on the host.
           enable_json=()
@@ -1314,7 +1323,7 @@ data:
           # never shapes checks.txt, the judge or the reason.
           printf 'phase=%s %s\n' "$phase" "$(cat "$WORK/serial-channel" 2>/dev/null)" >> "$OUT/serial-channel.txt" || true
           persist "$OUT/serial-channel.txt" "$EVIDENCE/serial-channel.txt" || true
-          # Both sysext boots always run, so one record never hides the other.
+          # Every sysext boot always runs, so one record never hides another.
           if [[ "$sysext_state" != none ]]; then
             sysext_failures+="${sysext_failures:+,}$sysext_state"
           fi
@@ -1447,9 +1456,15 @@ data:
         sleep 5
       done
     done
+    # The records after sysext-enable, in the order of the plan: sysext-reboot, or
+    # sysext-switch and sysext-rollback.
+    sysext_later=()
+    for sysext_phase in "${phase_plan[@]}"; do
+      if [[ "$sysext_phase" == sysext-* && "$sysext_phase" != sysext-enable ]]; then sysext_later+=("$WORK/$sysext_phase.json"); fi
+    done
     # snosi#1189 evidence: every probed unit's load state and the target's Upholds, pass or fail.
     if [[ "$sysext_mode" == 1 ]]; then
-      python3 - "$WORK/normalized.json" "$WORK/sysext-enable.json" "$WORK/sysext-reboot.json" >&2 <<'PY' || true
+      python3 - "$WORK/normalized.json" "$WORK/sysext-enable.json" ${sysext_later[@]+"${sysext_later[@]}"} >&2 <<'PY' || true
     import json, re, sys
     from pathlib import Path
     def clean(value, limit=240, space='_'):
@@ -1460,7 +1475,9 @@ data:
         return value[:limit] or '-'
     manifest = json.loads(Path(sys.argv[1]).read_bytes()[:16384])
     probe = manifest['sysext_probe']
-    for phase, name in zip(('sysext-enable', 'sysext-reboot'), sys.argv[2:]):
+    for name in sys.argv[2:]:
+        # The file name is the phase: sysext-enable.json, sysext-reboot.json, ...
+        phase = Path(name).stem
         try:
             data = json.loads(Path(name).read_bytes()[:1048576])
         except (OSError, ValueError):
@@ -1487,10 +1504,10 @@ data:
     # compressed ones): recorded, not failed. Any other kernel with errors fails,
     # so a human checks whether that kernel has the fix. A compressed install
     # (an ISO that predates frostyard/firn#119) makes this near certain on 7.2.11.
-    # A sysext failure keeps both probe records: report the failing units' journal
+    # A sysext failure keeps every probe record: report the failing units' journal
     # lines in the pod log, then judge after every boot of the plan.
     if [[ -n "$sysext_failures" ]]; then
-      python3 - "$WORK/normalized.json" "$WORK/sysext-enable.json" "$WORK/sysext-reboot.json" >&2 <<'PY' || true
+      python3 - "$WORK/normalized.json" "$WORK/sysext-enable.json" ${sysext_later[@]+"${sysext_later[@]}"} >&2 <<'PY' || true
     import json, re, sys
     from pathlib import Path
     want = ('unit_inactive', 'unit_restarted', 'first_start_missing', 'first_start_not_run',
@@ -1614,7 +1631,9 @@ data:
       fi
     fi
     STATE=PASS
-    if [[ "$sysext_mode" == 1 ]]; then
+    if [[ "$sysext_switch" == 1 ]]; then
+      REASON=verified_sysext_suite_switch${fsverity_known:+;fsverity_known_defect=${fsverity_known// /,}}
+    elif [[ "$sysext_mode" == 1 ]]; then
       REASON=verified_sysext_probe${fsverity_known:+;fsverity_known_defect=${fsverity_known// /,}}
     elif [[ "$login_mode" == 1 ]]; then
       REASON="verified_first_login_probe;first_login=$login_summary${fsverity_known:+;fsverity_known_defect=${fsverity_known// /,}}"
@@ -1676,7 +1695,14 @@ data:
     LIMITS = {"iso_boot": 1800, "install": 7200, "installed_boot": 1800,
               "stage": 3600, "reboot": 1800}
     PHASES = ("installed-n", "stage", "boot-n-plus-1", "rollback", "boot-n")
-    SYSEXT_PHASES = ("sysext-enable", "sysext-reboot")
+    SYSEXT_PHASES = ("sysext-enable", "sysext-reboot", "sysext-switch", "sysext-rollback")
+    # sysext_probe.suite_switch (a trixie N, a forky N+1): the suite that every feature
+    # link must name in each phase, as _<VERSION_ID>_ before the arch (updex ADR-0021).
+    SYSEXT_SUITES = {"sysext-enable": "13", "sysext-switch": "14", "sysext-rollback": "13"}
+    SUITE_SWITCH_UNIT = "updex-suite-switch.service"
+    # The first try and 2 retries of the unit (RestartSec=5min, updex ADR-0022); the
+    # guest also keeps the unit poll, the settle window and 120 s inside the boot budget.
+    SUITE_SWITCH_WAIT = 900
     SYSEXT_RECORD_FIELDS = set("phase nonce boot_id booted_digest updex merged links units target first_start sysusers extra_journal failures".split())
     SYSEXT_FIELDS = FIELDS | {"sysext_probe"}
     # The host accepts a token of at most this many characters; the guest drops the
@@ -1803,8 +1829,10 @@ data:
 
 
     def sysext_probe(p):
-        """The optional sysext_probe block: feature names, units and first-start files."""
-        require(type(p) is dict and set(p) == {"features", "units", "first_start"}, "sysext_fields")
+        """The optional sysext_probe block: feature names, units, first-start files and suite_switch."""
+        # suite_switch is optional and only ever the boolean true.
+        require(type(p) is dict and set(p) - {"suite_switch"} == {"features", "units", "first_start"}
+                and p.get("suite_switch", True) is True, "sysext_fields")
         features, units, first = p["features"], p["units"], p["first_start"]
         require(type(features) is list and 1 <= len(features) <= 8 and
                 all(full(r"[a-z][a-z0-9-]{0,31}", name) for name in features) and
@@ -1823,6 +1851,11 @@ data:
             require(full(r"/etc/[A-Za-z0-9._-]{1,64}(?:/[A-Za-z0-9._-]{1,64}){0,3}", path) and
                     ".." not in path.split("/"), "sysext_first_start")
         return p
+
+
+    def sysext_plan(m):
+        """The sysext phases of the manifest: a suite switch replaces sysext-reboot."""
+        return SYSEXT_PHASES[:1] + (SYSEXT_PHASES[2:] if m["sysext_probe"].get("suite_switch") else SYSEXT_PHASES[1:2])
 
 
     def first_login_probe(p):
@@ -1868,6 +1901,9 @@ data:
         if "sysext_probe" in m or "first_login_probe" in m:
             # The sysext and first-login probes never stage N+1: N+1 is only the
             # controlled tag's current target, so the two versions only have to differ.
+            # A sysext suite switch stages N+1, but a forky N+1 can carry an older
+            # timestamp than a trixie N, and the updater stages by digest, not by
+            # version: so it keeps the same rule.
             require(m["version_n"] != m["version_n_plus_1"], "version_distinct")
             if "sysext_probe" in m:
                 sysext_probe(m["sysext_probe"])
@@ -2559,10 +2595,15 @@ data:
 
 
     def sysext_phase_attest(m, phase, nonce, prior, serial, destination, enable=None):
-        require("sysext_probe" in m and phase in SYSEXT_PHASES and nonce_valid(nonce) and
+        require("sysext_probe" in m and phase in sysext_plan(m) and nonce_valid(nonce) and
                 (prior == "none" or boot_id_valid(prior)), "phase_arguments")
         record = sysext_record_count(Path(serial).read_bytes())
-        require(set(record) - {"truncated"} == SYSEXT_RECORD_FIELDS, "record_fields")
+        # The 2 suite-switch boots alone add the bounded state of updex-suite-switch.service.
+        require(set(record) - {"truncated", "suite_switch"} == SYSEXT_RECORD_FIELDS and
+                ("suite_switch" in record) == (phase in SYSEXT_PHASES[2:]) and
+                type(record.get("suite_switch", {})) is dict and
+                all(type(v) is str and len(v) <= 240 for v in mapping(record.get("suite_switch")).values()),
+                "record_fields")
         require(record["phase"] == phase and record["nonce"] == nonce, "record_identity")
         require(boot_id_valid(record["boot_id"]) and record["boot_id"] != prior, "boot_identity")
         # Fixed-code tokens only: these codes reach checks.txt and the run reason,
@@ -3164,7 +3205,8 @@ data:
 
     # The sysext probe boots the installed N image, enables updex features and
     # reports what merged, which units started and which accounts appeared. It
-    # never stages, switches or rolls back an image.
+    # never stages, switches or rolls back an image itself; with suite_switch the
+    # lifecycle stage and rollback boots do that between its boots.
     SYSUSERS_BEFORE = "sysusers-before.json"
 
 
@@ -3423,6 +3465,27 @@ data:
         return state, failures
 
 
+    def suite_switch_state(m):
+        """Wait, bounded, until updex-suite-switch.service ran to its end: its state and failure.
+
+        The oneshot has no RemainAfterExit, so it is inactive after a success, failed
+        after its last try and activating between 2 tries (updex ADR-0022). The failure
+        is None, the unit's Result, or unfinished when the wait ended first.
+        """
+        end = time.monotonic() + max(0, min(SUITE_SWITCH_WAIT, m["timeouts"]["reboot"] - SYSEXT_POLL_TIMEOUT
+                                            - SYSEXT_SETTLE - 120))
+        while True:
+            state = sysext_show(SUITE_SWITCH_UNIT, "ActiveState,SubState,Result,ExecMainExitTimestampMonotonic,"
+                                                   "ExecMainStatus")
+            active, result = state.get("ActiveState"), state.get("Result")
+            if active == "failed" or active == "inactive" and full(r"[1-9][0-9]*",
+                                                                    state.get("ExecMainExitTimestampMonotonic")):
+                return state, None if result == "success" else result if full(r"[a-z-]{1,40}", result) else "unknown"
+            if time.monotonic() >= end:
+                return state, "unfinished"
+            time.sleep(SYSEXT_POLL_INTERVAL)
+
+
     def sysext_token(record):
         return base64.urlsafe_b64encode(zlib.compress(canonical(record).strip(), 9)).decode().rstrip("=")
 
@@ -3479,13 +3542,16 @@ data:
         m = load(GUEST_MANIFEST, frozen=True)
         require("sysext_probe" in m, "sysext_manifest")
         probe = m["sysext_probe"]
+        require(phase in sysext_plan(m), "credential")
         for key in ("image_n", "image_n_plus_1", "target_ref"):
             require(credential(key) == m[key], "credential")
         boot_id = GUEST_PATHS["boot_id"].read_text().strip()
         require(boot_id_valid(boot_id), "boot_identity")
         # status_fields validates the bootc status shape; only the booted digest is
-        # recorded here, and it must name image_n in every sysext phase.
+        # recorded here, and it must name image_n in every sysext phase but
+        # sysext-switch, the first boot of N+1.
         _, _, booted_digest, _, _, _ = status_fields(guest_status())
+        switch, switch_failure = None, None
         if phase == "sysext-enable":
             # Before any action: the fragments this enable writes are the new ones.
             before = sysusers_names()
@@ -3498,6 +3564,9 @@ data:
         else:
             before = sysusers_before()
             updex = {}
+            if phase in SYSEXT_PHASES[2:]:
+                # The suite-switch unit relinks and merges the features on this boot.
+                switch, switch_failure = suite_switch_state(m)
             sysext_poll(probe["units"])
         settle_before, settle_after, target = sysext_settle(probe["units"])
         merged = sysext_merged()
@@ -3510,6 +3579,10 @@ data:
         for unit in ("reload-sysext.service", "systemd-sysext.service"):
             if sysext_show(unit, "Result").get("Result") not in (None, "", "success"):
                 extra_journal[unit] = sysext_journal(unit, 20)
+        if switch_failure:
+            failures.add("suite_switch_unit:" + switch_failure)
+            extra_journal[SUITE_SWITCH_UNIT] = sysext_journal(SUITE_SWITCH_UNIT, 20)
+        suite = SYSEXT_SUITES.get(phase) if probe.get("suite_switch") else None
         if not fragments:
             failures.add("no_sysusers_fragment")
         for feature, entry in updex.items():
@@ -3520,6 +3593,8 @@ data:
                 failures.add("not_merged:" + feature)
             if links[feature] is None:
                 failures.add("not_linked:" + feature)
+            elif suite and not full(r".*_" + suite + r"_[A-Za-z0-9-]+\.raw", links[feature]):
+                failures.add("sysext_suite:" + feature)
         for unit in probe["units"]:
             failures.update(sysext_unit_codes(unit, settle_before.get(unit, {}),
                                               settle_after.get(unit, {})))
@@ -3530,13 +3605,15 @@ data:
                 started = entry["ExecMainStartTimestampMonotonic"] or ""
                 if entry["Result"] != "success" or not started.isdigit() or int(started) == 0:
                     failures.add("first_start_not_run:" + unit)
-        if booted_digest != m["image_n"].rsplit(":", 1)[-1]:
+        if booted_digest != m["image_n_plus_1" if phase == "sysext-switch" else "image_n"].rsplit(":", 1)[-1]:
             failures.add("booted_image")
         record = dict(phase=phase, nonce=nonce, boot_id=boot_id, booted_digest=booted_digest,
                       updex=updex, merged=merged, links=links, units=units, target=target,
                       first_start=first_start, sysusers=sysusers, extra_journal=extra_journal,
                       failures=sorted(failures))
-        require(set(record) == SYSEXT_RECORD_FIELDS, "record_fields")
+        if switch is not None:
+            record["suite_switch"] = switch
+        require(set(record) - {"suite_switch"} == SYSEXT_RECORD_FIELDS, "record_fields")
         return "SNOW_SYSEXT_V1 " + sysext_truncate(record)
 
 
