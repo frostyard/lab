@@ -278,7 +278,9 @@ time, so `clean` is strong evidence of a fix).
 `/proc/sys/kernel/osrelease`) to its attested `SNOW_QA_V1` record, with the
 count read after the stage or rollback action so the whole boot is counted.
 `checks.txt` lines become
-`phase=<phase> boot_id=<id> kernel=<release> fsverity_errors=<N> lockdown=<mode> cmdline_lockdown=<value|absent>`.
+`phase=<phase> boot_id=<id> kernel=<release> fsverity_errors=<N> lockdown=<mode> cmdline_lockdown=<value|absent> spec_transport=<registry|containers-storage>`.
+`spec_transport` is the bootc spec transport that the phase verdict accepted
+(older runs end before `lockdown`, or before `spec_transport`).
 Each phase record also keeps the kernel lockdown mode and bounded `/proc/cmdline` evidence.
 `cmdline.txt` keeps `phase=<phase> cmdline=<tokens>` beside `checks.txt`.
 These fields and `cmdline.txt` are evidence only: they do not add a phase gate or
@@ -466,8 +468,8 @@ installer and Snow updater produce: the bootc spec image is `target_ref` in
 every phase (Firn `--target-imgref`), with transport `registry` for
 `installed-n` and the `stage` pre-action check, and `registry` or
 `containers-storage` afterwards (the updater switches to `containers-storage`;
-the record keeps the observed `spec_transport`, and any other transport
-fails `target_transport`). `/run/snosi/update-staged` must carry
+the record keeps the observed `spec_transport`, the phase line of
+`checks.txt` repeats it, and any other transport fails `target_transport`). `/run/snosi/update-staged` must carry
 `digest=sha256:<N+1 digest>` and `image=<target_ref>` (`stage_marker`). Phases
 end by a guest `systemctl --no-block poweroff` so bootc finalizes the staged
 deployment; the runner never force-stops between phases and fails

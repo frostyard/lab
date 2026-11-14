@@ -805,6 +805,7 @@ def test_phase_accepts_one_attested_fresh_boot(qa, tmp_path, capsys, phase):
     assert capsys.readouterr().out.splitlines() == ["12345678-1234-4234-8234-123456789abc",
                                                      "fsverity_errors=0", "kernel=" + KERNEL,
                                                      "lockdown=integrity cmdline_lockdown=integrity",
+                                                     "spec_transport=" + SPEC_TRANSPORT[phase],
                                                      "cmdline=rw composefs=?<hex> lockdown=integrity console=tty0",
                                                      ]
 
@@ -1197,6 +1198,66 @@ def test_record_spec_transport_rules_per_phase(qa, tmp_path, phase, allowed, tra
     else:
         with pytest.raises(qa.GateError, match="^target_transport$"):
             qa.phase_attest(manifest(), phase, NONCE, "none", serial, checks)
+
+
+@pytest.mark.parametrize("phase", PHASES)
+@pytest.mark.parametrize("transport", ["registry", "containers-storage", "docker", "registry x", "", None])
+def test_phase_prints_the_validated_spec_transport_on_line_5(qa, tmp_path, capsys, phase, transport):
+    # Roadmap open question 5: the phase line of checks.txt keeps the transport
+    # that the verdict accepted. qa.py prints it on line 5 and prints nothing
+    # at all for a transport that the phase does not allow.
+    normalized, checks = phase_files(tmp_path, qa)
+    record = phase_record(phase)
+    record["spec_transport"] = transport
+    serial = tmp_path / "serial"
+    serial.write_text(serial_record(record))
+    code = qa.main(["phase", str(normalized), phase, NONCE, "none", str(serial), str(checks)])
+    captured = capsys.readouterr()
+    if qa.spec_transport_allowed(phase, transport):
+        assert code == 0
+        assert captured.out.splitlines()[4] == "spec_transport=" + transport
+    else:
+        assert code == 1
+        assert captured.out == ""
+        assert captured.err.strip() == "qa_failed:target_transport"
+
+
+# The lifecycle phase line of checks.txt, in its 3 shapes: fs-verity only
+# (before lab#174), with lockdown evidence, and with the validated bootc spec
+# transport (roadmap open question 5). Frozen run records keep the old shapes.
+PHASE_LINE = re.compile(
+    r"phase=(?P<phase>[a-z0-9-]+) boot_id=\S+ kernel=\S+ fsverity_errors=(?P<errors>\d+)"
+    r"(?: lockdown=(?:integrity|confidentiality|unavailable) cmdline_lockdown=(?:absent|[a-z]{1,16})"
+    r"(?: spec_transport=(?P<transport>registry|containers-storage))?)?")
+
+
+def test_phase_line_grammar_reads_frozen_records_and_the_new_transport_field():
+    frozen = Path(__file__).resolve().parents[1] / "tests/fixtures/run-records/2026-11-04-snowfield-bootc-lifecycle-run.md"
+    old = [line for line in frozen.read_text().splitlines() if line.startswith("phase=") and " boot_id=" in line]
+    assert len(old) == 5
+    assert all(PHASE_LINE.fullmatch(line) and PHASE_LINE.fullmatch(line)["transport"] is None for line in old)
+    base = f"phase=stage boot_id={'1' * 8}-1234-4234-8234-123456789abc kernel={KERNEL} fsverity_errors=0"
+    lockdown = base + " lockdown=integrity cmdline_lockdown=absent"
+    assert PHASE_LINE.fullmatch(lockdown)["transport"] is None
+    assert PHASE_LINE.fullmatch(lockdown + " spec_transport=containers-storage")["transport"] == "containers-storage"
+    for bad in ("docker", "registry x", "", "Registry"):
+        assert PHASE_LINE.fullmatch(lockdown + " spec_transport=" + bad) is None
+    # The transport needs the lockdown fields before it: no shape skips them.
+    assert PHASE_LINE.fullmatch(base + " spec_transport=registry") is None
+
+
+def test_runner_phase_line_allow_list_matches_the_qa_transport_rule(qa):
+    # The runner keeps only the values that qa.py can accept in some phase, and
+    # writes the transport last, so the older fields keep their positions.
+    loop = phase_loop(run_script())
+    reader = re.search(r"spec_transport=\$\(sed -n '5s/\^spec_transport=\\\((.*?)\\\)\$/\\1/p' \"\$WORK/boot-id\"\)", loop)
+    assert reader, "the runner must read line 5 of qa.py's output as the transport"
+    allowed = set(reader.group(1).split("\\|"))
+    assert allowed == {transport for phase in PHASES for transport in ("registry", "containers-storage", "docker", "oci", "dir")
+                       if qa.spec_transport_allowed(phase, transport)}
+    assert '[[ -n "$spec_transport" ]] || fail phase_mismatch' in loop
+    assert ("printf 'phase=%s boot_id=%s kernel=%s fsverity_errors=%s lockdown=%s cmdline_lockdown=%s spec_transport=%s\\n'"
+            ' "$phase" "$prior" "$kernel" "$fsverity" "$lockdown" "$cmdline_lockdown" "$spec_transport"') in loop
 
 
 def test_installed_n_record_is_exactly_what_firn_wrote(qa):
@@ -2782,11 +2843,12 @@ def test_phase_prints_each_kept_line_after_the_kernel(qa, tmp_path, capsys):
     serial = tmp_path / "serial"
     serial.write_text(serial_record(record))
     assert qa.main(["phase", str(normalized), "boot-n-plus-1", NONCE, "none", str(serial), str(checks)]) == 0
-    # Lines 4 and 5 are lifecycle evidence; the kept lines follow from line 6,
+    # Lines 4 to 6 are lifecycle evidence; the kept lines follow from line 7,
     # numbered from 1, and a record with no kept line prints none of them.
     assert capsys.readouterr().out.splitlines() == [
         record["boot_id"], "fsverity_errors=3", "kernel=" + KERNEL,
         "lockdown=integrity cmdline_lockdown=integrity",
+        "spec_transport=containers-storage",
         "cmdline=rw composefs=?<hex> lockdown=integrity console=tty0",
         "seq=1 device=dm-0 inode=174546 pos=25952256 level=-1",
         "seq=2 device=dm-0 inode=174547 pos=4128768 level=2"]
@@ -2842,6 +2904,7 @@ def test_phase_keeps_attested_boot_when_fsverity_errors_are_nonzero(qa, tmp_path
     assert qa.main(["phase", str(normalized), "stage", NONCE, "none", str(serial), str(checks)]) == 0
     assert capsys.readouterr().out.splitlines() == [record["boot_id"], "fsverity_errors=3", "kernel=" + KERNEL,
                                                      "lockdown=integrity cmdline_lockdown=integrity",
+                                                     "spec_transport=containers-storage",
                                                      "cmdline=rw composefs=?<hex> lockdown=integrity console=tty0"]
 
 
@@ -3094,7 +3157,7 @@ def test_runner_failure_never_initializes_vm_and_does_not_expose_inputs(tmp_path
     assert (tmp_path / "results/result-summary.txt").read_text().strip() == expected
 
 
-@pytest.mark.parametrize("scenario", ["pass", "no_line5", "stage", "stage_keep", "iso_add_partial_keep", "iso_add_partial_detach_failed", "no_reboot", "tag_drift", "evidence_write", "output_write", "stage_teardown", "teardown", "serial_oversize", "serial_unreadable", "blocked_teardown", "phase_missing", "phase_malformed", "guest_error", "guest_error_crlf", "updater_error_crlf", "rollback_error_crlf", "duplicate_error_crlf", "conflicting_error_crlf", "install_missing", "install_failed", "install_firn_v2", "install_firn_hash", "install_fake_code", "install_disk_detect", "install_disk_byid", "install_progress", "install_bad_progress", "install_secret_code", "install_fallback", "install_empty_stream", "install_validate_secret", "install_validate_unknown", "install_validate_unclassified", "install_validate_fake", "cumulative_pass", "cumulative_stale", "cumulative_reset", "cumulative_prefix", "fsverity", "fsverity_known", "fsverity_known_surface", "fsverity_surface_lookalike", "fsverity_known_deb7215", "fsverity_deb7215_lookalike", "fsverity_known_deb733", "fsverity_deb733_lookalike", "fsverity_known_deb734", "fsverity_deb734_lookalike", "guest_shutdown", "nvram_escape", "console_reset_each_start", "reset_mid_boot", "reset_twice", "reset_then_truncate", "empty_then_reset", "installer_restart", "reset_then_stale", "reset_then_stale_error", "stopped_without_record", "final_read_record", "final_read_error", "final_read_conflict", "final_read_fresh_record"])
+@pytest.mark.parametrize("scenario", ["pass", "no_cmdline", "no_transport", "bad_transport", "transport_suffix", "transport_line6", "stage", "stage_keep", "iso_add_partial_keep", "iso_add_partial_detach_failed", "no_reboot", "tag_drift", "evidence_write", "output_write", "stage_teardown", "teardown", "serial_oversize", "serial_unreadable", "blocked_teardown", "phase_missing", "phase_malformed", "guest_error", "guest_error_crlf", "updater_error_crlf", "rollback_error_crlf", "duplicate_error_crlf", "conflicting_error_crlf", "install_missing", "install_failed", "install_firn_v2", "install_firn_hash", "install_fake_code", "install_disk_detect", "install_disk_byid", "install_progress", "install_bad_progress", "install_secret_code", "install_fallback", "install_empty_stream", "install_validate_secret", "install_validate_unknown", "install_validate_unclassified", "install_validate_fake", "cumulative_pass", "cumulative_stale", "cumulative_reset", "cumulative_prefix", "fsverity", "fsverity_known", "fsverity_known_surface", "fsverity_surface_lookalike", "fsverity_known_deb7215", "fsverity_deb7215_lookalike", "fsverity_known_deb733", "fsverity_deb733_lookalike", "fsverity_known_deb734", "fsverity_deb734_lookalike", "guest_shutdown", "nvram_escape", "console_reset_each_start", "reset_mid_boot", "reset_twice", "reset_then_truncate", "empty_then_reset", "installer_restart", "reset_then_stale", "reset_then_stale_error", "stopped_without_record", "final_read_record", "final_read_error", "final_read_conflict", "final_read_fresh_record"])
 def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario):
     script = source_data()["run.sh"]
     for old, new in (("ROOT=/var/lib/snosi-lab/snow-bootc-evidence", f"ROOT={tmp_path}/evidence"),
@@ -3150,7 +3213,7 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
             number = int(match.group(3))
             expected = 'none' if number == 1 else f'{number - 1:08x}-1234-4234-8234-123456789abc'
             if prior != expected or os.environ['SCENARIO'] in ('stage', 'stage_keep', 'stage_teardown') and phase == 'stage': sys.exit(1)
-            if os.environ['SCENARIO'] == 'no_reboot' and phase == 'boot-n-plus-1': print(prior); print('fsverity_errors=0'); print('kernel=7.3.1+deb14-amd64'); print('lockdown=integrity cmdline_lockdown=integrity'); print('cmdline=rw lockdown=integrity console=tty0'); sys.exit(0)
+            if os.environ['SCENARIO'] == 'no_reboot' and phase == 'boot-n-plus-1': print(prior); print('fsverity_errors=0'); print('kernel=7.3.1+deb14-amd64'); print('lockdown=integrity cmdline_lockdown=integrity'); print('spec_transport=containers-storage'); print('cmdline=rw lockdown=integrity console=tty0'); sys.exit(0)
             print(f'{number:08x}-1234-4234-8234-123456789abc')
             errors = os.environ['SCENARIO'] in ('fsverity', 'fsverity_known', 'fsverity_known_surface', 'fsverity_surface_lookalike', 'fsverity_known_deb7215', 'fsverity_deb7215_lookalike', 'fsverity_known_deb733', 'fsverity_deb733_lookalike', 'fsverity_known_deb734', 'fsverity_deb734_lookalike') and phase == 'boot-n-plus-1'
             print('fsverity_errors=' + ('2' if errors else '0'))
@@ -3166,10 +3229,18 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
             else: kernel = '7.3.1+deb14-amd64'
             print('kernel=' + kernel)
             print('lockdown=integrity cmdline_lockdown=integrity')
-            if os.environ['SCENARIO'] != 'no_line5':
+            # Roadmap open question 5: line 5 is the transport that qa.py accepted.
+            transport = 'registry' if phase in ('installed-n', 'boot-n') else 'containers-storage'
+            if os.environ['SCENARIO'] == 'bad_transport' and phase == 'rollback': transport = 'docker'
+            if os.environ['SCENARIO'] == 'transport_suffix' and phase == 'rollback': transport = 'registry x'
+            if os.environ['SCENARIO'] == 'transport_line6' and phase == 'rollback':
+                print('cmdline=rw lockdown=integrity console=tty0')
+            if os.environ['SCENARIO'] != 'no_transport' or phase != 'rollback':
+                print('spec_transport=' + transport)
+            if os.environ['SCENARIO'] != 'no_cmdline':
                 print('cmdline=rw lockdown=integrity console=tty0')
             if os.environ['SCENARIO'] in ('fsverity_known', 'fsverity_known_surface', 'fsverity_known_deb7215', 'fsverity_known_deb733', 'fsverity_known_deb734') and phase == 'boot-n-plus-1':
-                # lab#174: the kept lines follow the 5 fixed lines, one per line.
+                # lab#174: the kept lines follow the 6 fixed lines, one per line.
                 print('seq=1 device=dm-0 inode=174546 pos=25952256 level=-1')
                 print('seq=2 device=dm-0 inode=174546 pos=4128768 level=-1')
         elif cmd == 'kmsg-join':
@@ -3371,7 +3442,7 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
     summary = summary_path.read_text() if summary_path.exists() else (tmp_path / 'evidence/mock-run/result-summary.txt').read_text()
     assert not any('console' in p.name or p.name == 'serial-full'
                    for p in (tmp_path / 'evidence/mock-run').iterdir())
-    if scenario in ('pass', 'no_line5', 'cumulative_pass', 'fsverity_known', 'fsverity_known_surface', 'fsverity_known_deb7215', 'fsverity_known_deb733', 'fsverity_known_deb734', 'cumulative_reset', 'console_reset_each_start',
+    if scenario in ('pass', 'no_cmdline', 'cumulative_pass', 'fsverity_known', 'fsverity_known_surface', 'fsverity_known_deb7215', 'fsverity_known_deb733', 'fsverity_known_deb734', 'cumulative_reset', 'console_reset_each_start',
                     'reset_mid_boot', 'reset_twice', 'reset_then_truncate', 'empty_then_reset', 'installer_restart',
                     'final_read_record', 'final_read_fresh_record'):
         assert not (tmp_path / 'evidence/mock-run/serial-redacted.log').exists()
@@ -3412,7 +3483,10 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
         assert not (tmp_path / 'snow-qa-mock-run.iso').exists()
         checks = (tmp_path / 'results/checks.txt').read_text().splitlines()
         assert len(checks) == 1 + 9 + 5 + (scenario in ('fsverity_known', 'fsverity_known_surface', 'fsverity_known_deb7215', 'fsverity_known_deb733', 'fsverity_known_deb734'))  # manifest, tags, attested boots, note
-        assert all(re.fullmatch(r'(?:manifest_sha256=[0-9a-f]{64}|tag=[a-z0-9-]+ timestamp=[0-9T:+.\-]+|phase=[a-z0-9-]+ boot_id=[0-9a-f-]+ kernel=[0-9A-Za-z._+~-]+ fsverity_errors=[0-9]+ lockdown=(?:integrity|confidentiality) cmdline_lockdown=(?:absent|[a-z]{1,16})|fsverity_known_defect=(?:7\.2\.11\+deb14-amd64|7\.2\.15\+deb14-amd64|7\.3\.3\+deb14-amd64|7\.3\.4\+deb14-amd64|7\.2\.15-1-surface))', line) for line in checks)
+        assert all(re.fullmatch(r'(?:manifest_sha256=[0-9a-f]{64}|tag=[a-z0-9-]+ timestamp=[0-9T:+.\-]+|phase=[a-z0-9-]+ boot_id=[0-9a-f-]+ kernel=[0-9A-Za-z._+~-]+ fsverity_errors=[0-9]+ lockdown=(?:integrity|confidentiality) cmdline_lockdown=(?:absent|[a-z]{1,16}) spec_transport=(?:registry|containers-storage)|fsverity_known_defect=(?:7\.2\.11\+deb14-amd64|7\.2\.15\+deb14-amd64|7\.3\.3\+deb14-amd64|7\.3\.4\+deb14-amd64|7\.2\.15-1-surface))', line) for line in checks)
+        # Roadmap open question 5: each phase line keeps the validated transport.
+        assert [line.rsplit(' spec_transport=', 1)[1] for line in checks if line.startswith('phase=')] == [
+            'registry', 'containers-storage', 'containers-storage', 'containers-storage', 'registry']
         assert ('fsverity_known_defect=7.2.11+deb14-amd64' in checks) is (scenario == 'fsverity_known')
         assert ('fsverity_known_defect=7.2.15-1-surface' in checks) is (scenario == 'fsverity_known_surface')
         assert ('fsverity_known_defect=7.2.15+deb14-amd64' in checks) is (scenario == 'fsverity_known_deb7215')
@@ -3425,7 +3499,7 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
         for name in ('results', 'evidence/mock-run'):
             assert (tmp_path / name / 'fsverity.txt').read_text().splitlines() == (
                 kept if scenario in ('fsverity_known', 'fsverity_known_surface', 'fsverity_known_deb7215', 'fsverity_known_deb733', 'fsverity_known_deb734') else []), name
-            if scenario == 'no_line5':
+            if scenario == 'no_cmdline':
                 assert (tmp_path / name / 'cmdline.txt').read_text().splitlines() == [], name
             else:
                 expected_cmdline = [f"phase={phase} cmdline=rw lockdown=integrity console=tty0"
@@ -3456,9 +3530,16 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
                                    '7.3.3+deb14-amd64-extra' if scenario == 'fsverity_deb733_lookalike' else
                                    '7.3.4+deb14-amd64-extra' if scenario == 'fsverity_deb734_lookalike' else
                                    '7.3.1+deb14-amd64')
-                assert re.search(r'phase=boot-n-plus-1 boot_id=\S+ kernel=' + re.escape(expected_kernel) + r' fsverity_errors=2 lockdown=(?:integrity|confidentiality) cmdline_lockdown=(?:absent|[a-z]{1,16})\n', recorded)
+                assert re.search(r'phase=boot-n-plus-1 boot_id=\S+ kernel=' + re.escape(expected_kernel) + r' fsverity_errors=2 lockdown=(?:integrity|confidentiality) cmdline_lockdown=(?:absent|[a-z]{1,16}) spec_transport=containers-storage\n', recorded)
                 assert 'fsverity_known_defect' not in recorded
                 assert recorded.count('fsverity_errors=') == 5
+            if scenario in ('no_transport', 'bad_transport', 'transport_suffix', 'transport_line6'):
+                # A missing or foreign transport fails the phase: the rollback
+                # boot writes no phase line, and the earlier lines keep theirs.
+                recorded = (tmp_path / 'results/checks.txt').read_text().splitlines()
+                assert [line.split()[0] + ' ' + line.rsplit(' ', 1)[1] for line in recorded if line.startswith('phase=')] == [
+                    'phase=installed-n spec_transport=registry', 'phase=stage spec_transport=containers-storage',
+                    'phase=boot-n-plus-1 spec_transport=containers-storage']
             if scenario == 'stage_keep':
                 assert len([e for e in events if e.startswith('incus config device remove')]) == 1
                 assert not (tmp_path / 'installer-attached').exists()
@@ -3480,6 +3561,10 @@ def test_runner_five_boots_and_post_init_failures_are_offline(tmp_path, scenario
                                     'blocked_teardown': 'FAILED: cleanup_after_blocked:serial_capture;teardown_failed;vm_left=snow-qa-mock-run',
                                     'phase_missing': 'BLOCKED: phase_timeout',
                                      'phase_malformed': 'FAILED: phase_mismatch',
+                                     'no_transport': 'FAILED: phase_mismatch',
+                                     'bad_transport': 'FAILED: phase_mismatch',
+                                     'transport_suffix': 'FAILED: phase_mismatch',
+                                     'transport_line6': 'FAILED: phase_mismatch',
                                       'guest_error': 'BLOCKED: guest_probe_error_observed',
                                      'guest_error_crlf': 'BLOCKED: guest_probe_error_observed',
                                      'updater_error_crlf': 'FAILED: guest_action_failed',
