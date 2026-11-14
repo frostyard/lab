@@ -1133,10 +1133,18 @@ F (native SB) runs in parallel throughout.
    See D3.
 5. **Spec transport after stage:** bootc reports the staged or booted
    deployment's spec. #146 requires `registry` at `installed-n` and before
-   stage, and accepts `registry` or `containers-storage` after it. A `PASS`
-   does not retain which value each phase saw, so this run cannot settle it.
-   Decide by the next lifecycle change: persist the validated transport in
-   `checks.txt`, then tighten the rule from a run's evidence.
+   stage, and accepts `registry` or `containers-storage` after it.
+   **Persisted** ([lab#238](https://github.com/frostyard/lab/pull/238)): each
+   phase line of `checks.txt` ends with the validated
+   `spec_transport=<registry|containers-storage>`; older runs do not have it.
+   The first run with it, Snow dev run `dev-snow-bootc-lifecycle-77k2s`
+   (2026-11-14, N `20261110101952` to N+1 `20261110150546`, `PASS`), saw
+   `registry` at `installed-n`, `containers-storage` at `stage`,
+   `boot-n-plus-1` and `rollback` (before the rollback action), and `registry`
+   again at `boot-n`.
+   **Still open:** tighten `spec_transport_allowed()` from the evidence of more
+   runs (1 Snow run is not enough; Floe, Snowfield and Sundog have no record
+   of the field yet).
    Source: [2026-10-26 Snow bootc lifecycle run plan](https://github.com/frostyard/lab/blob/cc3e68a4d51b346f05182ab565aa43a0e8ed34af/docs/plans/2026-10-26-snow-bootc-lifecycle-run.md).
 6. **Suite sysexts in the live enable path.** The sysext probe of `maild` and
    `notesd` left 3 product findings for the enable boot: `maild --lodge`
