@@ -52,6 +52,9 @@ dashboard already calls poll evidence stale
 ([ADR-0011](../adr/0011-product-poll-qa-evidence-is-rostered-and-fresh.md)).
 The job does not block the deploy: a red `freshness` check with a green
 deploy means the site is up and its data is stale.
+It checks the published data, not lane health: each publish run records
+itself, so the data stays fresh while the publisher runs even if every poll
+stops; the dashboard's per-poll staleness rule covers the lanes.
 
 The collector reads the Kubernetes API rather than being wired into each lane,
 so workflows appear without per-lane reporting hooks

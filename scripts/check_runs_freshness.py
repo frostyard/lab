@@ -7,8 +7,13 @@ Reads a runs.json (the collector's output contract) and exits 1 when its
 newest run (the latest `started` or `finished` time of any run) is older than
 N hours (default 6), or when the file is missing, invalid or holds no run
 time. The Pages workflow runs it on the data from the `data/runs` branch, so
-a stalled publish-results CronWorkflow, or a lab that stopped running its
-lanes, shows as a red check instead of a quietly frozen dashboard.
+a stalled publish-results CronWorkflow, or a cluster that stopped running
+workflows, shows as a red check instead of a quietly frozen dashboard.
+
+It checks the freshness of the published data only, not the health of a
+lane: each publish-results run records itself, so the data stays fresh while
+the publisher runs, even when every product poll stops. The dashboard's own
+per-poll staleness rule (ADR-0011) covers the lanes.
 
 Why 6 hours: the 4 product polls each run every 3 hours, staggered, and every
 publish-results run records itself, so a healthy lab publishes a newer run at
