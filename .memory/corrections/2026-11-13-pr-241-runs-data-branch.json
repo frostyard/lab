@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-13",
+  "scope": "publish-results publication target",
+  "correction": "The default branch accepts changes only through a pull request with the required check CI result, so no job may push to main. publish-results commits runs.json to the orphan branch data/runs only, and that branch must stay outside every ruleset.",
+  "evidence": "publish-results runs failed after 3 rejected pushes since 2026-11-09 16:14 UTC (last data commit 052f46d0); ruleset frostyard: required checks; lab#241; tests/test_publish_runs.py::test_manifest_never_pushes_to_main_and_runs_the_publish_script",
+  "promoted_to": "tests/test_publish_runs.py"
+}
