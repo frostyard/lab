@@ -179,7 +179,8 @@ before treating any result as evidence.
 The optional manifest key `sysext_probe` replaces the five-boot plan with a
 three-boot probe of the installed N image: `installed-n` (the full attestation
 and fs-verity record), `sysext-enable` and `sysext-reboot`. It is an object
-with exactly `features`, `units` and `first_start`: 1-8 unique updex feature
+with exactly `features`, `units` and `first_start`, plus the optional
+`suite_switch` (see below): 1-8 unique updex feature
 names (`[a-z][a-z0-9-]{0,31}`), 1-16 unique unit names ending in `.service`,
 `.socket` or `.mount`, and 0-4 first-start entries with exactly `unit` (a `.service` name)
 and `path` (a file below `/etc`, no `..` part). With this key the rule
@@ -223,6 +224,42 @@ record: first-start bytes, a rerun, account ids), prints the failing units'
 journal head and tail lines in the pod log, and judges after both sysext boots:
 any failure is `sysext_failed:<codes>`, otherwise the reason is
 `verified_sysext_probe`. This probe is not a release gate.
+
+The optional key `"suite_switch": true` inside `sysext_probe` (only there,
+and only the boolean `true`) probes a Debian suite switch: a trixie N
+(`VERSION_ID` 13) updated to a forky N+1 (`VERSION_ID` 14). The plan is
+`installed-n`, `sysext-enable`, `stage`, `sysext-switch`, `rollback` and
+`sysext-rollback`. `stage` and `rollback` are the unchanged lifecycle boots
+(with their fs-verity records and their `after-` tags); `sysext-switch` is
+the first boot of N+1 and `sysext-rollback` the boot of N after
+`bootc rollback`. N+1 is staged, but the rule stays `version_distinct`: a
+forky N+1 can carry an older timestamp than a trixie N (N 20261114224011,
+N+1 forky-20261114163823), and the updater stages by digest, not by version.
+A feature's link names its suite as `_<VERSION_ID>_` before the arch
+(`incus_…+r6_14_x86-64.raw`). `sysext-enable` and `sysext-rollback` require
+`_13_` for every link and `sysext-switch` requires `_14_`, else
+`sysext_suite:<feature>`. On the first boot after a suite change
+`updex-suite-switch.service` relinks each enabled feature whose link names
+the other suite to the running suite's revision and merges it (updex
+ADR-0021); updex keeps the newest image of the other suite for a switch back,
+so the rollback boot relinks to `_13_` too. Before the unit poll,
+`sysext-switch` and `sysext-rollback` wait, bounded, until that unit ran to
+its end: `inactive` after an exit, or `failed` (the oneshot has no
+`RemainAfterExit`, and between 2 tries it is `activating`, updex ADR-0022).
+The wait is at most 900 s (the first try and 2 retries), less when the
+`reboot` timeout minus the unit poll, the settle window and 120 s is smaller.
+A `Result` other than `success` gives `suite_switch_unit:<result>`, and a
+wait that ends first gives `suite_switch_unit:unfinished`; the unit's last
+`ActiveState`, `SubState`, `Result`, `ExecMainExitTimestampMonotonic` and
+`ExecMainStatus` are the record's `suite_switch` object (only in these 2
+boots), and a failure also keeps its journal tail in `extra_journal`. Both
+boots then make the same unit poll and settle check, the `merged` and
+`not_linked` checks and the sysusers checks as `sysext-reboot`; the booted
+digest must be N+1 in `sysext-switch` and N in the others. Every boot runs,
+and the runner judges after the last one: any failure is
+`sysext_failed:<codes>`, otherwise the reason is
+`verified_sysext_suite_switch`. The enable record is not compared with the
+later records. This mode is not a release gate either.
 
 The optional manifest key `first_login_probe` replaces the five-boot plan with
 a report-only first-login probe: `login-1`, and `login-2` for every product but

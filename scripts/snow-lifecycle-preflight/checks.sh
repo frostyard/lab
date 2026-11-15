@@ -161,10 +161,16 @@ for which in n n_plus_1; do
   tagd=$(skopeo inspect --no-tags "docker://$tag" 2>/dev/null | jq -r .Digest)
   same "version_tag_$which" "$tagd" "$digest" "$tag -> $tagd"
 done
-if [[ $(j .version_n) < $(j .version_n_plus_1) && $(j .image_n) != "$(j .image_n_plus_1)" ]]; then
+# The version rule is qa.py validate's: a probe that never stages N+1, and a
+# sysext suite switch (a forky N+1 can be older than a trixie N), only needs
+# distinct versions; every other manifest needs version_n < version_n_plus_1.
+rule=$(jq -r 'if has("sysext_probe") or has("first_login_probe") or has("report_probe") or .problems_probe.path? == "fresh" then "distinct" else "order" end' "$M")
+if [[ $rule == distinct && $(j .version_n) != "$(j .version_n_plus_1)" && $(j .image_n) != "$(j .image_n_plus_1)" ]]; then
+  check order_distinct PASS "$(j .version_n) != $(j .version_n_plus_1) (version_distinct), digests distinct"
+elif [[ $rule == order && $(j .version_n) < $(j .version_n_plus_1) && $(j .image_n) != "$(j .image_n_plus_1)" ]]; then
   check order_distinct PASS "$(j .version_n) < $(j .version_n_plus_1), digests distinct"
 else
-  check order_distinct FAIL "versions not ordered or digests equal"
+  check order_distinct FAIL "versions not $rule or digests equal"
 fi
 
 # 7. Controlled target tag: an operator moves it; it must resolve to N+1 at submit.

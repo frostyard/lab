@@ -550,6 +550,10 @@ After its republish, the control rerun `dev-snow-bootc-lifecycle-c8hfz`
 That PASS covers those 3 features on that N image, not every sysext. The run
 plan and its manifests are in git history
 ([plan](https://github.com/frostyard/lab/blob/576736fd779f8123a141bc52614bf671f54450c6/docs/plans/2026-10-30-snow-sysext-probe-snosi1189.md)).
+Its `suite_switch` variant (a trixie N, a forky N+1, then a rollback) is
+evidence that `updex-suite-switch.service` relinks the enabled features to
+the running suite's revisions after a suite switch and after the rollback
+(`verified_sysext_suite_switch`); it is never a release gate either.
 
 The optional `first_login_probe` mode is report-only evidence about a desktop
 login: the installed `/etc` of the QA VM gets a test-only autologin

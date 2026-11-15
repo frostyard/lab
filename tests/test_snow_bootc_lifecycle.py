@@ -4355,7 +4355,7 @@ def test_sysext_reboot_first_made_after_the_enable_boot_is_no_host_failure(qa, t
 
 def test_sysext_probe_unit_orders_after_multi_user_target():
     run = source_data()["run.sh"]
-    assert 'sysext-enable|sysext-reboot) guest_mode=sysext; guest_after=" multi-user.target";;' in run
+    assert 'sysext-*) guest_mode=sysext; guest_after=" multi-user.target";;' in run
     assert '*) guest_mode=guest; guest_after="";;' in run
     assert "After=network-online.target${guest_after}" in run
     # Evidence names match the files the reboot comparison and the journal report read.
@@ -4769,7 +4769,7 @@ def test_run_script_wires_the_sysext_boots_into_the_shared_body():
     assert 'qa.py sysext-phase' in loop
     assert 'persist "$WORK/$phase.json" "$EVIDENCE/$phase.json"' in loop
     assert "sysext_failures=%s" in loop
-    assert 'sysext-enable|sysext-reboot) guest_mode=sysext; guest_after=" multi-user.target";;' in loop
+    assert 'sysext-*) guest_mode=sysext; guest_after=" multi-user.target";;' in loop
     assert 'qa.py ${guest_mode:-guest} /run/snow-credentials' in loop
     # The sysext phases keep the shared drop-in, the bounded wait and no force stop.
     assert loop.count("raw.qemu=") == 1 and "incus stop" not in loop and "--force" not in loop
@@ -5336,3 +5336,328 @@ def test_publish_with_no_getty_and_slow_queries_stays_in_its_deadline(qa, monkey
     assert queries and all(1 <= value <= 10 for value in queries)
     assert now[0] <= qa.PUBLISH_MARGIN - qa.PUBLISH_RESERVE + 0.5
     assert all(1 <= limit <= qa.TTY_WRITE_TIMEOUT for limit, _ in calls)
+
+
+# ---------------------------------------------------------------------------
+# sysext_probe.suite_switch: the sysexts enabled on a trixie N are relinked to
+# their forky (_14_) revisions on the first boot of a forky N+1, by
+# updex-suite-switch.service (updex ADR-0021), and back after the rollback.
+# ---------------------------------------------------------------------------
+
+SUITE_SWITCH_PLAN = "installed-n sysext-enable stage sysext-switch rollback sysext-rollback"
+SUITE_SWITCH_DONE = {"ActiveState": "inactive", "SubState": "dead", "Result": "success",
+                     "ExecMainExitTimestampMonotonic": "9000000", "ExecMainStatus": "0"}
+
+
+def switch_manifest():
+    m = sysext_manifest()
+    m["sysext_probe"]["suite_switch"] = True
+    return m
+
+
+def test_sysext_probe_accepts_suite_switch_only_as_true(qa):
+    assert qa.normalize(switch_manifest())["sysext_probe"]["suite_switch"] is True
+    for value in (False, "true", 1, None, [True]):
+        m = switch_manifest()
+        m["sysext_probe"]["suite_switch"] = value
+        with pytest.raises(qa.GateError, match="^sysext_fields$"):
+            qa.normalize(m)
+    # Only inside sysext_probe, and never with another probe key.
+    m = sysext_manifest()
+    m["suite_switch"] = True
+    with pytest.raises(qa.GateError, match="^manifest_fields$"):
+        qa.normalize(m)
+    m = switch_manifest()
+    m["problems_probe"] = {"path": "update"}
+    with pytest.raises(qa.GateError, match="^manifest_fields$"):
+        qa.normalize(m)
+
+
+def test_suite_switch_keeps_the_distinct_version_rule(qa):
+    # The real pair: a trixie N 20261114224011 and a forky N+1 20261114163823,
+    # which is older. The updater stages by digest, so only a distinct version counts.
+    m = switch_manifest()
+    m["version_n"], m["version_tag_n"] = "20261114224011", f"{REPO}:20261114224011"
+    m["version_n_plus_1"], m["version_tag_n_plus_1"] = "20261114163823", f"{REPO}:forky-20261114163823"
+    m["target_ref"] = m["version_tag_n_plus_1"]
+    assert qa.normalize(m)["sysext_probe"]["suite_switch"] is True
+    assert qa.sysext_plan(m) == ("sysext-enable", "sysext-switch", "sysext-rollback")
+    assert qa.sysext_plan(sysext_manifest()) == ("sysext-enable", "sysext-reboot")
+
+
+def test_run_script_keeps_the_plain_sysext_plan_and_adds_the_switch_plan(tmp_path):
+    block = re.search(r"(?ms)^sysext_mode=.*?^fi\n", run_script()).group()
+    for name, probe, expected in (("plain", {}, "installed-n sysext-enable sysext-reboot"),
+                                  ("switch", {"suite_switch": True}, SUITE_SWITCH_PLAN)):
+        work = tmp_path / name
+        work.mkdir()
+        (work / "normalized.json").write_text(json.dumps({"sysext_probe": probe}))
+        result = subprocess.run(["bash", "-c", 'fail() { exit 9; }; WORK="$PWD"\n' + block +
+                                 '\nprintf "%s\\n" "${phase_plan[*]}"'],
+                                cwd=work, capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == expected, name
+
+
+def switch_guest(qa, tmp_path, monkeypatch, phase="sysext-switch", suite="14", unit=None, m=None):
+    """The sysext collector in one suite-switch phase, with the feature links of one suite."""
+    m = m or switch_manifest()
+    states = dict(SYSEXT_STATES)
+    states[qa.SUITE_SWITCH_UNIT] = dict(SUITE_SWITCH_DONE, **(unit or {}))
+    credentials, calls, _, _ = sysext_guest(qa, tmp_path, monkeypatch, states=states, manifest=m)
+    monkeypatch.setattr(qa, "SUITE_SWITCH_WAIT", 0)
+    (credentials / "phase").write_text(phase + "\n")
+    extensions = tmp_path / "extensions"
+    for feature in SYSEXT_PROBE["features"]:
+        name = f"{feature}_1.0-1+r6_{suite}_x86-64.raw"
+        (extensions / name).write_bytes(b"extension")
+        (extensions / (feature + ".raw")).unlink()
+        (extensions / (feature + ".raw")).symlink_to(name)
+    if phase != "sysext-enable":
+        # The enable boot saved the fragments before it and made frostmail.conf.
+        qa.sysusers_save(["core.conf"])
+        (tmp_path / "sysusers.d" / "frostmail.conf").write_text(FROSTMAIL_FRAGMENT)
+    newer = phase == "sysext-switch"
+    status = {"spec": {"image": {"image": m["target_ref"], "transport": "containers-storage"}},
+              "status": {"booted": {"image": {"imageDigest": "sha256:" + (NEXT if newer else N),
+                                              "version": m["version_n_plus_1" if newer else "version_n"]}},
+                         "staged": None, "rollback": None}}
+    inner = qa.subprocess.run
+
+    def run(args, **kwargs):
+        if args[:2] == ["bootc", "status"]:
+            return subprocess.CompletedProcess(args, 0, json.dumps(status).encode(), b"")
+        return inner(args, **kwargs)
+
+    monkeypatch.setattr(qa.subprocess, "run", run)
+    return credentials, calls
+
+
+def test_guest_sysext_switch_passes_on_forky_links_after_the_unit_ran(qa, tmp_path, monkeypatch):
+    credentials, calls = switch_guest(qa, tmp_path, monkeypatch)
+    record = sysext_payload(qa.sysext(credentials))
+    assert record["failures"] == []
+    assert set(record) == qa.SYSEXT_RECORD_FIELDS | {"suite_switch"}
+    assert record["booted_digest"] == NEXT and record["phase"] == "sysext-switch"
+    assert record["links"] == {"notesd": "notesd_1.0-1+r6_14_x86-64.raw", "maild": "maild_1.0-1+r6_14_x86-64.raw"}
+    assert record["suite_switch"]["Result"] == "success" and record["suite_switch"]["ActiveState"] == "inactive"
+    # The unit's state is read before the probed units, and no feature is enabled again.
+    assert not any(isinstance(call, list) and call[:2] == ["updex", "features"] for call in calls)
+    shows = [call[-1] for call in calls if isinstance(call, list) and call[0] == "systemctl"]
+    assert shows[0] == qa.SUITE_SWITCH_UNIT
+
+
+def test_guest_sysext_switch_link_still_on_trixie_fails_per_feature(qa, tmp_path, monkeypatch):
+    credentials, _ = switch_guest(qa, tmp_path, monkeypatch, suite="13")
+    record = sysext_payload(qa.sysext(credentials))
+    assert record["failures"] == ["sysext_suite:maild", "sysext_suite:notesd"]
+
+
+@pytest.mark.parametrize("unit,code", [
+    ({"ActiveState": "failed", "SubState": "failed", "Result": "exit-code", "ExecMainStatus": "1"}, "exit-code"),
+    ({"ActiveState": "failed", "SubState": "failed", "Result": "start-limit-hit"}, "start-limit-hit"),
+    # Between 2 tries, or never started: the bounded wait ends first.
+    ({"ActiveState": "activating", "SubState": "auto-restart", "Result": "exit-code"}, "unfinished"),
+    ({"ActiveState": "inactive", "ExecMainExitTimestampMonotonic": "0"}, "unfinished"),
+])
+def test_guest_sysext_switch_reports_the_unit_result(qa, tmp_path, monkeypatch, unit, code):
+    credentials, _ = switch_guest(qa, tmp_path, monkeypatch, unit=unit)
+    record = sysext_payload(qa.sysext(credentials))
+    assert record["failures"] == ["suite_switch_unit:" + code]
+    assert qa.SUITE_SWITCH_UNIT in record["extra_journal"]
+
+
+def test_guest_sysext_rollback_judges_trixie_links(qa, tmp_path, monkeypatch):
+    credentials, _ = switch_guest(qa, tmp_path, monkeypatch, phase="sysext-rollback", suite="13")
+    record = sysext_payload(qa.sysext(credentials))
+    assert record["failures"] == [] and record["booted_digest"] == N
+    assert record["suite_switch"]["Result"] == "success"
+    # A link that stays on the forky revision after the rollback fails per feature.
+    forky = tmp_path / "forky"
+    forky.mkdir()
+    credentials, _ = switch_guest(qa, forky, monkeypatch, phase="sysext-rollback", suite="14")
+    assert sysext_payload(qa.sysext(credentials))["failures"] == ["sysext_suite:maild", "sysext_suite:notesd"]
+
+
+def test_guest_sysext_enable_requires_trixie_links_only_with_suite_switch(qa, tmp_path, monkeypatch):
+    credentials, _ = switch_guest(qa, tmp_path, monkeypatch, phase="sysext-enable", suite="14")
+    record = sysext_payload(qa.sysext(credentials))
+    assert record["failures"] == ["sysext_suite:maild", "sysext_suite:notesd"]
+    assert "suite_switch" not in record
+    # The plain probe never judges the suite of a link.
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    credentials, _ = switch_guest(qa, plain, monkeypatch, phase="sysext-enable", suite="14", m=sysext_manifest())
+    assert sysext_payload(qa.sysext(credentials))["failures"] == []
+
+
+def test_guest_sysext_phase_must_belong_to_the_manifest_plan(qa, tmp_path, monkeypatch):
+    credentials, _ = switch_guest(qa, tmp_path, monkeypatch, phase="sysext-reboot")
+    with pytest.raises(qa.GateError, match="^credential$"):
+        qa.sysext(credentials)
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    credentials, _ = switch_guest(qa, plain, monkeypatch, m=sysext_manifest())
+    with pytest.raises(qa.GateError, match="^credential$"):
+        qa.sysext(credentials)
+
+
+def test_sysext_phase_requires_the_unit_state_in_the_switch_boots_only(qa, tmp_path, capsys):
+    normalized = sysext_normalized(tmp_path, qa, switch_manifest())
+    serial = tmp_path / "serial"
+    out = tmp_path / "sysext-switch.json"
+
+    def attest(phase, record, m_path=normalized):
+        serial.write_text(sysext_serial(qa, record))
+        return qa.main(["sysext-phase", str(m_path), phase, NONCE, "none", str(serial), str(out)])
+
+    record = sysext_record("sysext-switch", booted_digest=NEXT, suite_switch=dict(SUITE_SWITCH_DONE),
+                           failures=["sysext_suite:maild"])
+    assert attest("sysext-switch", record) == 0
+    assert capsys.readouterr().out.splitlines() == [SYSEXT_BOOT_ID, "failures=sysext_suite:maild"]
+    assert json.loads(out.read_text())["suite_switch"] == SUITE_SWITCH_DONE
+    for phase, damaged in (("sysext-switch", sysext_record("sysext-switch")),
+                           ("sysext-rollback", sysext_record("sysext-rollback", suite_switch="failed")),
+                           ("sysext-rollback", sysext_record("sysext-rollback", suite_switch={"Result": 1})),
+                           ("sysext-enable", sysext_record(suite_switch=dict(SUITE_SWITCH_DONE)))):
+        assert attest(phase, damaged) == 1, phase
+        assert capsys.readouterr().err.strip() == "qa_failed:record_fields"
+    # A plain probe has no switch boot.
+    (tmp_path / "plain").mkdir()
+    assert attest("sysext-switch", record, sysext_normalized(tmp_path / "plain", qa)) == 1
+    assert capsys.readouterr().err.strip() == "qa_failed:phase_arguments"
+
+
+def run_suite_switch_lane(tmp_path, failures=None):
+    """The real run.sh in suite-switch mode, with mocked Incus, tools and qa.py."""
+    script = run_script()
+    for old, new in (("ROOT=/var/lib/snosi-lab/snow-bootc-evidence", f"ROOT={tmp_path}/evidence"),
+                     ("OUT=/tmp/results", f"OUT={tmp_path}/results"),
+                     ("/var/lib/snosi-lab/iso/snow-qa-", f"{tmp_path}/snow-qa-"),
+                     ("/var/lib/incus/storage-pools", str(tmp_path / "pools")),
+                     ("/opt/snow-qa/qa.py", str(tmp_path / "qa.py"))):
+        script = script.replace(old, new)
+    (tmp_path / "run.sh").write_text(script.replace("sleep 5", "sleep 0.01"))
+    # Mock orchestration only: the guest and host qa.py logic has its own tests above.
+    (tmp_path / "qa.py").write_text(textwrap.dedent('''
+        import hashlib, json, os, re, sys
+        from pathlib import Path
+        cmd = sys.argv[1]; root = Path(os.environ['MOCK_ROOT'])
+        def log(line):
+            with (root / 'events').open('a') as stream: stream.write(line + '\\n')
+        if cmd == 'validate':
+            Path(sys.argv[3]).write_text(Path(sys.argv[2]).read_text())
+            print(hashlib.sha256(Path(sys.argv[3]).read_bytes()).hexdigest())
+        elif cmd == 'preflight':
+            Path(sys.argv[3]).write_text(json.dumps({'tags': {}, 'firn_sha256': 'f' * 64}))
+        elif cmd == 'tag':
+            log('tag ' + sys.argv[3])
+            p = Path(sys.argv[4]); data = json.loads(p.read_text())
+            data['tags'][sys.argv[3]] = '2026-11-14T00:00:00+00:00'; p.write_text(json.dumps(data))
+        elif cmd in ('phase', 'sysext-phase'):
+            phase, nonce, prior, serial = sys.argv[3:7]
+            log(cmd + ' ' + phase + ' ' + prior)
+            name = 'SNOW_SYSEXT_V1' if cmd == 'sysext-phase' else 'SNOW_QA_V1'
+            match = re.search(name + r' ([a-z0-9-]+) ([0-9a-f]{32}) ([0-9]+)', Path(serial).read_text())
+            if not match or (phase, nonce) != match.group(1, 2): sys.exit(1)
+            number = int(match.group(3))
+            if prior != ('none' if number == 1 else f'{number - 1:08x}-1234-4234-8234-123456789abc'): sys.exit(1)
+            print(f'{number:08x}-1234-4234-8234-123456789abc')
+            if cmd == 'sysext-phase':
+                codes = json.loads(os.environ['SYSEXT_FAILURES']).get(phase, [])
+                Path(sys.argv[7]).write_text(json.dumps({'phase': phase, 'failures': codes, 'host_failures': []}))
+                print('failures=' + (','.join(codes) or 'none'))
+            else:
+                transport = 'registry' if phase == 'installed-n' else 'containers-storage'
+                for line in ('fsverity_errors=0', 'kernel=7.3.1+deb14-amd64',
+                             'lockdown=integrity cmdline_lockdown=integrity', 'spec_transport=' + transport,
+                             'cmdline=rw lockdown=integrity'):
+                    print(line)
+        elif cmd == 'kmsg-join':
+            print('serial_record=1 kmsg_record=0')
+        else: sys.exit(1)
+    '''))
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    (tools / "incus").write_text(textwrap.dedent('''
+        #!/usr/bin/env python3
+        import base64, json, os, re, sys
+        from pathlib import Path
+        root = Path(os.environ['MOCK_ROOT']); args = sys.argv[1:]
+        count = int((root / 'count').read_text()) if (root / 'count').exists() else 0
+        if args[0] == 'query':
+            print(json.dumps({'expanded_devices': {'root': {'pool': 'qa-pool', 'type': 'disk', 'path': '/'}}}))
+        elif args[:2] == ['config', 'set']:
+            unit = base64.b64decode(re.search(r'service=([A-Za-z0-9+/=]+)', args[-1]).group(1)).decode()
+            (root / 'unit').write_text(unit)
+        elif args[0] == 'start':
+            (root / 'count').write_text(str(count + 1))
+            vmdir = root / 'pools' / 'qa-pool' / 'virtual-machines' / args[1]
+            vmdir.mkdir(parents=True, exist_ok=True)
+            (vmdir / 'OVMF_VARS.4MB.ms.fd').write_text('nvram')
+            if not (vmdir / 'qemu.nvram').is_symlink(): (vmdir / 'qemu.nvram').symlink_to('OVMF_VARS.4MB.ms.fd')
+        elif args[0] == 'console':
+            log = root / 'console-log'
+            if not (root / 'console-count').exists() or (root / 'console-count').read_text() != str(count):
+                if count == 1:
+                    content = 'SNOW_INSTALL_BEGIN\\nSNOW_INSTALL_OK\\n'
+                else:
+                    unit = (root / 'unit').read_text()
+                    phase = re.search(r'printf %%s ([a-z0-9-]+) > /run/snow-credentials/phase', unit).group(1)
+                    nonce = re.search(r'printf %%s ([0-9a-f]{32}) > /run/snow-credentials/nonce', unit).group(1)
+                    name = 'SNOW_SYSEXT_V1' if phase.startswith('sysext-') else 'SNOW_QA_V1'
+                    content = f'{name} {phase} {nonce} {count - 1}\\n'
+                previous = log.read_text() if log.exists() else ''
+                log.write_text(previous + content)
+                (root / 'console-count').write_text(str(count))
+            sys.stdout.write(log.read_text())
+        elif args[0] == 'info':
+            verified = sum(1 for e in (root / 'events').read_text().splitlines()
+                           if e.startswith(('phase ', 'sysext-phase ')))
+            print('Name: ' + args[1]); print('Status: ' + ('RUNNING' if count >= 2 and verified < count - 1 else 'STOPPED'))
+    ''').lstrip())
+    (tools / "curl").write_text('#!/bin/sh\nwhile [ "$#" -gt 0 ]; do if [ "$1" = -o ]; then shift; case "$1" in *.crt) printf mok-cert > "$1";; *) printf iso-data > "$1";; esac; exit 0; fi; shift; done\nexit 1\n')
+    (tools / "virt-fw-vars").write_text('#!/bin/sh\nprintf MokList\n')
+    for tool in ('gpg', 'gpgv', 'skopeo', 'cosign', 'mcopy', 'bwrap', 'zstd', 'cpio', 'apt-get'):
+        (tools / tool).write_text('#!/bin/sh\nexit 0\n')
+    for tool in tools.iterdir():
+        tool.chmod(0o755)
+    (tmp_path / "events").write_text("")
+    m = switch_manifest()
+    m['iso_sha256'] = hashlib.sha256(b'iso-data').hexdigest()
+    m['mok_cert_sha256'] = hashlib.sha256(b'mok-cert').hexdigest()
+    env = {**os.environ, 'PATH': str(tools) + ':' + os.environ['PATH'], 'MOCK_ROOT': str(tmp_path),
+           'WORKFLOW_NAME': 'mock-run', 'MANIFEST_JSON': json.dumps(m),
+           'SYSEXT_FAILURES': json.dumps(failures or {})}
+    result = subprocess.run(['bash', str(tmp_path / 'run.sh')], env=env, capture_output=True, timeout=60)
+    events = (tmp_path / 'events').read_text().splitlines()
+    summary = (tmp_path / 'results/result-summary.txt').read_text()
+    return result, events, summary
+
+
+def test_run_script_suite_switch_lane_passes_after_six_boots(tmp_path):
+    result, events, summary = run_suite_switch_lane(tmp_path)
+    assert result.returncode == 0, (summary, result.stderr)
+    assert summary == "PASS: verified_sysext_suite_switch\n"
+    phases = [e.split()[0] + " " + e.split()[1] for e in events if e.startswith(("phase ", "sysext-phase "))]
+    assert phases == ["phase installed-n", "sysext-phase sysext-enable", "phase stage",
+                      "sysext-phase sysext-switch", "phase rollback", "sysext-phase sysext-rollback"]
+    # The lifecycle stage and rollback boots keep their tags around the action.
+    assert events.index("tag after-stage") > events.index(next(e for e in events if e.startswith("phase stage ")))
+    assert "tag after-rollback" in events
+    checks = (tmp_path / "results/checks.txt").read_text()
+    for phase in ("sysext-enable", "sysext-switch", "sysext-rollback"):
+        assert re.search(r"(?m)^phase=" + phase + r" boot_id=\S+ sysext_failures=none$", checks)
+        assert (tmp_path / "evidence/mock-run" / (phase + ".json")).exists()
+    # The load-state printer reads every sysext record of the plan.
+    assert b"sysext_target phase=sysext-rollback " in result.stderr
+
+
+def test_run_script_suite_switch_lane_judges_every_boot_after_the_last(tmp_path):
+    result, events, summary = run_suite_switch_lane(tmp_path, {
+        "sysext-switch": ["sysext_suite:notesd", "suite_switch_unit:exit-code"],
+        "sysext-rollback": ["unit_inactive:frostmail.service"]})
+    assert result.returncode != 0
+    assert summary == ("FAILED: sysext_failed:sysext_suite:notesd,suite_switch_unit:exit-code,"
+                       "unit_inactive:frostmail.service\n")
+    assert len([e for e in events if e.startswith(("phase ", "sysext-phase "))]) == 6
