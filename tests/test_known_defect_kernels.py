@@ -4,7 +4,7 @@ from pathlib import Path
 
 TEMPLATES = Path(__file__).resolve().parents[1] / "argo/workflow-templates"
 
-KNOWN_DEFECT_LIST = 'known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64 7.2.15+deb14-amd64 7.3.3+deb14-amd64 7.3.4+deb14-amd64 7.2.15-1-surface"'
+KNOWN_DEFECT_LIST = 'known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64 7.2.15+deb14-amd64 7.3.3+deb14-amd64 7.3.4+deb14-amd64 7.2.15-1-surface 7.3.4-1-surface"'
 UPSTREAM_FIX = "254e15591ee4"   # kdave/linux next-fixes; dcf8811f63af before a rebase
 
 
@@ -29,6 +29,8 @@ def test_every_known_defect_kernel_is_evidenced_in_quality_md():
     words = KNOWN_DEFECT_LIST.split('"')[1].split()
     assert "7.3.4+deb14-amd64" in words
     assert "7.3.3+deb14-amd64" in words
+    assert "7.2.15-1-surface" in words
+    assert "7.3.4-1-surface" in words
     quality = (root / QUALITY_DOC).read_text(encoding="utf-8")
     for kernel in words:
         assert f"`{kernel}`" in quality, kernel
