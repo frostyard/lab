@@ -72,6 +72,38 @@ def test_checks_assembly_list_is_the_qa_py_list():
     assert "bootc-1.17.4-storage-digest-v1" in checks_assemblies()[1]
 
 
+def checks_version_rule():
+    match = re.search(r"(?m)^rule=\$\(jq -r '([^']+)' \"\$M\"\)$", (TOOL / "checks.sh").read_text())
+    assert match, "version rule"
+    return match.group(1)
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="jq not installed")
+@pytest.mark.parametrize("probe, rule", [
+    # The same split as qa.py validate: version_distinct or version_order.
+    ({}, "order"),
+    ({"sysext_probe": {"features": ["incus"]}}, "distinct"),
+    ({"sysext_probe": {"features": ["incus"], "suite_switch": True}}, "distinct"),
+    ({"first_login_probe": {}}, "distinct"),
+    ({"report_probe": {}}, "distinct"),
+    ({"problems_probe": {"path": "fresh"}}, "distinct"),
+    ({"problems_probe": {"path": "update"}}, "order"),
+])
+def test_checks_version_rule_is_the_qa_py_rule(probe, rule):
+    manifest = {"version_n": "20261114224011", "version_n_plus_1": "20261114163823", **probe}
+    out = subprocess.run(["jq", "-r", checks_version_rule()], input=json.dumps(manifest),
+                         capture_output=True, text=True, check=True).stdout.strip()
+    assert out == rule
+
+
+def test_checks_version_rule_names_every_qa_py_distinct_probe():
+    # Each probe that qa.py validate gives version_distinct must pick that rule here too.
+    expr = checks_version_rule()
+    for key in ("sysext_probe", "first_login_probe", "report_probe", "problems_probe"):
+        assert key in expr, key
+    assert "version_distinct" in CONFIGMAP.read_text()
+
+
 @pytest.mark.skipif(shutil.which("jq") is None, reason="jq not installed")
 @pytest.mark.parametrize("assembly, ok", [
     ("bootc-1.17.3-storage-digest-v1", True),
