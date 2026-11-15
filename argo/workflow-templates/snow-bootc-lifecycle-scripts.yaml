@@ -1194,7 +1194,7 @@ data:
     # kdave/linux 254e15591ee4). Remove an entry when the kernel canary (Firn lane)
     # says `clean` on it or a fixed kernel ships. Keep identical in every lane.
     # The source evidence for each entry is in lab docs/quality.md (fs-verity regression checks).
-    known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64 7.2.15+deb14-amd64 7.3.3+deb14-amd64 7.3.4+deb14-amd64 7.2.15-1-surface"
+    known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64 7.2.15+deb14-amd64 7.3.3+deb14-amd64 7.3.4+deb14-amd64 7.2.15-1-surface 7.3.4-1-surface"
     fsverity_bad=0
     fsverity_known=""
     for phase in "${phase_plan[@]}"; do
