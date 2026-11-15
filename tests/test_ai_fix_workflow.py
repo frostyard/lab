@@ -48,13 +48,19 @@ def test_ai_fix_documents_the_canonical_secret_name():
 
 
 def test_no_legacy_secret_name_in_workflows_or_docs():
-    searched = [
+    workflows = [
         *sorted((ROOT / ".github/workflows").glob("*.yml")),
-        *sorted((ROOT / "docs").rglob("*.md")),
+        *sorted((ROOT / ".github/workflows").glob("*.yaml")),
     ]
+    docs = [
+        path
+        for path in sorted((ROOT / "docs").rglob("*.md"))
+        if path != DOCUMENTATION  # checked paragraph by paragraph above
+    ]
+    searched = [*workflows, *docs]
+    assert WORKFLOW in workflows
+    assert len(docs) > 1
 
     for legacy_name in LEGACY_NAMES:
         for path in searched:
-            if path == DOCUMENTATION:
-                continue
-            assert f"secrets.{legacy_name}" not in path.read_text(), path
+            assert legacy_name not in path.read_text(), path
