@@ -16,7 +16,14 @@ A repository administrator must:
 2. Grant the token the permissions required by GitHub's agent-assignment API:
    metadata read access and read/write access to Actions, Contents, Issues, and
    Pull requests.
-3. Store it as an Actions repository secret named `COPILOT_AGENT_TOKEN`.
+3. Store it as an Actions repository secret named `COPILOT_ASSIGNMENT_TOKEN`.
+
+`COPILOT_ASSIGNMENT_TOKEN` is the canonical name from core
+[ADR-0020](https://github.com/frostyard/core/blob/main/docs/adr/0020-ai-automation-trust-boundaries.md).
+Do not add aliases for the old spellings `COPILOT_AGENT_TOKEN` or
+`COPILOT_ASSIGN_PAT`: a missing secret fails the run with
+`COPILOT_ASSIGNMENT_TOKEN is not configured`, and it never skips silently.
+`tests/test_ai_fix_workflow.py` guards the name.
 
 Give the token access only to this repository, set an expiration, and rotate it
 before it expires. See GitHub's
