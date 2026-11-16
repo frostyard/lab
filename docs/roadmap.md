@@ -1132,9 +1132,10 @@ F (native SB) runs in parallel throughout.
    contained. Restricting to protected branches and dispatch is the minimum.
 4. ~~Who owns the signed secure OCI fixtures~~ — **resolved**: none are needed.
    See D3.
-5. **Spec transport after stage:** bootc reports the staged or booted
-   deployment's spec. #146 requires `registry` at `installed-n` and before
-   stage, and accepts `registry` or `containers-storage` after it.
+5. ~~**Spec transport after stage**~~ — **resolved**: the check is exact per
+   phase (see below). bootc reports the staged or booted
+   deployment's spec. #146 required `registry` at `installed-n` and before
+   stage, and accepted `registry` or `containers-storage` after it.
    **Persisted** ([lab#238](https://github.com/frostyard/lab/pull/238)): each
    phase line of `checks.txt` ends with the validated
    `spec_transport=<registry|containers-storage>`; older runs do not have it.
@@ -1143,9 +1144,17 @@ F (native SB) runs in parallel throughout.
    `registry` at `installed-n`, `containers-storage` at `stage`,
    `boot-n-plus-1` and `rollback` (before the rollback action), and `registry`
    again at `boot-n`.
-   **Still open:** tighten `spec_transport_allowed()` from the evidence of more
-   runs (1 Snow run is not enough; Floe, Snowfield and Sundog have no record
-   of the field yet).
+   Snowfield dev runs `dev-snow-bootc-lifecycle-j6kwb`, `65xfw` and `zdw24`
+   (2026-11-15, trixie N `20261114124339` to forky N+1 `20261114181149`),
+   Floe dev run `dev-snow-bootc-lifecycle-v6bkv` (2026-11-16, N
+   `20261115110730` to N+1 `20261115120951`, `PASS`) and Sundog dev run
+   `dev-snow-bootc-lifecycle-lzzgw` (2026-11-16, N `20261115110638` to N+1
+   `20261115120835`, `PASS` with known-defect fs-verity errors) saw the same
+   sequence. **Tightened:** `spec_transport_allowed()` now accepts exactly
+   `registry` at `installed-n` and `boot-n`, and exactly `containers-storage`
+   at `stage`, `boot-n-plus-1` and `rollback`. The sysext suite-switch mode
+   (`installed-n`, `stage`, `rollback`) and the problems probe's update path
+   (`installed-n`, `stage`) use the same phases and the same updater.
    Source: [2026-10-26 Snow bootc lifecycle run plan](https://github.com/frostyard/lab/blob/cc3e68a4d51b346f05182ab565aa43a0e8ed34af/docs/plans/2026-10-26-snow-bootc-lifecycle-run.md).
 6. **Suite sysexts in the live enable path.** The sysext probe of `maild` and
    `notesd` left 3 product findings for the enable boot: `maild --lodge`

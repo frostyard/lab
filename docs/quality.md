@@ -488,11 +488,15 @@ treated as a secret-safe substitute for inspecting the retained VM.
 `PASS` requires every preflight, tag, install, fresh-boot, signature-policy,
 state/action and cleanup check. The guest contract is the one the real Firn
 installer and Snow updater produce: the bootc spec image is `target_ref` in
-every phase (Firn `--target-imgref`), with transport `registry` for
-`installed-n` and the `stage` pre-action check, and `registry` or
-`containers-storage` afterwards (the updater switches to `containers-storage`;
-the record keeps the observed `spec_transport`, the phase line of
-`checks.txt` repeats it, and any other transport fails `target_transport`). `/run/snosi/update-staged` must carry
+every phase (Firn `--target-imgref`), with exactly one transport per phase:
+`registry` for `installed-n`, the `stage` pre-action check and `boot-n` (the N
+deployment that Firn wrote), and `containers-storage` for `stage` after the
+updater, `boot-n-plus-1` and `rollback` (the updater switches to
+`containers-storage`). The record keeps the observed `spec_transport`, the
+phase line of `checks.txt` repeats it, and any other value fails
+`target_transport` (the rollback pre-action check fails `rollback_image`).
+Snow, Floe, Snowfield and Sundog dev runs all showed this sequence before the
+check was made exact ([roadmap](roadmap.md) open question 5). `/run/snosi/update-staged` must carry
 `digest=sha256:<N+1 digest>` and `image=<target_ref>` (`stage_marker`). Phases
 end by a guest `systemctl --no-block poweroff` so bootc finalizes the staged
 deployment; the runner never force-stops between phases and fails
