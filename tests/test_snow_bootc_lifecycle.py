@@ -1181,10 +1181,10 @@ def test_record_spec_image_must_be_target_ref_in_every_phase(qa, tmp_path, phase
 
 @pytest.mark.parametrize(("phase", "allowed"), [
     ("installed-n", {"registry"}),
-    ("stage", {"registry", "containers-storage"}),
-    ("boot-n-plus-1", {"registry", "containers-storage"}),
-    ("rollback", {"registry", "containers-storage"}),
-    ("boot-n", {"registry", "containers-storage"}),
+    ("stage", {"containers-storage"}),
+    ("boot-n-plus-1", {"containers-storage"}),
+    ("rollback", {"containers-storage"}),
+    ("boot-n", {"registry"}),
 ])
 @pytest.mark.parametrize("transport", ["registry", "containers-storage", "docker", "oci", "dir", "", None])
 def test_record_spec_transport_rules_per_phase(qa, tmp_path, phase, allowed, transport):
@@ -2540,7 +2540,7 @@ def test_guest_failure_console_reports_only_safe_gate_code(qa, tmp_path, monkeyp
 
 
 @pytest.mark.parametrize("damage", ["policy", "pull_failure", "pull_timeout", "pull_mismatch", "secure_boot", "tpm_unsigned", "tpm_pcrlock", "tpm_wrong_pcrs",
-                                    "marker", "outcome", "updater", "updater_timeout", "wrong_boot", "rollback_failure", "rollback_timeout", "pre_spec", "root_device_missing", "uki_other_entry", "uki_unmeasured", "uki_partial", "uki_prefixed", "esp_ambiguous", "esp_missing", "bls_wrong", "bls_linux", "pre_image_n", "pre_transport", "rollback_transport"])
+                                    "marker", "outcome", "updater", "updater_timeout", "wrong_boot", "rollback_failure", "rollback_timeout", "pre_spec", "root_device_missing", "uki_other_entry", "uki_unmeasured", "uki_partial", "uki_prefixed", "esp_ambiguous", "esp_missing", "bls_wrong", "bls_linux", "pre_image_n", "pre_transport", "rollback_transport", "rollback_registry"])
 def test_guest_never_emits_evidence_for_failed_probe_or_action(qa, tmp_path, monkeypatch, damage):
     m = manifest()
     m["cosign_key_sha256"] = hashlib.sha256(b"public-key").hexdigest()
@@ -2549,7 +2549,7 @@ def test_guest_never_emits_evidence_for_failed_probe_or_action(qa, tmp_path, mon
     monkeypatch.setattr(qa, "GUEST_MANIFEST", normalized)
     creds = tmp_path / "creds"
     creds.mkdir()
-    phase = "rollback" if damage in ("rollback_failure", "rollback_timeout", "rollback_transport") else "stage"
+    phase = "rollback" if damage in ("rollback_failure", "rollback_timeout", "rollback_transport", "rollback_registry") else "stage"
     for key, value in {"phase": phase, "nonce": NONCE, "image_n": m["image_n"],
                         "image_n_plus_1": m["image_n_plus_1"], "target_ref": m["target_ref"]}.items():
         (creds / key).write_text(value)
@@ -2589,6 +2589,8 @@ def test_guest_never_emits_evidence_for_failed_probe_or_action(qa, tmp_path, mon
         status["spec"]["image"]["transport"] = "containers-storage"   # stage pre-action must be registry
     if damage == "rollback_transport":
         status["spec"]["image"]["transport"] = "docker"
+    if damage == "rollback_registry":
+        status["spec"]["image"]["transport"] = "registry"   # N+1 came from the updater: containers-storage only
     calls = []
 
     def fake_run(args, **kwargs):
@@ -2644,14 +2646,14 @@ def test_guest_never_emits_evidence_for_failed_probe_or_action(qa, tmp_path, mon
                "tpm_wrong_pcrs": "tpm_token", "marker": "stage_marker", "outcome": "stage_outcome",
                "updater": "updater", "updater_timeout": "updater", "wrong_boot": "boot_identity", "rollback_failure": "rollback_action", "rollback_timeout": "rollback_action",
                "pre_spec": "booted_image", "pre_image_n": "booted_image", "pre_transport": "booted_image",
-               "rollback_transport": "rollback_image", "root_device_missing": "root_luks",
+               "rollback_transport": "rollback_image", "rollback_registry": "rollback_image", "root_device_missing": "root_luks",
                "uki_other_entry": "uki", "uki_unmeasured": "uki", "uki_partial": "uki", "uki_prefixed": "uki", "esp_ambiguous": "esp_discovery",
                "esp_missing": "esp_discovery", "bls_wrong": "uki_bls", "bls_linux": "uki_bls"}
     with pytest.raises(qa.GateError, match="^" + reasons[damage] + "$"):
         qa.guest(creds)
     if damage in ("pre_spec", "pre_image_n", "pre_transport", "uki_other_entry", "uki_unmeasured", "uki_partial", "uki_prefixed", "esp_ambiguous", "esp_missing", "bls_wrong", "bls_linux", "tpm_unsigned", "tpm_pcrlock", "tpm_wrong_pcrs"):
         assert ["/usr/libexec/bootc-update-stage"] not in calls
-    if damage == "rollback_transport":
+    if damage in ("rollback_transport", "rollback_registry"):
         assert ["bootc", "rollback"] not in calls
     if damage in ("uki_other_entry", "uki_unmeasured", "uki_partial", "uki_prefixed", "bls_wrong", "bls_linux"):
         assert ["umount", str(esp)] in calls

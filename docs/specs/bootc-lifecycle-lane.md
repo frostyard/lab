@@ -148,11 +148,13 @@ vTPM Firn v2 encrypted-btrfs install, then five distinct fresh boots:
 contract follows the real Firn installer and the shipped updater (the same
 `bootc-update-stage` on Snow, Floe, Snowfield and Sundog). Firn installs with
 `--target-imgref`, so every phase must report `target_ref` as the bootc spec
-image (never `image_n`): `installed-n` and the pre-`stage` boot must be
-transport `registry`; after the updater (`bootc switch --transport
-containers-storage`) later phases may report `containers-storage` or
-`registry`, and the observed value is kept in the record. Any other transport
-fails. `qa.py phase` prints the accepted value on its line 5, and the runner
+image (never `image_n`), with exactly one transport per phase:
+`installed-n`, the pre-`stage` boot and `boot-n` (the N deployment Firn wrote)
+must be transport `registry`; `stage` after the updater (`bootc switch
+--transport containers-storage`), `boot-n-plus-1` and `rollback` (before
+`bootc rollback`) must be `containers-storage`. The observed value is kept in
+the record. Any other transport fails `target_transport`; the guest's
+rollback pre-action check fails `rollback_image`. `qa.py phase` prints the accepted value on its line 5, and the runner
 writes it last on the phase line of `checks.txt`
 (`... cmdline_lockdown=<value|absent> spec_transport=<registry|containers-storage>`);
 a missing line 5 or a value outside that allow-list fails `phase_mismatch`.

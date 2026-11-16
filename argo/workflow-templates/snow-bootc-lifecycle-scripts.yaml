@@ -2270,12 +2270,12 @@ data:
 
 
     def spec_transport_allowed(phase, transport):
-        # installed-n is exactly what Firn wrote. Later phases follow the updater
-        # (containers-storage) or a booted deployment that still says registry;
-        # any other transport is foreign. The record keeps the observed value.
-        if phase == "installed-n":
-            return transport == "registry"
-        return transport in ("registry", "containers-storage")
+        # Exact per phase (docs/roadmap.md open question 5). installed-n is what
+        # Firn wrote (registry). The updater stages N+1 with `bootc switch
+        # --transport containers-storage`, so stage (after the updater),
+        # boot-n-plus-1 and rollback (before the action) report containers-storage.
+        # boot-n boots the N deployment again, whose origin still says registry.
+        return transport == ("registry" if phase in ("installed-n", "boot-n") else "containers-storage")
 
 
     def staged_marker(m, raw):
