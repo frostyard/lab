@@ -1,5 +1,5 @@
 {
-  "generated": "2026-11-16T13:30:19Z",
+  "generated": "2026-11-16T14:00:19Z",
   "lanes": [
     {
       "laneKey": "run-firn-install-tests",
@@ -59,9 +59,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1794835800",
+        "name": "publish-results-1794837600",
         "phase": "Running",
-        "started": "2026-11-16T13:30:00Z",
+        "started": "2026-11-16T14:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -220,11 +220,28 @@
   ],
   "runs": [
     {
-      "name": "publish-results-1794835800",
+      "name": "publish-results-1794837600",
       "phase": "Running",
-      "started": "2026-11-16T13:30:00Z",
+      "started": "2026-11-16T14:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": null,
+      "checks": [],
+      "fsverity": []
+    },
+    {
+      "name": "publish-results-1794835800",
+      "phase": "Succeeded",
+      "started": "2026-11-16T13:30:00Z",
+      "finished": "2026-11-16T13:30:33Z",
+      "durationSeconds": 33,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -352,23 +369,6 @@
       "trigger": "scheduled",
       "result": null,
       "digest": "sha256:db5703c9da4347f043da0c5ef50028b8705cbf95931c0ca2a98e83d7e908149d",
-      "checks": [],
-      "fsverity": []
-    },
-    {
-      "name": "publish-results-1794830400",
-      "phase": "Succeeded",
-      "started": "2026-11-16T12:00:00Z",
-      "finished": "2026-11-16T12:00:34Z",
-      "durationSeconds": 34,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": null,
       "checks": [],
       "fsverity": []
     },
