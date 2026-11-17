@@ -175,7 +175,8 @@ is claimed by the submit file alone.
 ## fs-verity regression checks (snosi#1130)
 
 Debian kernels 7.2.11 to 7.2.15, 7.3.3 and 7.3.4, and the linux-surface
-kernels `7.2.15-1-surface` and `7.3.4-1-surface`, have a btrfs defect: on
+kernels `7.2.15-1-surface`, `7.3.4-1-surface` and `7.3.4-2-surface`, have a
+btrfs defect: on
 fs-verity files, readahead verifies a whole large folio before all of it is
 read. The kernel logs
 `fs-verity (...): FILE CORRUPTED! ... level=-1`. A synchronous re-read then
@@ -232,7 +233,8 @@ in every template that judges it (`known_defect_kernels` in the Firn judge and
 the lifecycle `run.sh`): `7.2.11+deb14-amd64`,
 `7.2.12+deb14-amd64`, `7.2.13+deb14-amd64`, `7.2.14+deb14-amd64`,
 `7.2.15+deb14-amd64`, `7.3.3+deb14-amd64`, `7.3.4+deb14-amd64`,
-`7.2.15-1-surface` and `7.3.4-1-surface` (linux-surface, Snowfield). The
+`7.2.15-1-surface`, `7.3.4-1-surface` and `7.3.4-2-surface` (linux-surface,
+Snowfield). The
 linux-surface entries have the same unfixed code. For `7.2.15-1-surface`:
 upstream v7.2.15 `fs/btrfs/extent_io.c` is
 byte-identical to v7.2.12 and still calls `fsverity_verify_folio()` in
@@ -258,7 +260,23 @@ the fs-verity check was their only failure. The forky-to-forky Snowfield run
 (snosi#1130 evidence:
 [1](https://github.com/frostyard/snosi/issues/1130#issuecomment-6883235460),
 [2](https://github.com/frostyard/snosi/issues/1130#issuecomment-6884907836)).
-Older published Snowfield images carry `7.2.15-1-surface`, so both stay listed.
+For `7.3.4-2-surface` (linux-surface release
+[`debian-7.3.4-2`](https://github.com/linux-surface/linux-surface/tree/38ba90ffb48b0666fb3acb432325ff5b98ca4d7d),
+a rebuild with `KERNEL_REVISION="2"`): the base is still upstream v7.3.4
+(`patches/7.3/BASE`), so the unfixed `btrfs_verify_folio()` above applies.
+Between `debian-7.3.4-1` and `debian-7.3.4-2`, the 15 patches of `patches/7.3`
+changed (`0007-surface-sam.patch` by 52 added and 5 removed lines, each of the
+others by at most 26), and
+their 114 file headers still touch no file under `fs/` or `mm/` (only
+`arch/`, `Documentation/`, `drivers/`, `include/`, `kernel/` and `sound/`).
+The forky Snowfield image `forky-20261117162734` boots it. Its
+forky-to-forky lifecycle run `dev-snow-bootc-lifecycle-mxthz` (2026-11-17,
+N `forky-20261114181149` on `7.3.4-1-surface`) completed every phase and
+logged 0, 0, 1, 0, 1 errors in `installed-n`, `stage`, `boot-n-plus-1`,
+`rollback` and `boot-n`, all `level=-1` on `dm-0`; the fs-verity check on the
+unlisted `7.3.4-2-surface` boot was its only failure.
+Older published Snowfield images carry `7.2.15-1-surface` and
+`7.3.4-1-surface`, so all 3 stay listed.
 Only these exact linux-surface names are listed: another linux-surface build
 fails until it is checked the same way. A
 missing or non-numeric count always fails. A count of 0

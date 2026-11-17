@@ -291,6 +291,8 @@ GOOD_CHECKS = (
          f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST} fsverity_known_defect=7.3.4+deb14-amd64"),
         ({"fsverity_errors": "6", "kernel": "7.3.4-1-surface"},
          f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST} fsverity_known_defect=7.3.4-1-surface"),
+        ({"fsverity_errors": "1", "kernel": "7.3.4-2-surface"},
+         f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST} fsverity_known_defect=7.3.4-2-surface"),
         ({"fsverity_errors": "0", "kernel": "7.2.11+deb14-amd64"},
          f"PASS: bootc/floe/none/sb=false image={EXPECTED_IMAGE} digest={EXPECTED_DIGEST}"),
         # Any other kernel with errors fails, as does an unknown, missing or look-alike kernel.
@@ -2029,8 +2031,8 @@ def test_judge_records_the_known_defect_note_in_the_checks_file(lane, tmp_path):
     assert result.returncode == 0, result.stderr
     assert "fsverity_known_defect=7.2.12+deb14-amd64" in checks.read_text().splitlines()
     assert "known-defect kernel 7.2.12+deb14-amd64" in result.stderr   # visible note
-    # One list per template, with the nine kernels of snosi#1130.
-    assert source.count('known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64 7.2.15+deb14-amd64 7.3.3+deb14-amd64 7.3.4+deb14-amd64 7.2.15-1-surface 7.3.4-1-surface"') == 1
+    # One list per template, with the ten kernels of snosi#1130.
+    assert source.count('known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64 7.2.15+deb14-amd64 7.3.3+deb14-amd64 7.3.4+deb14-amd64 7.2.15-1-surface 7.3.4-1-surface 7.3.4-2-surface"') == 1
 
 
 def test_probe_emits_the_kernel_before_the_canary_in_every_run(lane):
@@ -2087,7 +2089,9 @@ SURFACE_734_KERNEL = "7.3.4-1-surface"
 @pytest.mark.parametrize("kernel,known_defect", [
     (SURFACE_734_KERNEL, True),
     (SURFACE_734_KERNEL + "-extra", False),
-    ("7.3.4-2-surface", False),
+    ("7.3.4-2-surface", True),
+    ("7.3.4-2-surface-extra", False),
+    ("7.3.4-3-surface", False),
     ("7.3.5-1-surface", False),
     ("7.3.3-1-surface", False),
     ("7.3.4-surface", False),
