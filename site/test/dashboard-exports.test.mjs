@@ -8,13 +8,16 @@ import * as dashboard from '../src/dashboard.mjs';
 test('dashboard module exports exactly the known names', () => {
   assert.deepEqual(Object.keys(dashboard).sort(), [
     'PRODUCTS',
+    'PRODUCT_LANE_KEYS',
     'SNAPSHOT_FUTURE_TOLERANCE_MS',
     'SNAPSHOT_STALE_MS',
+    'STREAMS',
     'displayLanes',
     'duration',
     'laneLabel',
     'laneState',
     'legacyProductLanes',
+    'productDisplayName',
     'productEvidenceCounts',
     'productLanes',
     'productOf',

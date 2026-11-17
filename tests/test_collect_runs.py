@@ -210,7 +210,7 @@ def test_workflow_fixture_distinguishes_omitted_result_from_explicit_value():
     ]
 
 
-@pytest.mark.parametrize("name", ["other-image-poll-snow-latest-1", "image-poll-unknown-latest-1", "image-poll-snow-latestish-1"])
+@pytest.mark.parametrize("name", ["other-image-poll-snow-latest-1", "image-poll-unknown-latest-1", "image-poll-snow-latestish-1", "image-poll-snow-forkyish-1"])
 def test_only_known_product_prefixes_get_product_identity(name):
     # Catches substring matching or inventing new product lanes.
     summary = collect_runs.summarize(make_workflow(name=name, template_ref="image-poller", result="2 passed"))
@@ -492,3 +492,23 @@ def test_dev_trigger_runs_stay_out_of_the_run_data_and_lanes(tmp_path, monkeypat
     assert lane["runs"] == 1
     assert lane["latest"]["name"] == "run-snow-bootc-lifecycle-xyz34"
     assert all(run["trigger"] != "dev" for run in payload["runs"])
+
+
+@pytest.mark.parametrize("product", ["snow", "floe", "snowfield", "sundog"])
+def test_forky_polls_are_their_own_product_lanes(product):
+    summary = collect_runs.summarize(make_workflow(
+        name=f"image-poll-{product}-forky-7", template_ref="image-poller", result="14 passed",
+    ))
+    assert summary["laneKey"] == f"image-poll-{product}-forky"
+    assert summary["qaOutcome"] == "passed"
+
+
+def test_forky_and_latest_runs_of_one_product_are_separate_lanes():
+    runs = [
+        collect_runs.summarize(make_workflow(name="image-poll-snow-forky-2", template_ref="image-poller", result="14 passed")),
+        collect_runs.summarize(make_workflow(name="image-poll-snow-latest-1", template_ref="image-poller", result="19 passed, 1 failed", phase="Failed")),
+    ]
+    lanes = {lane["laneKey"]: lane for lane in collect_runs.rollup(runs)}
+    assert set(lanes) == {"image-poll-snow-forky", "image-poll-snow-latest"}
+    assert lanes["image-poll-snow-forky"]["latest"] is runs[0]
+    assert lanes["image-poll-snow-latest"]["latest"] is runs[1]

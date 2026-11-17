@@ -1,0 +1,48 @@
+# CronWorkflow: poll ghcr.io/frostyard/snow:forky.
+#
+# The forky tag moves only by snosi's forky promote dispatch (snosi ADR-0040).
+#
+# Triggers snosi-qa-pipeline only when the OCI digest differs from the value
+# stored in the image-polling-digests ConfigMap.
+#
+# Enable or disable this lane through spec.suspend in git (rather than
+# `kubectl patch`): the enabled lanes stay reviewable in history, and
+# selfHeal would revert a manual patch anyway.
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: image-poll-snow-forky
+  namespace: argo
+  labels:
+    app.kubernetes.io/part-of: lab
+    snosi.io/trigger: digest-poll
+spec:
+  suspend: false
+  schedules:
+    - "0 1-22/3 * * *"
+  timezone: "UTC"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  workflowSpec:
+    serviceAccountName: argo
+    podGC:
+      strategy: OnWorkflowSuccess
+    ttlStrategy:
+      secondsAfterSuccess: 604800
+      secondsAfterFailure: 2592000
+    workflowTemplateRef:
+      name: image-poller
+    arguments:
+      parameters:
+        - name: image
+          value: "ghcr.io/frostyard/snow"
+        - name: image-tag
+          value: "forky"
+        - name: image-digest
+          value: ""
+        - name: state-key
+          value: "digest-snow-forky"
+        - name: suites
+          value: "smoke"
+        - name: variant
+          value: "snow"

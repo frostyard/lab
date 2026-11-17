@@ -23,16 +23,17 @@ test('empty snapshot builds a roster with zero runs but no recent table', () => 
     const html = readFileSync(join(sandbox, 'dist/index.html'), 'utf8');
     const cards = [...html.matchAll(/<article class="card unknown"[^>]*>[\s\S]*?<\/article>/g)]
       .map(([card]) => card);
-    assert.equal(cards.length, 4);
-    for (const product of ['snow', 'floe', 'snowfield', 'sundog']) {
+    assert.equal(cards.length, 8);
+    const names = ['snow', 'floe', 'snowfield', 'sundog'].flatMap((product) => [product, `${product}:forky`]);
+    for (const product of names) {
       const card = cards.find((markup) => markup.includes(`${product} · Registry digest poll`));
       assert.ok(card, `${product} roster card missing`);
       assert.match(card, /no poll record/);
       assert.match(card, /0 runs retained/);
     }
-    assert.match(html, /<span[^>]*>Lanes<\/span>\s*<strong[^>]*>4<\/strong>/);
+    assert.match(html, /<span[^>]*>Lanes<\/span>\s*<strong[^>]*>8<\/strong>/);
     assert.match(html, /<span[^>]*>Runs<\/span>\s*<strong[^>]*>0<\/strong>/);
-    assert.match(html, /<span[^>]*>Unknown \/ stale evidence<\/span>\s*<strong[^>]*>4 \/ 0<\/strong>/);
+    assert.match(html, /<span[^>]*>Unknown \/ stale evidence<\/span>\s*<strong[^>]*>8 \/ 0<\/strong>/);
     assert.doesNotMatch(html, /<[^>]+class="empty"/);
     assert.doesNotMatch(html, /No run data yet/);
     assert.doesNotMatch(html, /<section[^>]+class="card table-card"/);

@@ -20,3 +20,7 @@ data:
   digest-floe-latest: ""
   digest-snowfield-latest: ""
   digest-sundog-latest: ""
+  digest-snow-forky: ""
+  digest-floe-forky: ""
+  digest-snowfield-forky: ""
+  digest-sundog-forky: ""

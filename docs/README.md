@@ -24,7 +24,7 @@ Docs are split by the question they answer
 - [0008 — Host media cache with origin-fingerprint sidecars](adr/0008-media-cache-with-fingerprint-sidecars.md) (`-latest` fingerprint and native variants superseded in part: [0020](adr/0020-retire-the-native-ab-and-live-iso-vm-lanes.md))
 - [0009 — No artifact store: the workflow log is the surface, host disk the fallback](adr/0009-no-artifact-store-logs-are-the-surface.md)
 - [0010 — Vacuous success is forbidden: green must mean work was done](adr/0010-vacuous-success-is-forbidden.md)
-- [0011 — Roster product polls and qualify their QA evidence by digest and freshness](adr/0011-product-poll-qa-evidence-is-rostered-and-fresh.md) (product-only refinement to 0003/0004)
+- [0011 — Roster product polls and qualify their QA evidence by digest and freshness](adr/0011-product-poll-qa-evidence-is-rostered-and-fresh.md) (product-only refinement to 0003/0004; roster amended by [0022](adr/0022-forky-stream-polls-join-the-product-roster.md))
 - [0012 — The lifecycle lane takes its product from the hashed manifest](adr/0012-lifecycle-lane-product-comes-from-the-hashed-manifest.md)
 - [0013 — Firn lane markers also travel through the kernel log](adr/0013-firn-lane-markers-also-travel-through-the-kernel-log.md) (amends 0005)
 - [0014 — Lifecycle lane records also travel through the kernel log](adr/0014-lifecycle-lane-records-also-travel-through-the-kernel-log.md) (amends 0005)
@@ -35,6 +35,7 @@ Docs are split by the question they answer
 - [0019 — Kernel-log marker copies use level err](adr/0019-kernel-log-copies-use-level-err.md) (amends 0013, 0014)
 - [0020 — Retire the native A/B and live-ISO VM lanes](adr/0020-retire-the-native-ab-and-live-iso-vm-lanes.md) (supersedes parts of 0007, 0008)
 - [0021 — Run data publishes to the `data/runs` branch, not to `main`](adr/0021-run-data-publishes-to-the-data-runs-branch.md) (supersedes decision 4 of 0004)
+- [0022 — The `:forky` stream polls join the product roster](adr/0022-forky-stream-polls-join-the-product-roster.md) (amends the roster of 0011)
 
 Org-wide decisions binding this repo: [org-adrs.md](org-adrs.md).
 

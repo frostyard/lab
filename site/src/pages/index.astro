@@ -1,11 +1,11 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import { displayLanes, duration, laneLabel, laneState, productEvidenceCounts, productOf, stampOf, state, when } from '../dashboard.mjs';
+import { displayLanes, duration, laneLabel, laneState, productEvidenceCounts, productDisplayName, productOf, stampOf, state, when } from '../dashboard.mjs';
 import data from '../data/runs.json';
 
 const { generated, runs = [] } = data;
 const lanes = displayLanes(data);
-const productName = (run) => productOf(run)?.split('-')[2];
+const productName = (run) => productDisplayName(productOf(run));
 // A digest is long; the card shows its algorithm and first 12 hex characters.
 const shortDigest = (digest) => (typeof digest === 'string' && /^sha256:[0-9a-f]{64}$/.test(digest)
   ? digest.slice(0, 19) : null);

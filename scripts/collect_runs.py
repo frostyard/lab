@@ -35,9 +35,13 @@ LANE_KINDS = {
 
 DEV_TRIGGER = "dev"
 
+PRODUCTS = ("snow", "floe", "snowfield", "sundog")
+STREAMS = ("latest", "forky")
+# The -latest polls first, then the -forky polls (ADR-0022), in product order.
 PRODUCT_POLLS = tuple(
-    f"image-poll-{product}-latest"
-    for product in ("snow", "floe", "snowfield", "sundog")
+    f"image-poll-{product}-{stream}"
+    for stream in STREAMS
+    for product in PRODUCTS
 )
 SCENARIO_COUNTS = re.compile(r"\d+ (?:passed|failed|skipped|undefined)(?:, \d+ (?:passed|failed|skipped|undefined))*")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")

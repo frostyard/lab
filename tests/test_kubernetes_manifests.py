@@ -618,6 +618,7 @@ def test_image_pollers_and_digest_state_are_one_to_one(manifests):
 
     state_keys: set[str] = set()
     schedules: set[str] = set()
+    stream_hours: dict[str, set[int]] = {}
     for poller in pollers:
         body = poller.body
         name = body["metadata"]["name"]
@@ -634,13 +635,25 @@ def test_image_pollers_and_digest_state_are_one_to_one(manifests):
         assert arguments["variant"] == image_name
         assert arguments["state-key"] == f"digest-{image_name}-{tag}"
         assert arguments["image-digest"] == ""
+        assert tag in collect_runs.STREAMS, f"{name} polls an unknown stream {tag!r}"
+        if tag == "forky":
+            assert arguments["suites"] == "smoke", name
+            assert spec["schedules"][0].split()[1] == "1-22/3", name
         assert workflow["workflowTemplateRef"] == {"name": "image-poller"}
         assert spec["concurrencyPolicy"] == "Forbid"
 
         schedule = spec["schedules"][0]
         assert schedule not in schedules, f"duplicate image-poll schedule {schedule}"
         schedules.add(schedule)
+        hour_field = schedule.split()[1]
+        stream_hours.setdefault(tag, set()).update(
+            range(0 if hour_field.startswith("*") else int(hour_field.split("-")[0]), 24, 3)
+        )
         state_keys.add(arguments["state-key"])
+
+    assert not stream_hours["latest"] & stream_hours["forky"], (
+        "forky polls must not run in the same hours as latest polls"
+    )
 
     digest_state = manifest_named(
         manifests, "ConfigMap", "image-polling-digests"
@@ -656,6 +669,16 @@ def test_image_poller_roster_rejects_an_unmatched_product(manifests, monkeypatch
         (*collect_runs.PRODUCT_POLLS, "image-poll-fourth-latest"),
     )
     with pytest.raises(AssertionError, match="extra .*image-poll-fourth-latest"):
+        test_image_pollers_and_digest_state_are_one_to_one(manifests)
+
+
+def test_image_poller_roster_rejects_an_unmatched_forky_product(manifests, monkeypatch):
+    monkeypatch.setattr(
+        collect_runs,
+        "PRODUCT_POLLS",
+        (*collect_runs.PRODUCT_POLLS, "image-poll-fourth-forky"),
+    )
+    with pytest.raises(AssertionError, match="extra .*image-poll-fourth-forky"):
         test_image_pollers_and_digest_state_are_one_to_one(manifests)
 
 
