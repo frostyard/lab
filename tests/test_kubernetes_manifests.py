@@ -600,6 +600,55 @@ def test_controller_service_account_name_matches_the_helm_release(manifests):
     assert CONTROLLER_SERVICE_ACCOUNT == f"{release}-workflow-controller"
 
 
+def cron_hours(field: str) -> set[int]:
+    """The hours a cron hour field selects: `*`, `N`, `A-B`, each with an
+    optional `/STEP`, and comma lists of those. Anything else fails."""
+    hours: set[int] = set()
+    for part in field.split(","):
+        match = re.fullmatch(r"(\*|\d+(?:-\d+)?)(?:/(\d+))?", part)
+        assert match, f"unsupported cron hour field {field!r}"
+        span, step = match.group(1), int(match.group(2) or 1)
+        if span == "*":
+            low, high = 0, 23
+        elif "-" in span:
+            low, high = (int(value) for value in span.split("-"))
+        else:
+            low = high = int(span)
+            if match.group(2):
+                high = 23
+        assert 0 <= low <= high <= 23 and step >= 1, f"bad cron hour field {field!r}"
+        hours.update(range(low, high + 1, step))
+    return hours
+
+
+@pytest.mark.parametrize(
+    ("field", "hours"),
+    [
+        ("*/3", {0, 3, 6, 9, 12, 15, 18, 21}),
+        ("1-22/3", {1, 4, 7, 10, 13, 16, 19, 22}),
+        ("*/1", set(range(24))),
+        ("*", set(range(24))),
+        ("5", {5}),
+        ("2,14", {2, 14}),
+        ("20-23", {20, 21, 22, 23}),
+    ],
+)
+def test_cron_hours_expands_steps_ranges_and_lists(field, hours):
+    assert cron_hours(field) == hours
+
+
+@pytest.mark.parametrize("field", ["1-22/0", "25", "a", "3-1", ""])
+def test_cron_hours_rejects_unsupported_fields(field):
+    with pytest.raises(AssertionError):
+        cron_hours(field)
+
+
+def test_an_hourly_latest_poll_would_overlap_the_forky_hours():
+    # The guard below must catch a -latest poll moved onto the forky hours.
+    assert cron_hours("*/1") & cron_hours("1-22/3")
+    assert not cron_hours("*/3") & cron_hours("1-22/3")
+
+
 def test_image_pollers_and_digest_state_are_one_to_one(manifests):
     pollers = [
         manifest
@@ -618,6 +667,7 @@ def test_image_pollers_and_digest_state_are_one_to_one(manifests):
 
     state_keys: set[str] = set()
     schedules: set[str] = set()
+    stream_hours: dict[str, set[int]] = {}
     for poller in pollers:
         body = poller.body
         name = body["metadata"]["name"]
@@ -634,13 +684,22 @@ def test_image_pollers_and_digest_state_are_one_to_one(manifests):
         assert arguments["variant"] == image_name
         assert arguments["state-key"] == f"digest-{image_name}-{tag}"
         assert arguments["image-digest"] == ""
+        assert tag in collect_runs.STREAMS, f"{name} polls an unknown stream {tag!r}"
+        if tag == "forky":
+            assert arguments["suites"] == "smoke", name
+            assert spec["schedules"][0].split()[1] == "1-22/3", name
         assert workflow["workflowTemplateRef"] == {"name": "image-poller"}
         assert spec["concurrencyPolicy"] == "Forbid"
 
         schedule = spec["schedules"][0]
         assert schedule not in schedules, f"duplicate image-poll schedule {schedule}"
         schedules.add(schedule)
+        stream_hours.setdefault(tag, set()).update(cron_hours(schedule.split()[1]))
         state_keys.add(arguments["state-key"])
+
+    assert not stream_hours["latest"] & stream_hours["forky"], (
+        "forky polls must not run in the same hours as latest polls"
+    )
 
     digest_state = manifest_named(
         manifests, "ConfigMap", "image-polling-digests"
@@ -656,6 +715,16 @@ def test_image_poller_roster_rejects_an_unmatched_product(manifests, monkeypatch
         (*collect_runs.PRODUCT_POLLS, "image-poll-fourth-latest"),
     )
     with pytest.raises(AssertionError, match="extra .*image-poll-fourth-latest"):
+        test_image_pollers_and_digest_state_are_one_to_one(manifests)
+
+
+def test_image_poller_roster_rejects_an_unmatched_forky_product(manifests, monkeypatch):
+    monkeypatch.setattr(
+        collect_runs,
+        "PRODUCT_POLLS",
+        (*collect_runs.PRODUCT_POLLS, "image-poll-fourth-forky"),
+    )
+    with pytest.raises(AssertionError, match="extra .*image-poll-fourth-forky"):
         test_image_pollers_and_digest_state_are_one_to_one(manifests)
 
 

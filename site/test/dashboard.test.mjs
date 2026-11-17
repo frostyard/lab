@@ -6,7 +6,8 @@ import * as dashboard from '../src/dashboard.mjs';
 const { duration, laneLabel, laneState, legacyProductLanes, productLanes, stampOf, state, when } = dashboard;
 
 const generated = '2026-09-24T23:30:17Z';
-const roster = ['snow', 'floe', 'snowfield', 'sundog'].map((product) => `image-poll-${product}-latest`);
+const products4 = ['snow', 'floe', 'snowfield', 'sundog'];
+const roster = ['latest', 'forky'].flatMap((stream) => products4.map((product) => `image-poll-${product}-${stream}`));
 
 test('dashboard product roster matches image-poll CronWorkflow manifest names', () => {
   const manifestDir = new URL('../../manifests/', import.meta.url);
@@ -23,13 +24,14 @@ test('dashboard product roster matches image-poll CronWorkflow manifest names', 
     });
   assert.ok(names.length > 0, 'no image-poll CronWorkflow manifests found');
   const actual = [...new Set(names)].sort();
-  const parity = (products) => {
-    const dashboardNames = products.map((p) => `image-poll-${p}-latest`).sort();
+  const parity = (products, streams = dashboard.STREAMS) => {
+    const dashboardNames = products.flatMap((p) => streams.map((s) => `image-poll-${p}-${s}`)).sort();
     assert.deepEqual(actual, dashboardNames);
   };
   parity(dashboard.PRODUCTS);
   // Mutation check: a wrong roster must fail the same scanned-manifest comparison.
   assert.throws(() => parity([...dashboard.PRODUCTS, 'fourth']), assert.AssertionError);
+  assert.throws(() => parity(dashboard.PRODUCTS, ['latest']), assert.AssertionError);
 });
 const poll = (product, phase, qaOutcome, started = '2026-09-24T21:20:00Z') => ({
   laneKey: `image-poll-${product}-latest`, kind: 'poll', label: 'Registry digest poll',
@@ -64,15 +66,15 @@ test('missing roster entry is unknown, with no invented run', () => {
   assert.equal(laneState(lanes[2], generated), 'unknown');
 });
 
-test('empty published snapshot shows four unknown product lanes with no retained evidence', () => {
+test('empty published snapshot shows eight unknown product lanes with no retained evidence', () => {
   const lanes = dashboard.displayLanes({ generated, lanes: [], runs: [] });
   assert.deepEqual(lanes.map((lane) => lane.laneKey), roster);
-  assert.deepEqual(lanes.map((lane) => lane.runs), [0, 0, 0, 0]);
-  assert.deepEqual(lanes.map((lane) => lane.latest), [null, null, null, null]);
-  assert.deepEqual(lanes.map((lane) => laneState(lane, generated)), ['unknown', 'unknown', 'unknown', 'unknown']);
-  assert.deepEqual(lanes.map((lane) => laneLabel(lane, generated)), ['no poll record', 'no poll record', 'no poll record', 'no poll record']);
+  assert.deepEqual(lanes.map((lane) => lane.runs), Array(8).fill(0));
+  assert.deepEqual(lanes.map((lane) => lane.latest), Array(8).fill(null));
+  assert.deepEqual(lanes.map((lane) => laneState(lane, generated)), Array(8).fill('unknown'));
+  assert.deepEqual(lanes.map((lane) => laneLabel(lane, generated)), Array(8).fill('no poll record'));
   assert.deepEqual(dashboard.productEvidenceCounts(lanes, generated), {
-    passed: 0, failed: 0, unknown: 4, stale: 0,
+    passed: 0, failed: 0, unknown: 8, stale: 0,
   });
 });
 
@@ -117,7 +119,7 @@ test('product evidence counts include old failure as failed and stale, not curre
     poll('floe', 'Succeeded', 'passed', '2026-09-08T21:20:00Z'),
   ], generated);
   assert.deepEqual(dashboard.productEvidenceCounts(lanes, generated), {
-    passed: 0, failed: 1, unknown: 2, stale: 2,
+    passed: 0, failed: 1, unknown: 6, stale: 2,
   });
   assert.equal(laneState(lanes[1], generated), 'stale');
   assert.equal(laneLabel(lanes[1], generated), 'stale');
@@ -146,8 +148,8 @@ test('legacy mixed image-poller history exposes each product without claiming ve
     { name: 'image-poll-snowfield-latest-1', phase: 'Running', started: '2026-09-08T18:40:00Z', template: 'image-poller' },
   ];
   const lanes = productLanes(legacyProductLanes(runs), generated);
-  assert.deepEqual(lanes.map((lane) => lane.latest?.name), [runs[1].name, runs[0].name, runs[2].name, undefined]);
-  assert.deepEqual(lanes.map((lane) => laneState(lane, generated)), ['unknown', 'unknown', 'stale', 'unknown']);
+  assert.deepEqual(lanes.map((lane) => lane.latest?.name), [runs[1].name, runs[0].name, runs[2].name, ...Array(5).fill(undefined)]);
+  assert.deepEqual(lanes.map((lane) => laneState(lane, generated)), ['unknown', 'unknown', 'stale', ...Array(5).fill('unknown')]);
 });
 
 test('legacy-shaped snapshot separates product polls without promoting summary text to QA evidence', () => {
@@ -155,13 +157,13 @@ test('legacy-shaped snapshot separates product polls without promoting summary t
   const displayLanes = dashboard.displayLanes(data);
   const products = displayLanes.filter((lane) => roster.includes(lane.laneKey));
   assert.deepEqual(products.map((lane) => lane.laneKey), roster);
-  assert.deepEqual(products.map((lane) => lane.latest?.phase), ['Failed', 'Succeeded', 'Running', undefined]);
-  assert.deepEqual(products.map((lane) => lane.runs), [1, 1, 1, 0]);
-  assert.deepEqual(products.map((lane) => laneState(lane, data.generated)), ['unknown', 'unknown', 'stale', 'unknown']);
+  assert.deepEqual(products.map((lane) => lane.latest?.phase), ['Failed', 'Succeeded', 'Running', ...Array(5).fill(undefined)]);
+  assert.deepEqual(products.map((lane) => lane.runs), [1, 1, 1, 0, 0, 0, 0, 0]);
+  assert.deepEqual(products.map((lane) => laneState(lane, data.generated)), ['unknown', 'unknown', 'stale', ...Array(5).fill('unknown')]);
   assert.deepEqual(products.map((lane) => laneLabel(lane, data.generated)),
-    ['QA unknown (legacy)', 'QA unknown (legacy)', 'QA unknown (legacy; stale evidence)', 'no poll record']);
+    ['QA unknown (legacy)', 'QA unknown (legacy)', 'QA unknown (legacy; stale evidence)', ...Array(5).fill('no poll record')]);
   assert.deepEqual(dashboard.productEvidenceCounts(displayLanes, data.generated), {
-    passed: 0, failed: 0, unknown: 4, stale: 1,
+    passed: 0, failed: 0, unknown: 8, stale: 1,
   });
 });
 
@@ -245,4 +247,19 @@ test('timestamps use readable UTC labels', () => {
   assert.equal(when('2026-08-10T18:16:11Z'), '2026-08-10 18:16:11 UTC');
   assert.equal(stampOf(null), null);
   assert.equal(stampOf('2026-08-10T18:16:11Z'), '2026-08-10 18:16 UTC');
+});
+
+test('product display name keeps latest lanes bare and marks other streams', () => {
+  assert.equal(dashboard.productDisplayName('image-poll-snow-latest'), 'snow');
+  assert.equal(dashboard.productDisplayName('image-poll-snowfield-forky'), 'snowfield:forky');
+  assert.equal(dashboard.productDisplayName(undefined), '');
+});
+
+test('forky and latest runs of one product stay on separate lanes', () => {
+  const forky = { name: 'image-poll-snow-forky-5', phase: 'Succeeded', started: '2026-09-24T21:00:00Z', template: 'image-poller' };
+  assert.equal(dashboard.productOf(forky), 'image-poll-snow-forky');
+  assert.equal(dashboard.productOf({ name: 'image-poll-snow-forkyish-1' }), undefined);
+  const lanes = productLanes(legacyProductLanes([forky]), generated);
+  assert.equal(lanes[4].latest.name, forky.name);
+  assert.equal(lanes[0].latest, null);
 });

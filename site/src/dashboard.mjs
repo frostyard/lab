@@ -8,12 +8,23 @@ export function state(phase) {
 }
 
 export const PRODUCTS = ['snow', 'floe', 'snowfield', 'sundog'];
-const laneKeyOf = (product) => `image-poll-${product}-latest`;
-const productKey = (name) => PRODUCTS.map(laneKeyOf)
+export const STREAMS = ['latest', 'forky'];
+const laneKeyOf = (product, stream = 'latest') => `image-poll-${product}-${stream}`;
+// Every product poll lane: all -latest first, then all -forky (ADR-0022).
+export const PRODUCT_LANE_KEYS = STREAMS.flatMap((stream) =>
+  PRODUCTS.map((product) => laneKeyOf(product, stream)));
+const productKey = (name) => PRODUCT_LANE_KEYS
   .find((key) => name === key || name?.startsWith(`${key}-`));
 
 export function productOf(run) {
   return productKey(run?.laneKey) || productKey(run?.name);
+}
+
+// `snow` for the -latest lane, `snow:forky` for the other streams.
+export function productDisplayName(laneKey) {
+  const [, , product, stream] = String(laneKey ?? '').split('-');
+  if (!product) return '';
+  return stream && stream !== 'latest' ? `${product}:${stream}` : product;
 }
 
 const isProductLane = (lane) => Boolean(productKey(lane.laneKey) || productOf(lane.latest));
@@ -47,8 +58,7 @@ export function legacyProductLanes(runs) {
 export function productLanes(lanes, generated) {
   const existing = lanes.filter((lane) => lane.template !== 'image-poller' || productKey(lane.laneKey));
   return [...existing.filter((lane) => !isProductLane(lane)),
-    ...PRODUCTS.map((product) => {
-      const key = laneKeyOf(product);
+    ...PRODUCT_LANE_KEYS.map((key) => {
       return existing.find((lane) => lane.laneKey === key || productOf(lane.latest) === key)
         || pollLane(key, null, 0);
     })];

@@ -45,7 +45,7 @@ The `pages` job `freshness` makes a stall visible: on every `pages` run it
 loads `runs.json` from `data/runs` (with no fallback copy) and runs
 `scripts/check_runs_freshness.py`, which fails when the newest run (the latest
 `started` or `finished` of any run) is older than 6 hours, or when the branch
-or a run time is missing. The 4 product polls each run every 3 hours and every
+or a run time is missing. The 8 product polls (4 `:latest`, 4 `:forky`) each run every 3 hours and every
 publish run records itself, so healthy data is never more than about 30
 minutes old; 6 hours is 2 missed poll cycles and the age at which the
 dashboard already calls poll evidence stale
@@ -74,9 +74,10 @@ with `latest`, retained `runs` count, `everGreen`, and, for product lanes,
 `qaRun`: the newest retained passed run with the same digest as the lane's
 latest run, as `{name, finished, result}`, or `null`. `generated` timestamps
 the snapshot. Scheduled product polls have distinct keys
-`image-poll-{snow,floe,snowfield,sundog}-latest` (from the workflow name),
-despite all using the `image-poller` template; that list is the roster of
-products snosi publishes. For those polls, `qaOutcome` is `passed` or `failed`
+`image-poll-{snow,floe,snowfield,sundog}-{latest,forky}` (from the workflow
+name), despite all using the `image-poller` template; that list is the roster
+of product streams snosi publishes. Each stream is its own lane
+([ADR-0022](../adr/0022-forky-stream-polls-join-the-product-roster.md)). For those polls, `qaOutcome` is `passed` or `failed`
 only with observed Behave scenario counts and a matching terminal workflow
 phase. `carried` means a successful poll with an absent or null Behave result
 whose `changed` is `"false"` and whose valid remote digest equals

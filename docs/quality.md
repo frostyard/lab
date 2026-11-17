@@ -31,11 +31,11 @@ and installer workflows provide separate, non-continuous evidence.
    `site/src/data/runs.json` on `main` is only the build fallback): note `generated`, exact
    workflow `name`, `phase`, `started`/`finished`, `result`, `digest`, and
    whether this is a scheduled
-   `image-poll-{snow,floe,snowfield,sundog}-latest-*` or a manual VM run.
+   `image-poll-{snow,floe,snowfield,sundog}-{latest,forky}-*` or a manual VM run.
    Per-product `laneKey` and `qaOutcome` (`passed`, `failed`, `carried`,
    `not-run`, `unknown`) separate products and distinguish QA from poll
-   execution. The current roster is every product snosi publishes: snow, floe,
-   snowfield, sundog. Older entries may instead share one `image-poller` lane;
+   execution. The current roster is every product stream snosi publishes: snow, floe,
+   snowfield, sundog, each as `latest` and `forky` (8 lanes). Older entries may instead share one `image-poller` lane;
    identify their product by workflow name, never by the mixed lane's latest
    run. A record without `qaOutcome` remains legacy unknown despite suggestive
    `result` text. A Failed phase with zero observed scenarios is also unknown;

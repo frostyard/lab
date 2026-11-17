@@ -1,6 +1,7 @@
 # 0011 — Roster product polls and qualify their QA evidence by digest and freshness
 
-- **Status:** Accepted
+- **Status:** Accepted (roster amended by
+  [0022](0022-forky-stream-polls-join-the-product-roster.md))
 - **Date:** 2026-10-23
 
 ## Context

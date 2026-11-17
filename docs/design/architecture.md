@@ -17,7 +17,7 @@ snosi publishes bootc OCI images continuously. This repo is the machinery that
 answers "is the image that just got published actually good?" without anyone
 watching:
 
-1. A CronWorkflow polls the registry digest for an image tag.
+1. A CronWorkflow polls the registry digest for an image tag (`latest` or `forky`).
 2. If the digest moved, the QA pipeline runs against **that exact digest**.
 3. Suites run inside the image itself — booted as a nested systemd container.
 4. The new digest is recorded **only after QA passes**, so a failure retries on
@@ -112,8 +112,18 @@ lanes cover the large majority of what breaks, cheaply and fast.
 | `ghcr.io/frostyard/floe` | `latest` | digest poll, `20 */3 * * *` | smoke |
 | `ghcr.io/frostyard/snowfield` | `latest` | digest poll, `40 */3 * * *` | smoke |
 | `ghcr.io/frostyard/sundog` | `latest` | digest poll, `50 */3 * * *` | smoke |
+| `ghcr.io/frostyard/snow` | `forky` | digest poll, `0 1-22/3 * * *` | smoke |
+| `ghcr.io/frostyard/floe` | `forky` | digest poll, `20 1-22/3 * * *` | smoke |
+| `ghcr.io/frostyard/snowfield` | `forky` | digest poll, `40 1-22/3 * * *` | smoke |
+| `ghcr.io/frostyard/sundog` | `forky` | digest poll, `50 1-22/3 * * *` | smoke |
 
-All four CronWorkflows are declared `suspend: false` in git. For retained
+There are 8 polls: 4 for `:latest` and 4 for `:forky`. The `forky` tag moves
+only by snosi's forky promote dispatch (snosi ADR-0040). The `forky` polls run
+at hours 1, 4, 7, … 22, one hour after the `latest` polls, in the same minute
+per product. Each `forky` poll has its own digest key and its own dashboard row
+([ADR-0022](../adr/0022-forky-stream-polls-join-the-product-roster.md)).
+
+All eight CronWorkflows are declared `suspend: false` in git. For retained
 polls and QA evidence, see the [dashboard](https://frostyard.github.io/lab/)
 and its source, [`runs.json` on the `data/runs` branch](https://github.com/frostyard/lab/blob/data/runs/runs.json).
 `generated` marks when that snapshot was collected; the publisher replaces it
@@ -165,7 +175,7 @@ lab/
 │   ├── workflow-controller-configmap.yaml
 │   ├── workflow-semaphores.yaml      cross-workflow concurrency caps
 │   ├── image-polling-digests.yaml    digest state (values owned by cluster)
-│   ├── image-poll-*.yaml             one CronWorkflow per lane
+│   ├── image-poll-*.yaml             one CronWorkflow per lane (8: 4 `latest`, 4 `forky`)
 │   ├── namespaces.yaml
 │   └── orphan-pod-gc.yaml
 │
@@ -194,7 +204,7 @@ lab/
   lines on failure, 40 on success. Standing up an object store would let the
   whole console and the behave `results.json` be retained per run.
 - **No registry pull-through cache.** Every lane pulls from ghcr.io directly.
-  Fine at four lanes on a 3-hour poll; revisit if lane count grows.
+  Fine at eight polls on a 3-hour cycle; revisit if lane count grows.
 
 ## References
 

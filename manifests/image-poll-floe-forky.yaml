@@ -1,0 +1,47 @@
+# CronWorkflow: poll ghcr.io/frostyard/floe:forky.
+#
+# The forky tag moves only by snosi's forky promote dispatch (snosi ADR-0040).
+#
+# floe is the headless server image — no GNOME, no seat. Only the non-graphical
+# suites apply, which is exactly what the container runner covers today.
+#
+# Staggered 20 minutes off the snow lane so two multi-GB pulls do not contend
+# for registry egress on the same tick.
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: image-poll-floe-forky
+  namespace: argo
+  labels:
+    app.kubernetes.io/part-of: lab
+    snosi.io/trigger: digest-poll
+spec:
+  suspend: false
+  schedules:
+    - "20 1-22/3 * * *"
+  timezone: "UTC"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  workflowSpec:
+    serviceAccountName: argo
+    podGC:
+      strategy: OnWorkflowSuccess
+    ttlStrategy:
+      secondsAfterSuccess: 604800
+      secondsAfterFailure: 2592000
+    workflowTemplateRef:
+      name: image-poller
+    arguments:
+      parameters:
+        - name: image
+          value: "ghcr.io/frostyard/floe"
+        - name: image-tag
+          value: "forky"
+        - name: image-digest
+          value: ""
+        - name: state-key
+          value: "digest-floe-forky"
+        - name: suites
+          value: "smoke"
+        - name: variant
+          value: "floe"
