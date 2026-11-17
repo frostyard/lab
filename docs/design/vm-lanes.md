@@ -93,7 +93,8 @@ The judge fails the cell when `cfs_compressed_objects` is above zero, and when
 `fsverity_errors` is missing, not a number, or above zero on a kernel that is
 not on the known-defect list (`7.2.11+deb14-amd64` through
 `7.2.15+deb14-amd64`, `7.3.3+deb14-amd64`, `7.3.4+deb14-amd64`, and
-Snowfield's linux-surface kernels `7.2.15-1-surface` and `7.3.4-1-surface`;
+Snowfield's linux-surface kernels `7.2.15-1-surface`, `7.3.4-1-surface` and
+`7.3.4-2-surface`;
 see [quality.md](../quality.md#fs-verity-regression-checks-snosi1130)).
 `7.2.15+deb14-amd64` is Debian testing linux 7.2.15-1, signed by
 `linux-signed-amd64` 7.2.15+1. Its Debian changelog has no btrfs entry;
@@ -110,7 +111,11 @@ upstream `ChangeLog-7.2.15`, `-7.3.2` and `-7.3.3` do not contain the fix.
 `7.3.4-1-surface` is linux-surface release `debian-7.3.4-1`: upstream v7.3.4
 with the `patches/7.3` set, which touches no file under `fs/` or `mm/`. The
 lab booted it in 2 Snowfield lifecycle runs, which logged only `level=-1`
-errors on `dm-0`. The lifecycle scripts replace these per-entry comment lines with 1 pointer to
+errors on `dm-0`.
+`7.3.4-2-surface` is linux-surface release `debian-7.3.4-2`: the same v7.3.4
+base, with the `patches/7.3` set refreshed; still no patch touches `fs/` or
+`mm/`. The lab booted it in 1 Snowfield lifecycle run, which logged only a
+`level=-1` error on `dm-0`. The lifecycle scripts replace these per-entry comment lines with 1 pointer to
 [quality.md](../quality.md#fs-verity-regression-checks-snosi1130), which holds
 the evidence for every entry, so that the dev-submit template stays under its
 size bound (`tests/test_snow_lifecycle_dev_submit.py`).
