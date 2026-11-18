@@ -1222,20 +1222,26 @@ def test_count_prompts_is_zero_without_a_prompt_under_errexit(lane, console, wan
 
 
 def _run_unlock(lane, tmp_path, enc, pages, prompt_timeout=10, boot_timeout=60, attach_rc=0,
-                delay_page=0, delay_seconds=0):
+                delay_page=0, delay_seconds=0, real_delay_page=0, real_delay_seconds=0):
     """Run only the passphrase-unlock block, with a fake console, incus and clock.
 
     `pages` is what each console read returns, in order: a fake that returns
     different text on each call. A read past the end is empty. Each fake
     `incus console <vm>` without `--show-log` records its stdin and returns
     `attach_rc`, `script(1)` runs the command it is given (the pod's pty), and
-    `sleep` moves the clock so the loop always ends. Read `delay_page` also
-    spends `delay_seconds` of REAL time, so the parent clock (SECONDS) moves
-    while that read is in flight.
+    the clock is a file that only the fixture moves: a top-level `sleep`,
+    and the `delay_page` read by `delay_seconds`. Real time never moves it.
+    `real_delay_page` spends `real_delay_seconds` of real time, which the fake
+    clock does not see.
     """
     source = lane["script"]["source"]
     fail = source[source.index("fail() {"):source.index("\n}", source.index("fail() {")) + 2]
     block = _unlock_block(lane).replace("/tmp/results", str(tmp_path))
+    assert "SECONDS" in block
+    block = block.replace("SECONDS", '$(<"$CLOCK")')
+    assert "SECONDS" not in block
+    clock = tmp_path / "clock"
+    clock.write_text("0\n")
     page_file = tmp_path / "pages"
     page_file.write_text("".join(page.replace("\n", "\\n") + "\n" for page in pages))
     (tmp_path / "counter").write_text("0\n")
@@ -1244,7 +1250,7 @@ def _run_unlock(lane, tmp_path, enc, pages, prompt_timeout=10, boot_timeout=60, 
         'CELL="bootc/floe/${ENC_REQUEST}/sb=false"\nFIRN_VERSION=firn_0.6.0\nVM=fq-test\n'
         'QA_PASSPHRASE=firn-qa-passphrase\nM_DONE=FIRN_QA__CHECKS_DONE\n'
         'ENC=$ENC_REQUEST; PASSPHRASE_PROMPT_TIMEOUT=$PROMPT_TIMEOUT; INSTALLED_BOOT_TIMEOUT=$BOOT_TIMEOUT\n'
-        'sleep() { SECONDS=$((SECONDS + $1)); }\n'
+        'sleep() { [[ "${BASHPID}" == "$$" ]] || return 0; printf "%s\\n" "$(( $(<"$CLOCK") + $1 ))" > "$CLOCK"; }\n'
         'timeout() { shift 3; "$@"; }\n'
         'script() { eval "$2"; }\n'
         'console_log() { incus console "${VM}" --show-log 2>/dev/null || true; }\n'
@@ -1253,7 +1259,8 @@ def _run_unlock(lane, tmp_path, enc, pages, prompt_timeout=10, boot_timeout=60, 
         '  printf "%s\\n" "$*" >> "$INCUS_LOG"\n'
         '  if [[ "${*: -1}" == --show-log ]]; then\n'
         '    n=$(<"$COUNTER"); n=$((n + 1)); printf "%s\\n" "$n" > "$COUNTER"\n'
-        '    if [[ "${n}" == "${DELAY_PAGE}" ]]; then command sleep "${DELAY_SECONDS}"; fi\n'
+        '    if [[ "${n}" == "${DELAY_PAGE}" ]]; then printf "%s\\n" "$(( $(<"$CLOCK") + DELAY_SECONDS ))" > "$CLOCK"; fi\n'
+        '    if [[ "${n}" == "${REAL_DELAY_PAGE}" ]]; then command sleep "${REAL_DELAY_SECONDS}"; fi\n'
         '    printf "%b\\n" "$(sed -n "${n}p" "$PAGES")"\n'
         '    return 0\n'
         '  fi\n'
@@ -1270,7 +1277,9 @@ def _run_unlock(lane, tmp_path, enc, pages, prompt_timeout=10, boot_timeout=60, 
              "BOOT_TIMEOUT": str(boot_timeout), "PAGES": str(page_file),
              "COUNTER": str(tmp_path / "counter"), "INCUS_LOG": str(tmp_path / "incus.log"),
              "STDIN_LOG": str(tmp_path / "stdin.log"), "ATTACH_RC": str(attach_rc),
-             "DELAY_PAGE": str(delay_page), "DELAY_SECONDS": str(delay_seconds)},
+             "DELAY_PAGE": str(delay_page), "DELAY_SECONDS": str(delay_seconds),
+             "CLOCK": str(clock), "REAL_DELAY_PAGE": str(real_delay_page),
+             "REAL_DELAY_SECONDS": str(real_delay_seconds)},
         capture_output=True, text=True, check=False, timeout=60,
     )
     incus_calls = (tmp_path / "incus.log").read_text().splitlines()
@@ -1449,6 +1458,20 @@ def test_the_done_marker_after_the_boot_deadline_fails(lane, tmp_path):
     assert sends == ["firn-qa-passphrase"]
 
 
+def test_real_time_does_not_move_the_boot_deadline(lane, tmp_path):
+    # The prompt read spends 1.5 s of real time. With a real-time clock,
+    # 25 - 1 < 25, so the lane would not answer (issue #251).
+    result, _, _, sends, summary = _run_unlock(
+        lane, tmp_path, "luks-passphrase",
+        ["FIRN_QA__INSTALL_OK", PASSPHRASE_PROMPT,
+         PASSPHRASE_PROMPT + "\nFIRN_QA__CHECKS_DONE"],
+        prompt_timeout=600, boot_timeout=25, real_delay_page=2, real_delay_seconds=1.5)
+    assert result.returncode == 0, result.stderr
+    assert summary is None
+    assert sends == ["firn-qa-passphrase"]
+    assert "NOTE= unlock=serial-passphrase prompts=1" in result.stdout
+
+
 def test_a_retained_log_is_read_as_the_new_part_only(lane, tmp_path):
     # Incus kept the log: the pre-start prompt line is not answered again.
     result, _, _, sends, summary = _run_unlock(
@@ -1523,14 +1546,13 @@ def test_read_boot_console_budget_is_clamped(lane, tmp_path):
 
 
 def test_a_read_that_outlives_the_deadline_does_not_pass(lane, tmp_path):
-    # The fake clock moves 5 s per pass, so this read starts at 25 s of a 27 s
-    # budget and spends 2.5 s of real time: it ends after the deadline, with the
-    # done marker in the log. It must not pass.
+    # The fake clock is at 25 s of a 27 s budget when this read starts.
+    # The read moves it 3 s, to 28 s, past the deadline. It must not pass.
     result, _, _, sends, summary = _run_unlock(
         lane, tmp_path, "luks-passphrase",
         ["FIRN_QA__INSTALL_OK", PASSPHRASE_PROMPT, "", "", "", "",
          "FIRN_QA__CHECKS_DONE"],
-        prompt_timeout=600, boot_timeout=27, delay_page=7, delay_seconds=2.5)
+        prompt_timeout=600, boot_timeout=27, delay_page=7, delay_seconds=3)
     assert result.returncode == 1, result.stdout
     assert summary == "FAILED: boot:no_report (bootc/floe/luks-passphrase/sb=false) firn=firn_0.6.0"
     assert sends == ["firn-qa-passphrase"]
