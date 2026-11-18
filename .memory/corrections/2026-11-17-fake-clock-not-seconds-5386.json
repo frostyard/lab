@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-17",
+  "scope": "tests that run a lane block with a fake clock",
+  "correction": "A fixture that fakes sleep must not move bash SECONDS: real time also moves SECONDS, so a slow runner can pass a deadline that the test expects to hold. Replace SECONDS in the block under test with a clock that only the fixture moves.",
+  "evidence": "lab#251: test_the_done_marker_after_the_boot_deadline_fails failed with sends == [] in Repository gate (Python 3.13), run 44003852803; guard tests/test_firn_install_lane.py::test_real_time_does_not_move_the_boot_deadline",
+  "promoted_to": "tests/test_firn_install_lane.py"
+}
