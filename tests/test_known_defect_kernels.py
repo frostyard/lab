@@ -4,8 +4,8 @@ from pathlib import Path
 
 TEMPLATES = Path(__file__).resolve().parents[1] / "argo/workflow-templates"
 
-KNOWN_DEFECT_LIST = 'known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64 7.2.15+deb14-amd64 7.3.3+deb14-amd64 7.3.4+deb14-amd64 7.2.15-1-surface 7.3.4-1-surface 7.3.4-2-surface"'
-UPSTREAM_FIX = "254e15591ee4"   # kdave/linux next-fixes; dcf8811f63af before a rebase
+KNOWN_DEFECT_LIST = 'known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64 7.2.15+deb14-amd64 7.3.3+deb14-amd64 7.3.4+deb14-amd64 7.3.5+deb14-amd64 7.2.15-1-surface 7.3.4-1-surface 7.3.4-2-surface"'
+UPSTREAM_FIX = "254e15591ee4"   # mainline, first in v7.4-rc2; not in stable 7.3 or Debian yet
 
 
 def test_known_defect_list_is_identical_in_every_lane():
@@ -27,6 +27,7 @@ EVIDENCE_POINTER = "The source evidence for each entry is in lab docs/quality.md
 def test_every_known_defect_kernel_is_evidenced_in_quality_md():
     root = Path(__file__).resolve().parents[1]
     words = KNOWN_DEFECT_LIST.split('"')[1].split()
+    assert "7.3.5+deb14-amd64" in words
     assert "7.3.4+deb14-amd64" in words
     assert "7.3.3+deb14-amd64" in words
     assert "7.2.15-1-surface" in words
@@ -37,3 +38,10 @@ def test_every_known_defect_kernel_is_evidenced_in_quality_md():
         assert f"`{kernel}`" in quality, kernel
     lifecycle = (TEMPLATES / "snow-bootc-lifecycle-scripts.yaml").read_text(encoding="utf-8")
     assert EVIDENCE_POINTER in lifecycle
+
+
+def test_quality_md_records_the_mainline_fix():
+    root = Path(__file__).resolve().parents[1]
+    quality = (root / QUALITY_DOC).read_text(encoding="utf-8")
+    assert "v7.4-rc2" in quality
+    assert "not in mainline" not in quality

@@ -174,7 +174,7 @@ is claimed by the submit file alone.
 
 ## fs-verity regression checks (snosi#1130)
 
-Debian kernels 7.2.11 to 7.2.15, 7.3.3 and 7.3.4, and the linux-surface
+Debian kernels 7.2.11 to 7.2.15, 7.3.3, 7.3.4 and 7.3.5, and the linux-surface
 kernels `7.2.15-1-surface`, `7.3.4-1-surface` and `7.3.4-2-surface`, have a
 btrfs defect: on
 fs-verity files, readahead verifies a whole large folio before all of it is
@@ -182,13 +182,20 @@ read. The kernel logs
 `fs-verity (...): FILE CORRUPTED! ... level=-1`. A synchronous re-read then
 succeeds, so no bad bytes reach user space; it is log noise with a real
 cause, not data corruption. The upstream fix is
-[kdave/linux `254e15591ee4`](https://git.kernel.org/pub/scm/linux/kernel/git/kdave/linux.git/commit/?id=254e15591ee4590064e0c55285cdcb4f4519133c)
-("btrfs: fix the fsverity callback where unexpected range is verified") on
-kdave's `next-fixes` branch. Earlier notes cite `dcf8811f63af`: that is the
-same patch before kdave rebased the branch, and it is no longer reachable. The
-fix is not in mainline or in a Debian kernel yet. Debian `7.2.13-1` and
-`7.2.14-1` (sid) have no btrfs entry in their changelogs. Debian testing ships
-`linux-image-7.2.15+deb14-amd64` for linux 7.2.15-1; that package is signed by
+[mainline `254e15591ee4`](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=254e15591ee4590064e0c55285cdcb4f4519133c)
+("btrfs: fix the fsverity callback where unexpected range is verified").
+Linus merged it on 2026-11-07 in `fa4ad798f6f6`; the first mainline tag with
+it is `v7.4-rc2`. The patch has `Fixes: 146054090b08` and no `Cc: stable`.
+Earlier notes cite `dcf8811f63af`, the unreachable pre-rebase hash.
+Source checks reported on 2026-11-19 00:25Z found no stable 7.3, Debian
+(forky, sid or experimental), or linux-surface kernel with the fix.
+The stable-queue `queue-7.3/series` has no entry for it
+(SHA256 `96dee176adc4bb8ac6ecf08e8faf19ede5047c96530649cc4ffdaf629aadca8b`).
+Mainline v7.4-rc1 still calls `fsverity_verify_folio()`; v7.4-rc2 and
+v7.4-rc3 call `fsverity_verify_blocks(vi, folio, len, offset_in_folio(folio, start))`.
+Debian `7.2.13-1` and `7.2.14-1` (sid) have no btrfs entry in their
+changelogs. Debian linux 7.2.15-1 ships
+`linux-image-7.2.15+deb14-amd64`; that package is signed by
 `linux-signed-amd64` 7.2.15+1. Its changelog has no btrfs or fs-verity entry.
 The upstream `ChangeLog-7.2.15` has no btrfs commit, and `ChangeLog-7.3.2` and
 `ChangeLog-7.3.3` do not contain the fix either. Debian `7.3.3-1` ships
@@ -207,9 +214,33 @@ LSM signature order, the statx flag) are different bugs. The upstream
 `ChangeLog-7.3.4` has no match for `254e15591ee4`, and v7.3.4
 `fs/btrfs/extent_io.c` is byte-identical to v7.3 and v7.3.3 and still calls
 `fsverity_verify_folio()` in `btrfs_verify_folio()`. The Debian 7.3.4-1 patch
-series has only the raid5/6 warning btrfs patch. These Debian kernels are
-listed from this source evidence, so the lanes do not fail when snosi's
-`linux-image-amd64/forky` moves to them; no lab run has booted them yet. See
+series has only the raid5/6 warning btrfs patch.
+
+The 2026-11-19 00:25Z source checks also cover `7.3.5+deb14-amd64`, Debian
+linux 7.3.5-1 in unstable (uploaded 2026-11-18, signed by
+`linux-signed-amd64` 7.3.5+1; the amd64 build was still pending, and sid
+already had `linux-image-7.3.5+deb14-amd64-dbg` from the same source).
+Forky still ships `linux-image-amd64` 7.3.4-1. At that check, britney showed
+age 0 of 5 days for 7.3.5-1; migration to forky will make snosi install it.
+The [Debian changelog](https://metadata.ftp-master.debian.org/changelogs/main/l/linux/linux_7.3.5-1_changelog)
+(SHA256 `19ccdd8788d17076dc92b8ac097bf2150993c3f6c2ece589a8e3fc70624e219e`)
+imports `ChangeLog-7.3.5` and has no fsverity entry. Its 3 btrfs entries fix
+`chattr` on nodatasum files with the compress flag, restore NOFS in
+`btrfs_sysfs_add_block_group_type()`, and prevent deletion of the wrong
+subvolume by ID. None is the fs-verity fix.
+The [upstream ChangeLog-7.3.5](https://cdn.kernel.org/pub/linux/kernel/v7.x/ChangeLog-7.3.5)
+(SHA256 `19f2774a4490d5dd20062de9f96c65cb3f658b238853d2f82026f06dae636cbf`)
+has 515 commits, with 0 matches for `254e15591ee4` or `verity`.
+Upstream v7.3.5 `fs/btrfs/extent_io.c` is byte-identical to v7.3 and v7.3.4
+(SHA256 `672225083dbd0733db1546ea8fbe3a65c553f35d2d1c3ac0a0f0cf2af4c00af5`);
+`btrfs_verify_folio()` still calls `fsverity_verify_folio()`.
+The Debian patch series at `debian/7.3.5-1` is identical to `debian/7.3.4-1`
+(SHA256 `5232104cdf4439ba71b7ce8b7efbecfc0e99859ff6b359b0b2187d466c7467af`);
+its only btrfs patch is the raid5/6 warning.
+These Debian kernels are listed from source evidence, so the lanes do not
+fail when snosi's `linux-image-amd64/forky` moves to them.
+No lab run has booted `7.3.5+deb14-amd64`, and no published snosi image carries
+it yet. See
 [snosi#1130](https://github.com/frostyard/snosi/issues/1130)
 (investigation updates 5, 8, 9 and 10).
 
@@ -233,8 +264,8 @@ in every template that judges it (`known_defect_kernels` in the Firn judge and
 the lifecycle `run.sh`): `7.2.11+deb14-amd64`,
 `7.2.12+deb14-amd64`, `7.2.13+deb14-amd64`, `7.2.14+deb14-amd64`,
 `7.2.15+deb14-amd64`, `7.3.3+deb14-amd64`, `7.3.4+deb14-amd64`,
-`7.2.15-1-surface`, `7.3.4-1-surface` and `7.3.4-2-surface` (linux-surface,
-Snowfield). The
+`7.3.5+deb14-amd64`, `7.2.15-1-surface`, `7.3.4-1-surface` and
+`7.3.4-2-surface` (linux-surface, Snowfield). The
 linux-surface entries have the same unfixed code. For `7.2.15-1-surface`:
 upstream v7.2.15 `fs/btrfs/extent_io.c` is
 byte-identical to v7.2.12 and still calls `fsverity_verify_folio()` in
