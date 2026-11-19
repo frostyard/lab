@@ -560,13 +560,12 @@ spec:
         emit bootc_image "\$(printf '%s\n' "\${BOOTC_FIELDS}" | head -n 1)"
         emit bootc_digest "\$(printf '%s\n' "\${BOOTC_FIELDS}" | tail -n 1)"
         # --- BEGIN fsverity-probe ---
-        # frostyard/snosi#1130: Debian kernels 7.2.11 to 7.3.4 verify a whole
+        # frostyard/snosi#1130: Debian kernels 7.2.11 to 7.3.5 verify a whole
         # large folio of a btrfs fs-verity file before all of it is read and log
         # "fs-verity ... FILE CORRUPTED! ... level=-1". The synchronous re-read
-        # succeeds, so no bad bytes reach user space. Upstream fix: kdave/linux
-        # 254e15591ee4 on next-fixes ("btrfs: fix the fsverity callback where
-        # unexpected range is verified"; not in mainline or a Debian kernel
-        # yet). COMPRESSED extents hit it on almost every extent: our trigger
+        # succeeds, so no bad bytes reach user space. Upstream fix: mainline
+        # 254e15591ee4 (first in v7.4-rc2); no stable 7.3 or Debian kernel
+        # carries it yet. COMPRESSED extents hit it on almost every extent: our trigger
         # was Firn mounting the install target with compress=zstd:1, which
         # compressed the install-time composefs objects (frostyard/firn#119),
         # so cfs_compressed_objects is judged. UNCOMPRESSED files hit it rarely,
@@ -946,15 +945,17 @@ spec:
         judge() {
           local checks_file="$1" bootc_image bootc_digest cfs_objects fsverity_errors fsverity_kernel fsverity_kernels fsverity_known entry fsverity_note="" serial_tty plymouthd cmdline_splash cmdline_quiet plymouth_start plymouth_started plymouth_crashes
           # Kernels with the known upstream btrfs fs-verity defect (frostyard/snosi#1130,
-          # kdave/linux 254e15591ee4). Remove an entry when the kernel canary says
-          # `clean` on it or a fixed kernel ships. Keep identical in every lane.
+          # mainline 254e15591ee4, first in v7.4-rc2; not in stable 7.3 or Debian yet).
+          # Remove an entry when the kernel canary says `clean` on it or a fixed
+          # kernel ships. Keep identical in every lane.
           # 7.2.15+deb14-amd64 is Debian linux 7.2.15-1; its changelog and upstream ChangeLog-7.2.15 have no btrfs fix.
           # 7.3.3+deb14-amd64 is Debian linux 7.3.3-1; its changelog and upstream ChangeLog-7.3.1 to -7.3.3 have no btrfs fix.
           # 7.3.4+deb14-amd64 is Debian linux 7.3.4-1; its changelog and upstream ChangeLog-7.3.4 have no btrfs fix.
+          # 7.3.5+deb14-amd64 is Debian linux 7.3.5-1; its changelog and upstream ChangeLog-7.3.5 have no btrfs fix.
           # 7.2.15-1-surface is Snowfield's linux-surface kernel; upstream 7.2.15 btrfs lacks the fix.
           # 7.3.4-1-surface is Snowfield's linux-surface 7.3 kernel; upstream 7.3.4 btrfs lacks the fix.
           # 7.3.4-2-surface is the linux-surface rebuild debian-7.3.4-2 on the same v7.3.4 base; no patch touches fs/ or mm/.
-          local known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64 7.2.15+deb14-amd64 7.3.3+deb14-amd64 7.3.4+deb14-amd64 7.2.15-1-surface 7.3.4-1-surface 7.3.4-2-surface"
+          local known_defect_kernels="7.2.11+deb14-amd64 7.2.12+deb14-amd64 7.2.13+deb14-amd64 7.2.14+deb14-amd64 7.2.15+deb14-amd64 7.3.3+deb14-amd64 7.3.4+deb14-amd64 7.3.5+deb14-amd64 7.2.15-1-surface 7.3.4-1-surface 7.3.4-2-surface"
           if ! grep -qx 'booted=ok' "${checks_file}"; then fail boot no_report; fi
           if ! grep -qx "osrelease=${IMAGE}" "${checks_file}"; then fail boot wrong_image; fi
           if [[ "${ENC}" != none ]]; then

@@ -87,12 +87,14 @@ the installer booted. The version is recorded, not judged.
 The post-install probe also guards the btrfs fs-verity kernel defect
 ([snosi#1130](https://github.com/frostyard/snosi/issues/1130); Firn's
 `compress=zstd:1` mount, [firn#119](https://github.com/frostyard/firn/issues/119);
-upstream fix `254e15591ee4` in kdave/linux). It emits
+upstream fix `254e15591ee4` in mainline, first in `v7.4-rc2`, but not yet
+in stable 7.3 or a Debian kernel). It emits
 `cfs_compressed_objects=<N>`, `fsverity_errors=<N>` and `kernel=<release>`.
 The judge fails the cell when `cfs_compressed_objects` is above zero, and when
 `fsverity_errors` is missing, not a number, or above zero on a kernel that is
 not on the known-defect list (`7.2.11+deb14-amd64` through
-`7.2.15+deb14-amd64`, `7.3.3+deb14-amd64`, `7.3.4+deb14-amd64`, and
+`7.2.15+deb14-amd64`, `7.3.3+deb14-amd64`, `7.3.4+deb14-amd64`,
+`7.3.5+deb14-amd64`, and
 Snowfield's linux-surface kernels `7.2.15-1-surface`, `7.3.4-1-surface` and
 `7.3.4-2-surface`;
 see [quality.md](../quality.md#fs-verity-regression-checks-snosi1130)).
@@ -108,6 +110,13 @@ upstream `ChangeLog-7.2.15`, `-7.3.2` and `-7.3.3` do not contain the fix.
 7.3.4+1. Its Debian changelog has no btrfs fs-verity fix, upstream
 `ChangeLog-7.3.4` does not contain the fix, and v7.3.4
 `fs/btrfs/extent_io.c` is byte-identical to v7.3.3.
+`7.3.5+deb14-amd64` is Debian linux 7.3.5-1 in unstable, signed by
+`linux-signed-amd64` 7.3.5+1. Source checks reported on 2026-11-19 found no
+fs-verity fix in its Debian changelog or upstream `ChangeLog-7.3.5`.
+Its v7.3.5 `fs/btrfs/extent_io.c` and Debian patch series match 7.3.4.
+It is listed from source evidence; no lab run has booted it, and no
+published snosi image carries it yet. See the hashes in
+[quality.md](../quality.md#fs-verity-regression-checks-snosi1130).
 `7.3.4-1-surface` is linux-surface release `debian-7.3.4-1`: upstream v7.3.4
 with the `patches/7.3` set, which touches no file under `fs/` or `mm/`. The
 lab booted it in 2 Snowfield lifecycle runs, which logged only `level=-1`
