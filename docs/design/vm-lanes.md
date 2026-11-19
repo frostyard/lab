@@ -110,8 +110,10 @@ upstream `ChangeLog-7.2.15`, `-7.3.2` and `-7.3.3` do not contain the fix.
 7.3.4+1. Its Debian changelog has no btrfs fs-verity fix, upstream
 `ChangeLog-7.3.4` does not contain the fix, and v7.3.4
 `fs/btrfs/extent_io.c` is byte-identical to v7.3.3.
-`7.3.5+deb14-amd64` is Debian linux 7.3.5-1 in unstable, signed by
-`linux-signed-amd64` 7.3.5+1. Source checks reported on 2026-11-19 found no
+`7.3.5+deb14-amd64` is Debian linux 7.3.5-1 in unstable. Its signed amd64
+build (`linux-signed-amd64` 7.3.5+1) was still pending at the check; sid
+already had `linux-image-7.3.5+deb14-amd64-dbg` from the same source, which
+gives the release name. Source checks reported on 2026-11-19 found no
 fs-verity fix in its Debian changelog or upstream `ChangeLog-7.3.5`.
 Its v7.3.5 `fs/btrfs/extent_io.c` and Debian patch series match 7.3.4.
 It is listed from source evidence; no lab run has booted it, and no

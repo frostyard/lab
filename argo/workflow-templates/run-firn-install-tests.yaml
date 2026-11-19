@@ -565,8 +565,8 @@ spec:
         # "fs-verity ... FILE CORRUPTED! ... level=-1". The synchronous re-read
         # succeeds, so no bad bytes reach user space. Upstream fix: mainline
         # 254e15591ee4 (first in v7.4-rc2); no stable 7.3 or Debian kernel
-        # carries it yet. COMPRESSED extents hit it on almost every extent: our trigger
-        # was Firn mounting the install target with compress=zstd:1, which
+        # carries it yet. COMPRESSED extents hit it on almost every extent: our
+        # trigger was Firn mounting the install target with compress=zstd:1, which
         # compressed the install-time composefs objects (frostyard/firn#119),
         # so cfs_compressed_objects is judged. UNCOMPRESSED files hit it rarely,
         # when a large folio spans two bios at an extent boundary, so

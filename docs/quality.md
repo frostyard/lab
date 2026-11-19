@@ -218,7 +218,8 @@ series has only the raid5/6 warning btrfs patch.
 
 The 2026-11-19 00:25Z source checks also cover `7.3.5+deb14-amd64`, Debian
 linux 7.3.5-1 in unstable (uploaded 2026-11-18, signed by
-`linux-signed-amd64` 7.3.5+1; the amd64 build was still pending).
+`linux-signed-amd64` 7.3.5+1; the amd64 build was still pending, and sid
+already had `linux-image-7.3.5+deb14-amd64-dbg` from the same source).
 Forky still ships `linux-image-amd64` 7.3.4-1. At that check, britney showed
 age 0 of 5 days for 7.3.5-1; migration to forky will make snosi install it.
 The [Debian changelog](https://metadata.ftp-master.debian.org/changelogs/main/l/linux/linux_7.3.5-1_changelog)
@@ -263,8 +264,8 @@ in every template that judges it (`known_defect_kernels` in the Firn judge and
 the lifecycle `run.sh`): `7.2.11+deb14-amd64`,
 `7.2.12+deb14-amd64`, `7.2.13+deb14-amd64`, `7.2.14+deb14-amd64`,
 `7.2.15+deb14-amd64`, `7.3.3+deb14-amd64`, `7.3.4+deb14-amd64`,
-`7.3.5+deb14-amd64`, `7.2.15-1-surface`, `7.3.4-1-surface` and `7.3.4-2-surface` (linux-surface,
-Snowfield). The
+`7.3.5+deb14-amd64`, `7.2.15-1-surface`, `7.3.4-1-surface` and
+`7.3.4-2-surface` (linux-surface, Snowfield). The
 linux-surface entries have the same unfixed code. For `7.2.15-1-surface`:
 upstream v7.2.15 `fs/btrfs/extent_io.c` is
 byte-identical to v7.2.12 and still calls `fsverity_verify_folio()` in
