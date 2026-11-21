@@ -5,7 +5,7 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/claude-code-review.yml"
 DOCUMENTATION = ROOT / "docs/claude-code-review.md"
-ACTION_SHA = "4fa93a88de49bbef68b10eb15aabedf28ca0e1ed"
+ACTION_SHA = "cc98b3ae241b0fcfb6a42a2690751afffecb4452"
 ALLOWED_TOOLS = (
     'mcp__github_inline_comment__create_inline_comment,'
     'Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)'
