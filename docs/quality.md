@@ -15,7 +15,6 @@ request's checks rather than these default-branch badges.
 | Reporting site end to end | [![e2e status][e2e-badge]][e2e-workflow] | Playwright builds the reporting site and checks the rendered dashboard against the committed run data. |
 | Repository CI | [![CI status][ci-badge]][ci-workflow] | Python 3.12/3.13 run every pytest contract and enforce production Python coverage, including Kubernetes 1.36 manifest schemas, Argo wiring, workload resource bounds, and the deny-by-default agent-governance policy; Node.js 22 runs the reporting-site unit suite. |
 | Reporting site deployment | [![pages status][pages-badge]][pages-workflow] | The site unit tests and Astro build passed before the current GitHub Pages deployment. |
-| Advisory AI review | [![Claude review status][claude-review-badge]][claude-review-workflow] | For eligible same-repository pull requests, Claude checked the diff against the repository review and security guidance; its comments still require human verification. |
 
 The operational QA dashboard at <https://frostyard.github.io/lab/> is a
 different signal: it reports the images and QA lanes exercised by Argo. It
@@ -680,7 +679,7 @@ key are random per run and stay in the lab container
 | `scripts/`, `tests/`, or `policies/` | `python -m pytest -q`; for governance changes also run `python3 policies/check_agent_governance.py`. |
 | `argo/`, `manifests/`, `argocd/`, or Kubernetes resources | `python -m pytest -q` for offline schema and cross-resource contracts; also run `argo lint` where applicable and `just validate` against a configured cluster. |
 | Documentation | Commands and links resolve; present-tense lane claims agree with the committed run snapshot and `docs/design/`. August statements in `docs/roadmap.md` are historical. |
-| Every pull request | Follow the [contributing guide](../CONTRIBUTING.md) and record the relevant result in the pull request's Testing section. Same-repository, non-draft pull requests also receive the advisory [Claude review](claude-code-review.md). |
+| Every pull request | Follow the [contributing guide](../CONTRIBUTING.md) and record the relevant result in the pull request's Testing section. |
 
 ## Known gaps
 
@@ -696,9 +695,6 @@ key are random per run and stay in the lab container
   manifest changes.
 - The Pages workflow runs after changes reach `main`; it is deployment
   evidence, not a pre-merge check.
-- Claude review requires the `ANTHROPIC_API_KEY` repository secret and skips
-  fork pull requests. It is advisory evidence, not approval or a required
-  replacement for deterministic checks and maintainer review.
 
 These gaps must stay visible until a workflow actually closes them. Adding a
 new check should update both the live-signals table and the change-area mapping
@@ -710,5 +706,3 @@ above.
 [ci-workflow]: https://github.com/frostyard/lab/actions/workflows/ci.yml
 [pages-badge]: https://github.com/frostyard/lab/actions/workflows/pages.yml/badge.svg?branch=main
 [pages-workflow]: https://github.com/frostyard/lab/actions/workflows/pages.yml
-[claude-review-badge]: https://github.com/frostyard/lab/actions/workflows/claude-code-review.yml/badge.svg?branch=main
-[claude-review-workflow]: https://github.com/frostyard/lab/actions/workflows/claude-code-review.yml

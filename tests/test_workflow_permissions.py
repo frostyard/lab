@@ -73,7 +73,6 @@ def test_labeler_job_permissions_are_exact():
 
 def test_job_write_permissions_are_allowlisted():
     allowed_writes = {
-        ("claude-code-review.yml", "review", "pull-requests"),
         ("risk-paths.yml", "pr-triage", "pull-requests"),
         ("pages.yml", "deploy", "pages"),
         ("pages.yml", "deploy", "id-token"),

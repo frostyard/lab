@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-21",
+  "scope": "claude-code-action review",
+  "correction": "The advisory Claude review is removed by Brian's decision (chat 2026-11-21: \"drop claude-code-action (and that should be across the corpus too)\"). This record retires .memory/corrections/2026-11-21-pr-266-read-the-action-pin.json for anthropics/claude-code-action, and with it .memory/corrections/2026-11-13-legacy-0018.json: .github/workflows/claude-code-review.yml, tests/test_claude_code_review_workflow.py, docs/claude-code-review.md and the AGENTS.md rule on reviewing its bumps are gone. Do not add claude-code-action or an ANTHROPIC_API_KEY workflow back without a new decision from Brian. The pin rules of that record (core ADR-0088, ADR-0090, tests/test_workflow_pins.py) still hold for every other action.",
+  "evidence": "Brian, chat 2026-11-21 (team priorities, goal 0); lab#267 removes the workflow, its test, its doc and the claude cases in tests/test_workflow_permissions.py and tests/test_workflow_pins.py",
+  "promoted_to": ""
+}

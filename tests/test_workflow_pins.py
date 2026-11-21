@@ -119,7 +119,7 @@ def check_pins(files):
 
 
 def test_the_pin_files_are_found():
-    assert any(path.name == "claude-code-review.yml" for path in pin_files())
+    assert any(path.name == "ci.yml" for path in pin_files())
 
 
 def test_every_action_pin_has_a_sha_a_version_comment_and_1_sha_per_repository():

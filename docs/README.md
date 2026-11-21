@@ -82,8 +82,6 @@ the roadmap or an ADR; git keeps them. -->
 - [quality.md](quality.md) — quality signals, evidence, and known gaps
 - [risk-tiers.md](risk-tiers.md) — change risk tiers used by review and CI
 - [review-rubric.md](review-rubric.md) — what review checks, by tier
-- [claude-code-review.md](claude-code-review.md) — advisory Claude review
-  workflow
 - [ai-fix-workflow.md](ai-fix-workflow.md) — the AI fix-request workflow
 - [SECURITY-AI.md](SECURITY-AI.md) — security posture for AI automation
 - [metrics/README.md](metrics/README.md) — PR metrics collection
