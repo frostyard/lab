@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-21",
+  "scope": "action pin tests",
+  "correction": "This record replaces .memory/corrections/2026-11-13-legacy-0018.json, under core ADR-0088 and ADR-0090. A test never holds the exact anthropics/claude-code-action SHA (no ACTION_SHA): tests/test_claude_code_review_workflow.py reads the pin from the workflow and asserts 1 step, a 40-hex SHA and a # vX.Y.Z or # vX.Y comment, and tests/test_workflow_pins.py asserts the comment and 1 SHA for each OWNER/REPO across all workflows. The owner reviews each new commit of claude-code-action in its Dependabot bump pull request (L2, risk:high) by reading the upstream diff; a bump that keeps the pin properties is green.",
+  "evidence": "lab#265 was red only on ACTION_SHA (core ADR-0088 Context); core#281 (ADR-0088) and core#283 (ADR-0090) merged 2026-11-21; lab#266 mutation run: a wrong action, a missing comment, # v2 and 2 SHAs for 1 action each fail tests/test_claude_code_review_workflow.py or tests/test_workflow_pins.py",
+  "promoted_to": "AGENTS.md"
+}

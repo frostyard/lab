@@ -32,6 +32,14 @@ a claim that model output is trusted: comments are advisory and require human
 verification under `docs/review-rubric.md`. Existing CI and maintainer approval
 remain authoritative.
 
+The action runs with the secret and a `pull-requests: write` token, so the owner
+reviews each new commit of it: a Dependabot bump of
+`anthropics/claude-code-action` is an L2, `risk:high` pull request, and the
+owner reads the upstream changes between the old and the new SHA before the
+merge. The tests read the pin from the workflow and check its form (1 step, a
+40-hex SHA, a version comment, 1 SHA across workflows), not its value (core
+ADR-0088, ADR-0090).
+
 ## Failure and rollback
 
 Skipping a review because the secret is absent is visible in the job log and
