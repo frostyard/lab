@@ -8,7 +8,8 @@ action pin, `OWNER/REPO[/PATH]@SHA`. For each one this check asserts:
 - the line carries a version comment, `# vX.Y.Z` or `# vX.Y` (a major-only
   `# vN` is not one). A frostyard/core reusable workflow pin is exempt,
   because core has no release tags: it needs only a comment;
-- each OWNER/REPO has 1 SHA across all those files.
+- each OWNER/REPO has 1 SHA across all those files. OWNER/REPO is compared
+  in lower case, as GitHub compares it.
 
 PyYAML drops comments, so the comment comes from the raw line. The `uses:`
 values that PyYAML sees must equal the values read from the raw lines: a
@@ -110,7 +111,9 @@ def check_pins(files):
                 errors.append(
                     f"{where}: comment {comment!r}, want # vX.Y.Z or # vX.Y"
                 )
-            repo = "/".join(action.split("/")[:2])
+            # GitHub owner and repository names are case-insensitive, so
+            # `Owner/Repo` and `owner/repo` are 1 action repository.
+            repo = "/".join(action.split("/")[:2]).lower()
             shas.setdefault(repo, set()).add(ref)
     for repo, refs in sorted(shas.items()):
         if len(refs) != 1:
@@ -213,8 +216,9 @@ def test_self_test_a_bad_pin_fails(text, error):
             "a.yml": step(f"{CORE_WORKFLOW}x.yml@{PLACEHOLDER}", " # core"),
             "b.yml": step(f"{CORE_WORKFLOW}y.yml@{OTHER}", " # core"),
         },
+        {"a.yml": step(f"Owner/Repo@{PLACEHOLDER}"), "b.yml": step(f"owner/repo@{OTHER}")},
     ],
-    ids=["2-files", "1-file", "2-paths-of-1-repository", "core"],
+    ids=["2-files", "1-file", "2-paths-of-1-repository", "core", "mixed-case"],
 )
 def test_self_test_2_shas_for_1_repository_fail(files):
     errors = check_pins(files)
