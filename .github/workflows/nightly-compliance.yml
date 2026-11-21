@@ -68,3 +68,9 @@ jobs:
         working-directory: site
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
+
+  action-pin-tags:
+    name: Online action pin tag check
+    permissions:
+      contents: read
+    uses: ./.github/workflows/action-pin-tags.yml

@@ -53,7 +53,12 @@ ADR-0018, ADR-0029). Edit only the canonical paths.
   when upstream tags releases with 2 parts, such as `github/issue-labeler`);
   a frostyard/core reusable workflow pin needs only a comment that names the
   core commit. `tests/test_workflow_pins.py` checks this, and 1 SHA for each
-  `OWNER/REPO`, across `.github/workflows/`. A test that guards a pin reads it
+  `OWNER/REPO` (in lower case), across `.github/workflows/`. The online check
+  `scripts/check-action-pin-tags.sh` (ADR-0090's script, byte for byte; copy
+  it again, never edit it) runs in `action-pin-tags.yml` on pull requests that
+  change a workflow and nightly from `nightly-compliance.yml`; it needs the
+  network, so it stays out of `make ci` (`tests/test_action_pin_tags.py`
+  checks its sha256 pin and wiring). A test that guards a pin reads it
   from the workflow and asserts its properties; it never holds a literal SHA.
 - `anthropics/claude-code-action` runs with `ANTHROPIC_API_KEY` and a
   `pull-requests: write` token: the owner reviews each new commit of it in its

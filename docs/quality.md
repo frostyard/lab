@@ -14,6 +14,7 @@ request's checks rather than these default-branch badges.
 |---|---|---|
 | Reporting site end to end | [![e2e status][e2e-badge]][e2e-workflow] | Playwright builds the reporting site and checks the rendered dashboard against the committed run data. |
 | Repository CI | [![CI status][ci-badge]][ci-workflow] | Python 3.12/3.13 run every pytest contract and enforce production Python coverage, including Kubernetes 1.36 manifest schemas, Argo wiring, workload resource bounds, and the deny-by-default agent-governance policy; Node.js 22 runs the reporting-site unit suite. |
+| Action pin tags | [![Action pin tags status][pin-tags-badge]][pin-tags-workflow] | Each action pin's `# vX.Y[.Z]` comment names the tag of the pinned commit upstream, and each frostyard/core pin is a commit on core's `main` (core ADR-0090's script). Runs on pull requests that change a workflow and nightly; it needs the network, so `make ci` does not run it. |
 | Reporting site deployment | [![pages status][pages-badge]][pages-workflow] | The site unit tests and Astro build passed before the current GitHub Pages deployment. |
 | Advisory AI review | [![Claude review status][claude-review-badge]][claude-review-workflow] | For eligible same-repository pull requests, Claude checked the diff against the repository review and security guidance; its comments still require human verification. |
 
@@ -679,6 +680,7 @@ key are random per run and stay in the lab container
 | `site/`, `e2e/`, or Playwright configuration | `just site-e2e`; run `cd site && npm test` when changing the API/data helpers. |
 | `scripts/`, `tests/`, or `policies/` | `python -m pytest -q`; for governance changes also run `python3 policies/check_agent_governance.py`. |
 | `argo/`, `manifests/`, `argocd/`, or Kubernetes resources | `python -m pytest -q` for offline schema and cross-resource contracts; also run `argo lint` where applicable and `just validate` against a configured cluster. |
+| `.github/workflows/` | `python -m pytest -q` (pins, permissions); the `Action pin tags` workflow runs on the pull request and checks each pin's version comment against its upstream tag (core ADR-0090). |
 | Documentation | Commands and links resolve; present-tense lane claims agree with the committed run snapshot and `docs/design/`. August statements in `docs/roadmap.md` are historical. |
 | Every pull request | Follow the [contributing guide](../CONTRIBUTING.md) and record the relevant result in the pull request's Testing section. Same-repository, non-draft pull requests also receive the advisory [Claude review](claude-code-review.md). |
 
@@ -708,6 +710,8 @@ above.
 [e2e-workflow]: https://github.com/frostyard/lab/actions/workflows/e2e.yml
 [ci-badge]: https://github.com/frostyard/lab/actions/workflows/ci.yml/badge.svg?branch=main
 [ci-workflow]: https://github.com/frostyard/lab/actions/workflows/ci.yml
+[pin-tags-badge]: https://github.com/frostyard/lab/actions/workflows/action-pin-tags.yml/badge.svg?branch=main
+[pin-tags-workflow]: https://github.com/frostyard/lab/actions/workflows/action-pin-tags.yml
 [pages-badge]: https://github.com/frostyard/lab/actions/workflows/pages.yml/badge.svg?branch=main
 [pages-workflow]: https://github.com/frostyard/lab/actions/workflows/pages.yml
 [claude-review-badge]: https://github.com/frostyard/lab/actions/workflows/claude-code-review.yml/badge.svg?branch=main
