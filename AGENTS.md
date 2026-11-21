@@ -48,6 +48,18 @@ ADR-0018, ADR-0029). Edit only the canonical paths.
   `AGENTS.md` rule when no test can catch it) and adds 1 record file under
   `.memory/corrections/` (name `<date>-pr-<N>-<words>.json`; see
   `.memory/README.md`).
+- Action pins (core ADR-0021, ADR-0088, ADR-0090): every `uses:` of an
+  outside action is `OWNER/REPO[/PATH]@<40-hex SHA> # vX.Y.Z` (or `# vX.Y`
+  when upstream tags releases with 2 parts, such as `github/issue-labeler`);
+  a frostyard/core reusable workflow pin needs only a comment that names the
+  core commit. `tests/test_workflow_pins.py` checks this, and 1 SHA for each
+  `OWNER/REPO`, across `.github/workflows/`. A test that guards a pin reads it
+  from the workflow and asserts its properties; it never holds a literal SHA.
+- `anthropics/claude-code-action` runs with `ANTHROPIC_API_KEY` and a
+  `pull-requests: write` token: the owner reviews each new commit of it in its
+  bump pull request (L2, `risk:high`) and reads the upstream changes between
+  the old and the new SHA before the merge. No test pins its SHA; this
+  replaces the record `2026-11-13-legacy-0018.json`.
 - Tests that read a run record read a frozen copy in
   `tests/fixtures/run-records/`; never edit those copies.
 
