@@ -1,5 +1,5 @@
 {
-  "generated": "2026-11-22T21:00:22Z",
+  "generated": "2026-11-22T21:30:19Z",
   "lanes": [
     {
       "laneKey": "run-firn-install-tests",
@@ -59,9 +59,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1795381200",
+        "name": "publish-results-1795383000",
         "phase": "Running",
-        "started": "2026-11-22T21:00:00Z",
+        "started": "2026-11-22T21:30:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -110,30 +110,64 @@
       "qaRun": null
     },
     {
+      "laneKey": "image-poll-floe-latest",
+      "template": "image-poller",
+      "label": "Registry digest poll",
+      "kind": "poll",
+      "latest": {
+        "name": "image-poll-floe-latest-1795382400",
+        "phase": "Succeeded",
+        "started": "2026-11-22T21:20:00Z",
+        "finished": "2026-11-22T21:20:20Z",
+        "durationSeconds": 20,
+        "template": "image-poller",
+        "laneKey": "image-poll-floe-latest",
+        "qaOutcome": "carried",
+        "kind": "poll",
+        "label": "Registry digest poll",
+        "trigger": "scheduled",
+        "result": null,
+        "digest": "sha256:a423d7cd0231d6a7e76b3f46ad6ba79311fbb4aee41d5a486bb5fa474d485e60",
+        "checks": [],
+        "fsverity": []
+      },
+      "runs": 3,
+      "everGreen": true,
+      "qaRun": {
+        "name": "image-poll-floe-latest-1795371600",
+        "finished": "2026-11-22T18:22:25Z",
+        "result": "15 passed, 12 skipped"
+      }
+    },
+    {
       "laneKey": "image-poll-snow-latest",
       "template": "image-poller",
       "label": "Registry digest poll",
       "kind": "poll",
       "latest": {
         "name": "image-poll-snow-latest-1795381200",
-        "phase": "Running",
+        "phase": "Succeeded",
         "started": "2026-11-22T21:00:00Z",
-        "finished": null,
-        "durationSeconds": null,
+        "finished": "2026-11-22T21:02:36Z",
+        "durationSeconds": 156,
         "template": "image-poller",
         "laneKey": "image-poll-snow-latest",
-        "qaOutcome": "unknown",
+        "qaOutcome": "passed",
         "kind": "poll",
         "label": "Registry digest poll",
         "trigger": "scheduled",
-        "result": null,
+        "result": "22 passed, 5 skipped",
         "digest": "sha256:50abbcdf93124b60717a7a1d4d9a2f150786768ec2576ef11e96cd8c1380248d",
         "checks": [],
         "fsverity": []
       },
-      "runs": 4,
+      "runs": 3,
       "everGreen": true,
-      "qaRun": null
+      "qaRun": {
+        "name": "image-poll-snow-latest-1795381200",
+        "finished": "2026-11-22T21:02:36Z",
+        "result": "22 passed, 5 skipped"
+      }
     },
     {
       "laneKey": "image-poll-sundog-forky",
@@ -298,62 +332,66 @@
         "finished": "2026-11-22T18:41:57Z",
         "result": "22 passed, 5 skipped"
       }
-    },
-    {
-      "laneKey": "image-poll-floe-latest",
-      "template": "image-poller",
-      "label": "Registry digest poll",
-      "kind": "poll",
-      "latest": {
-        "name": "image-poll-floe-latest-1795371600",
-        "phase": "Succeeded",
-        "started": "2026-11-22T18:20:00Z",
-        "finished": "2026-11-22T18:22:25Z",
-        "durationSeconds": 145,
-        "template": "image-poller",
-        "laneKey": "image-poll-floe-latest",
-        "qaOutcome": "passed",
-        "kind": "poll",
-        "label": "Registry digest poll",
-        "trigger": "scheduled",
-        "result": "15 passed, 12 skipped",
-        "digest": "sha256:a423d7cd0231d6a7e76b3f46ad6ba79311fbb4aee41d5a486bb5fa474d485e60",
-        "checks": [],
-        "fsverity": []
-      },
-      "runs": 3,
-      "everGreen": true,
-      "qaRun": {
-        "name": "image-poll-floe-latest-1795371600",
-        "finished": "2026-11-22T18:22:25Z",
-        "result": "15 passed, 12 skipped"
-      }
     }
   ],
   "runs": [
     {
-      "name": "image-poll-snow-latest-1795381200",
+      "name": "publish-results-1795383000",
       "phase": "Running",
-      "started": "2026-11-22T21:00:00Z",
+      "started": "2026-11-22T21:30:00Z",
       "finished": null,
       "durationSeconds": null,
-      "template": "image-poller",
-      "laneKey": "image-poll-snow-latest",
+      "template": "publish",
+      "laneKey": "publish",
       "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": null,
+      "checks": [],
+      "fsverity": []
+    },
+    {
+      "name": "image-poll-floe-latest-1795382400",
+      "phase": "Succeeded",
+      "started": "2026-11-22T21:20:00Z",
+      "finished": "2026-11-22T21:20:20Z",
+      "durationSeconds": 20,
+      "template": "image-poller",
+      "laneKey": "image-poll-floe-latest",
+      "qaOutcome": "carried",
       "kind": "poll",
       "label": "Registry digest poll",
       "trigger": "scheduled",
       "result": null,
+      "digest": "sha256:a423d7cd0231d6a7e76b3f46ad6ba79311fbb4aee41d5a486bb5fa474d485e60",
+      "checks": [],
+      "fsverity": []
+    },
+    {
+      "name": "image-poll-snow-latest-1795381200",
+      "phase": "Succeeded",
+      "started": "2026-11-22T21:00:00Z",
+      "finished": "2026-11-22T21:02:36Z",
+      "durationSeconds": 156,
+      "template": "image-poller",
+      "laneKey": "image-poll-snow-latest",
+      "qaOutcome": "passed",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": "22 passed, 5 skipped",
       "digest": "sha256:50abbcdf93124b60717a7a1d4d9a2f150786768ec2576ef11e96cd8c1380248d",
       "checks": [],
       "fsverity": []
     },
     {
       "name": "publish-results-1795381200",
-      "phase": "Running",
+      "phase": "Succeeded",
       "started": "2026-11-22T21:00:00Z",
-      "finished": null,
-      "durationSeconds": null,
+      "finished": "2026-11-22T21:00:34Z",
+      "durationSeconds": 34,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -430,23 +468,6 @@
       "trigger": "scheduled",
       "result": null,
       "digest": "sha256:23d29336807030ef204f55d00f0bb3740de39a3db4a89810ebfb65c1abeaf229",
-      "checks": [],
-      "fsverity": []
-    },
-    {
-      "name": "publish-results-1795375800",
-      "phase": "Succeeded",
-      "started": "2026-11-22T19:30:00Z",
-      "finished": "2026-11-22T19:30:33Z",
-      "durationSeconds": 33,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": null,
       "checks": [],
       "fsverity": []
     },
@@ -808,23 +829,6 @@
       "fsverity": []
     },
     {
-      "name": "image-poll-floe-latest-1795350000",
-      "phase": "Succeeded",
-      "started": "2026-11-22T12:20:00Z",
-      "finished": "2026-11-22T12:20:20Z",
-      "durationSeconds": 20,
-      "template": "image-poller",
-      "laneKey": "image-poll-floe-latest",
-      "qaOutcome": "carried",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": "sha256:c39aef26c356d28d03c987e0a66000614f319ab21d2a2b19d07e5cef24f39259",
-      "checks": [],
-      "fsverity": []
-    },
-    {
       "name": "orphan-pod-gc-1795349820",
       "phase": "Succeeded",
       "started": "2026-11-22T12:17:00Z",
@@ -838,23 +842,6 @@
       "trigger": "scheduled",
       "result": null,
       "digest": null,
-      "checks": [],
-      "fsverity": []
-    },
-    {
-      "name": "image-poll-snow-latest-1795348800",
-      "phase": "Succeeded",
-      "started": "2026-11-22T12:00:00Z",
-      "finished": "2026-11-22T12:00:30Z",
-      "durationSeconds": 30,
-      "template": "image-poller",
-      "laneKey": "image-poll-snow-latest",
-      "qaOutcome": "carried",
-      "kind": "poll",
-      "label": "Registry digest poll",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": "sha256:fd1a22bfcc382dc97539176b30d2d8c1a25e8a1b0e295a606f53ec5b81a04b17",
       "checks": [],
       "fsverity": []
     },
