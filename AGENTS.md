@@ -18,12 +18,13 @@ ADR-0018, ADR-0029). Edit only the canonical paths.
 
 ## Gate and guards
 
-- Run `make verify` before you call a change done (template gate, policy
-  check, pytest with its coverage gate, dashboard unit tests). CI job
-  `Repository gate` runs `make ci`, which also checks the corrections
+- Run `make ci BASE=origin/main` before you push (core ADR-0083): it is
+  the local entry point to the CI gate. CI job `Repository gate` runs
+  `make ci`: `make verify` (template gate, policy check, pytest with its
+  coverage gate, dashboard unit tests) plus a check of the corrections
   records against the PR base: no record removed or renamed, only an empty
   `promoted_to` filled, and the old corrections file does not come back.
-  Run `make ci BASE=origin/main` for the same check locally. Install
+  While you work, `make verify` is the faster inner loop. Install
   `requirements-test.txt` first (CONTRIBUTING.md). Job `CI result`
   aggregates the other `ci.yml` jobs and is the required check (core
   ADR-0076), so a matrix name can change without a ruleset edit.
