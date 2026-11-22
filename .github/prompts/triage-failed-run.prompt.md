@@ -36,8 +36,9 @@ or infrastructure. Do not change YAML until you know which.
   ConfigMap.
 - Never resolve an incident by applying to the cluster directly; `selfHeal`
   reverts it and the fix is lost.
-- If the failure exposes a wrong claim about what a lane tests, correct
-  `docs/roadmap.md` — the roadmap exists because that has happened before.
+- If the failure exposes a wrong claim about what a lane tests, correct the
+  live lane docs (`docs/design/architecture.md`, `docs/design/vm-lanes.md`,
+  `docs/quality.md`) — that has happened before.
 
 ## Report
 

@@ -1183,7 +1183,7 @@ def test_guest_login_autologin_ignores_a_commented_sddm_main_config(qa, tmp_path
 # ------------------------------------- the SMBIOS bound on the guest unit
 
 PLAN_MANIFEST = (Path(__file__).resolve().parents[1] /
-                 "docs/plans/first-login-probe-2026-11-04/manifest-snow.json")
+                 "tests/fixtures/run-records/first-login-probe-2026-11-04/manifest-snow.json")
 
 
 def qa_payload_snippet():

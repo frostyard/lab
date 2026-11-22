@@ -10,10 +10,10 @@ A "lane" is one suite run against one image in one execution environment
 touches several layers — do them in this order and stop at the first that
 fails.
 
-1. **Understand what the lane proves.** Read `docs/roadmap.md` §
-   "What each lane actually tests" first — several existing lane names are
-   misleading, and the roadmap says so explicitly. Write down the claim the new
-   lane makes before writing YAML.
+1. **Understand what the lane proves.** Read `docs/design/architecture.md`
+   (Image lanes), `docs/design/vm-lanes.md` and `docs/quality.md` first —
+   they say what each live lane proves and what it does not. Write down the
+   claim the new lane makes before writing YAML.
 2. **Runner template.** Add or extend a `WorkflowTemplate` in
    `argo/workflow-templates/`. Follow
    [`workflow-template.prompt.md`](workflow-template.prompt.md): digest
@@ -29,8 +29,9 @@ fails.
    `tests/test_collect_runs.py` — if the lane's naming or labels do not match
    what the collector expects, the run will not show on the site.
 6. **Docs.** Update the lane table in `docs/design/architecture.md` (Image
-   lanes) or `docs/design/vm-lanes.md`, and the status table in
-   `docs/roadmap.md`.
+   lanes) or `docs/design/vm-lanes.md`, and the lane's evidence in
+   `docs/quality.md`. `docs/roadmap.md` is history; add only an open question
+   to its Open questions register.
 
 ## Check your work
 

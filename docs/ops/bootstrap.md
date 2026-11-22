@@ -117,6 +117,31 @@ kubectl apply --server-side --force-conflicts \
   -f manifests/namespaces.yaml
 ```
 
+### The result-publication token
+
+The `publish-results` CronWorkflow (`manifests/publish-results.yaml`) pushes
+`runs.json` to the `data/runs` branch of frostyard/lab. It reads a GitHub token
+from the Secret `github-token`, key `token`, in the `argo` namespace. The
+Secret is the one object of the lab that git does not hold: create it by hand,
+with a fine-grained token scoped to frostyard/lab with `contents:write` and
+nothing more. Never commit the value or paste it into a file.
+
+```bash
+read -rsp 'GitHub token: ' GH_TOKEN; echo
+kubectl create secret generic github-token -n argo \
+  --from-literal=token="$GH_TOKEN" --dry-run=client -o yaml \
+  | kubectl apply --server-side -f -
+unset GH_TOKEN
+```
+
+`read -s` keeps the value out of the shell history, and server-side apply keeps
+the step idempotent without copying the value into a
+`last-applied-configuration` annotation. Without the Secret every
+`publish-results` run fails at the script's own guard (exit 1), so a missing
+credential shows up as a Failed run, not a silent Succeeded. The `data/runs`
+branch must stay outside every ruleset, or the push is rejected
+([ADR-0021](../adr/0021-run-data-publishes-to-the-data-runs-branch.md)).
+
 ---
 
 ## 4. Install the Argo Workflows controller
@@ -167,8 +192,11 @@ The lane pulls the image (several GB on a cold cluster — allow ~5 minutes),
 boots it as a nested systemd container, installs `python3-behave` inside it, and
 runs the smoke suite.
 
-Once green, enable the scheduled lanes by setting `spec.suspend: false` in
-`manifests/image-poll-*.yaml` and pushing.
+There is no separate step to enable the scheduled lanes: every
+`manifests/image-poll-*.yaml` is committed with `spec.suspend: false`, so the
+image pollers run on their schedules as soon as the `frostyard-lab-infra`
+Application syncs them in step 5. To pause a lane, set `spec.suspend: true` in
+its file and push; `selfHeal` reverts a `kubectl patch`.
 
 ---
 

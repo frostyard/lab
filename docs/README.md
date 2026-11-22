@@ -59,12 +59,7 @@ Org-wide decisions binding this repo: [org-adrs.md](org-adrs.md).
 <!-- Plans for finished work are removed once their record is in quality.md,
 the roadmap or an ADR; git keeps them. -->
 
-- [2026-11-04 — First-login probe on today's images (T843 t2)](plans/2026-11-04-first-login-probe-runs.md)
-  — first-setup once on Snow and Snowfield, Sundog and Floe dev runs
-- [2026-11-05 — Problems probe on the snosi-health images (T857 t7)](plans/2026-11-05-problems-probe-runs.md)
-  — N before #1214 to N+1, per-boot lockdown and command line, bootc 1.17.1 to 1.17.3
-- [2026-11-05 — Report probe on the Floe report sender (T857 t21)](plans/2026-11-05-report-probe-runs.md)
-  — lab intake in a throwaway container, off and on states, 1 production report
+- None open.
 
 ### Uncategorized (indexed where they stand)
 

@@ -141,8 +141,8 @@ These fields are evidence only and do not add a lifecycle gate (see
 Details:
 [quality evidence](../quality.md#fs-verity-regression-checks-snosi1130).
 
-The firn ISO is published by snosi's `build-native-images.yml` (build-iso →
-promote-iso), installing `firn` from the `frostyard-firn` apt package (snosi
+The firn ISO is published by snosi's `.github/workflows/build-installer-iso.yml`
+(build-iso → promote-iso), installing `firn` from the `frostyard-firn` apt package (snosi
 PR #699 switched the published installer from `native-installer` to
 `firn-installer`). Both submit files require an immutable ISO URL and lowercase
 SHA-256 from the signed `SHA256SUMS.gpg` index, plus product-specific bootc
