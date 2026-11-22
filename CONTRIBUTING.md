@@ -56,8 +56,10 @@ governance policy also require `python3 policies/check_agent_governance.py`.
 
 ## The make gate
 
-`make verify` is the gate that CI runs (job `Repository gate` runs
-`make ci`). It runs the template gate (agent symlinks, docs index, risk-path
+Run `make ci BASE=origin/main` before you push: it runs what CI job
+`Repository gate` runs (core ADR-0083). `make ci` is `make verify` plus a
+check of the corrections records against the base; `make verify` is the
+faster loop while you work. `make verify` runs the template gate (agent symlinks, docs index, risk-path
 list, corrections, vendored core copies) and its Node tests, the policy
 check, the pytest suite and the dashboard unit tests. It needs Node.js 22 or
 later (`mise install` provides the pinned Node 24 from `mise.toml`) and the
@@ -65,8 +67,8 @@ Python test dependencies above, in the active environment:
 
 ```bash
 mise install
-make verify
-make ci BASE=origin/main   # adds the corrections records check against the base
+make verify                # inner loop
+make ci BASE=origin/main   # before a push: adds the corrections records check against the base
 ```
 
 ## Making changes

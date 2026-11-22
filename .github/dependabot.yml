@@ -1,19 +1,22 @@
-# Dependabot (frostyard core ADR-0071 row B13): 1 entry for each ecosystem
-# with a manifest in this repository.
+# Dependabot (frostyard core ADR-0071 row B13, ADR-0089): exactly 1 entry for
+# each ecosystem with a manifest in this repository.
 #   github-actions  the actions that the workflows pin (ADR-0021)
-#   npm /           package.json: the Playwright end-to-end suite (e2e/)
-#   npm /site       site/package.json: the Astro QA dashboard
+#   npm             package.json: the Playwright end-to-end suite (e2e/), and
+#                   site/package.json: the Astro QA dashboard, in 1 entry
+#                   with `directories`
 #   pip /           requirements-test.txt: pytest and the YAML and Kubernetes
 #                   schema validators
-# Each entry has 1 group with `patterns: ["*"]`, so each entry opens at most 1
-# version-update pull request for each run (ADR-0075). The group has no
-# `applies-to`, so security updates stay 1 pull request each.
+# Version updates run monthly (ADR-0089): the schedule holds only
+# `interval: monthly`. Each entry has 1 group with `patterns: ["*"]` and no
+# `group-by`, so each ecosystem opens at most 1 version-update pull request a
+# month, for all its directories (ADR-0075). The group has no `applies-to`,
+# so security updates stay immediate and 1 pull request each.
 version: 2
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     open-pull-requests-limit: 5
     commit-message:
       prefix: "ci"
@@ -23,9 +26,11 @@ updates:
         patterns: ["*"]
 
   - package-ecosystem: "npm"
-    directory: "/"
+    directories:
+      - "/"
+      - "/site"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore"
@@ -34,22 +39,10 @@ updates:
       npm:
         patterns: ["*"]
 
-  - package-ecosystem: "npm"
-    directory: "/site"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    commit-message:
-      prefix: "chore"
-      include: "scope"
-    groups:
-      npm-site:
-        patterns: ["*"]
-
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore"
