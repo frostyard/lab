@@ -1,5 +1,5 @@
 {
-  "generated": "2026-11-22T17:30:18Z",
+  "generated": "2026-11-22T18:00:19Z",
   "lanes": [
     {
       "laneKey": "run-firn-install-tests",
@@ -59,9 +59,9 @@
       "label": "publish",
       "kind": "other",
       "latest": {
-        "name": "publish-results-1795368600",
+        "name": "publish-results-1795370400",
         "phase": "Running",
-        "started": "2026-11-22T17:30:00Z",
+        "started": "2026-11-22T18:00:00Z",
         "finished": null,
         "durationSeconds": null,
         "template": "publish",
@@ -107,6 +107,32 @@
       },
       "runs": 9,
       "everGreen": false,
+      "qaRun": null
+    },
+    {
+      "laneKey": "image-poll-snow-latest",
+      "template": "image-poller",
+      "label": "Registry digest poll",
+      "kind": "poll",
+      "latest": {
+        "name": "image-poll-snow-latest-1795370400",
+        "phase": "Running",
+        "started": "2026-11-22T18:00:00Z",
+        "finished": null,
+        "durationSeconds": null,
+        "template": "image-poller",
+        "laneKey": "image-poll-snow-latest",
+        "qaOutcome": "unknown",
+        "kind": "poll",
+        "label": "Registry digest poll",
+        "trigger": "scheduled",
+        "result": null,
+        "digest": null,
+        "checks": [],
+        "fsverity": []
+      },
+      "runs": 4,
+      "everGreen": true,
       "qaRun": null
     },
     {
@@ -290,41 +316,49 @@
       "runs": 3,
       "everGreen": true,
       "qaRun": null
-    },
-    {
-      "laneKey": "image-poll-snow-latest",
-      "template": "image-poller",
-      "label": "Registry digest poll",
-      "kind": "poll",
-      "latest": {
-        "name": "image-poll-snow-latest-1795359600",
-        "phase": "Succeeded",
-        "started": "2026-11-22T15:00:00Z",
-        "finished": "2026-11-22T15:00:30Z",
-        "durationSeconds": 30,
-        "template": "image-poller",
-        "laneKey": "image-poll-snow-latest",
-        "qaOutcome": "carried",
-        "kind": "poll",
-        "label": "Registry digest poll",
-        "trigger": "scheduled",
-        "result": null,
-        "digest": "sha256:fd1a22bfcc382dc97539176b30d2d8c1a25e8a1b0e295a606f53ec5b81a04b17",
-        "checks": [],
-        "fsverity": []
-      },
-      "runs": 3,
-      "everGreen": true,
-      "qaRun": null
     }
   ],
   "runs": [
     {
-      "name": "publish-results-1795368600",
+      "name": "image-poll-snow-latest-1795370400",
       "phase": "Running",
-      "started": "2026-11-22T17:30:00Z",
+      "started": "2026-11-22T18:00:00Z",
       "finished": null,
       "durationSeconds": null,
+      "template": "image-poller",
+      "laneKey": "image-poll-snow-latest",
+      "qaOutcome": "unknown",
+      "kind": "poll",
+      "label": "Registry digest poll",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": null,
+      "checks": [],
+      "fsverity": []
+    },
+    {
+      "name": "publish-results-1795370400",
+      "phase": "Running",
+      "started": "2026-11-22T18:00:00Z",
+      "finished": null,
+      "durationSeconds": null,
+      "template": "publish",
+      "laneKey": "publish",
+      "qaOutcome": "unknown",
+      "kind": "other",
+      "label": "publish",
+      "trigger": "scheduled",
+      "result": null,
+      "digest": null,
+      "checks": [],
+      "fsverity": []
+    },
+    {
+      "name": "publish-results-1795368600",
+      "phase": "Succeeded",
+      "started": "2026-11-22T17:30:00Z",
+      "finished": "2026-11-22T17:30:31Z",
+      "durationSeconds": 31,
       "template": "publish",
       "laneKey": "publish",
       "qaOutcome": "unknown",
@@ -435,23 +469,6 @@
       "trigger": "scheduled",
       "result": null,
       "digest": "sha256:27b2f9975ec5c09e7b8ec967ab515fc61f2eac59c624f3de6a1af7b86896fd54",
-      "checks": [],
-      "fsverity": []
-    },
-    {
-      "name": "publish-results-1795363200",
-      "phase": "Succeeded",
-      "started": "2026-11-22T16:00:00Z",
-      "finished": "2026-11-22T16:00:31Z",
-      "durationSeconds": 31,
-      "template": "publish",
-      "laneKey": "publish",
-      "qaOutcome": "unknown",
-      "kind": "other",
-      "label": "publish",
-      "trigger": "scheduled",
-      "result": null,
-      "digest": null,
       "checks": [],
       "fsverity": []
     },
