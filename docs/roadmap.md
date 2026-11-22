@@ -1163,6 +1163,28 @@ F (native SB) runs in parallel throughout.
    [snosi#1245](https://github.com/frostyard/snosi/issues/1245); rerun the
    sysext probe when it is fixed.
    Source: [2026-10-28 sysext probe run plan](https://github.com/frostyard/lab/blob/cc3e68a4d51b346f05182ab565aa43a0e8ed34af/docs/plans/2026-10-28-snow-sysext-probe-run.md#open-questions).
+7. **Promoting the report-only probes to gates.** The first-login, problems
+   and report probes stay report-only
+   ([ADR-0016](adr/0016-first-login-probe-is-a-report-only-lane-mode.md),
+   [ADR-0017](adr/0017-problems-probe-is-a-report-only-lane-mode.md),
+   [ADR-0018](adr/0018-report-probe-is-a-report-only-lane-mode.md)); making
+   any of them a gate is a new ADR. Open for each:
+   - First-login: no run on a chairlift first-run image is recorded. Dev runs
+     there should show `chairlift-once` on Snow and Snowfield, plus the upgrade
+     case from a first-setup image whose done marker exists; the plan was to
+     gate after 3 green main runs.
+   - Problems: the promotion bar of 3 `problems=ok` runs on each product and
+     path is met for `fresh` only (1 `update` run per product). Whether the
+     collector should report the known fs-verity defect
+     ([snosi#1130](https://github.com/frostyard/snosi/issues/1130)) as an
+     `integrity_error` is a snosi question.
+   - Report: the bar (3 lab runs per product and 1 production report) is met.
+     If the lab intake's container setup time becomes a problem, fold it into
+     a lane-owned image.
+   Sources: the run plans of the
+   [first-login](https://github.com/frostyard/lab/blob/43963340586865df1b84bd3cfb5f9ef1442ddeed/docs/plans/2026-11-04-first-login-probe-runs.md#later--ideas),
+   [problems](https://github.com/frostyard/lab/blob/43963340586865df1b84bd3cfb5f9ef1442ddeed/docs/plans/2026-11-05-problems-probe-runs.md#later--ideas) and
+   [report](https://github.com/frostyard/lab/blob/43963340586865df1b84bd3cfb5f9ef1442ddeed/docs/plans/2026-11-05-report-probe-runs.md#later--ideas) probes.
 
 ---
 

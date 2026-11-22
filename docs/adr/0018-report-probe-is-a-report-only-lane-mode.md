@@ -207,7 +207,7 @@ workflow publishes it as the `report` output parameter.
 
 - Shapes: [specs/bootc-lifecycle-lane.md — Manual Snow bootc lifecycle](../specs/bootc-lifecycle-lane.md),
   [quality.md — Manual Snow bootc lifecycle evidence](../quality.md#manual-snow-bootc-lifecycle-evidence)
-- Run plan: [2026-11-05 — Report probe on the Floe report sender](../plans/2026-11-05-report-probe-runs.md)
+- Run plan: [2026-11-05 — Report probe on the Floe report sender](https://github.com/frostyard/lab/blob/43963340586865df1b84bd3cfb5f9ef1442ddeed/docs/plans/2026-11-05-report-probe-runs.md)
 - Builds on: [ADR-0003](0003-unproven-is-distinct-from-failed.md),
   [ADR-0005](0005-console-marker-protocol-for-agentless-guests.md),
   [ADR-0006](0006-host-daemon-access-by-mount-never-ssh.md),

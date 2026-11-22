@@ -619,6 +619,16 @@ starts with `unproven-` ends `BLOCKED`, never `FAILED`, and every other one ends
 report proves which app ran in that VM, not the product's UX, and no
 update, rollback, secure-boot or fs-verity check runs in this mode
 ([ADR-0016](adr/0016-first-login-probe-is-a-report-only-lane-mode.md)).
+Its first dev runs (2026-11-04, the `latest` images of that day) showed the
+expected result on all 4 products: `first_login=first-setup-once` on Snow
+(`dev-snow-bootc-lifecycle-n7f7s`) and Snowfield (`72cjn`), `none` on Sundog
+(`cb9qj`, SDDM and Plasma with no first-run entry) and `headless-no-entry` on
+Floe (`w5n6r`). Those images still shipped first-setup; no run of the probe
+on a chairlift first-run image is recorded yet. The first try failed
+`unit_size` because the guest payload passed the SMBIOS bound;
+`test_guest_unit_stays_under_the_smbios_bound` now holds the guest unit at
+54000 characters or less. The run plan and its manifests are in git history
+([plan](https://github.com/frostyard/lab/blob/43963340586865df1b84bd3cfb5f9ef1442ddeed/docs/plans/2026-11-04-first-login-probe-runs.md)).
 
 The optional `problems_probe` mode is report-only evidence about the
 snosi-health collector (snosi ADR-0029) and systemd-coredump. Its `fresh` path
@@ -640,6 +650,22 @@ is recorded and not judged. The `fresh` path runs no update, rollback,
 secure-boot or fs-verity check; the `update` path keeps those checks of its
 `installed-n` and `stage` boots and adds none to the `problems` boots
 ([ADR-0017](adr/0017-problems-probe-is-a-report-only-lane-mode.md)).
+On 2026-11-05 the images with the collector (snosi#1226) passed both paths on
+Snow, Sundog and Floe: 3 `fresh` runs per product with `problems=ok`, and 1
+`update` run per product with `problems=ok` under the next-boot timer rule
+(`snosi-health.timer` `enabled/inactive` on the first N+1 boot and
+`enabled/active` on the second, because `preset-reconcile` enables a unit but
+does not start it; [snosi#1229](https://github.com/frostyard/snosi/issues/1229)).
+The images before the collector end `BLOCKED: problems_unproven-no-collector`
+by design. Against those images the time to the default target showed no
+regression (fresh medians Snow 22954 ms, Sundog 21492 ms, Floe 17593 ms, within
+about 1.2 s of the baseline). Runs on a known-defect kernel can hold 1
+`integrity_error` (`fs-verity`) record that nobody injected: the collector
+records the btrfs fs-verity defect of
+[snosi#1130](https://github.com/frostyard/snosi/issues/1130) as a reportable
+problem, which the lane passes as a known defect. The run plan and its
+manifests are in git history
+([plan](https://github.com/frostyard/lab/blob/43963340586865df1b84bd3cfb5f9ef1442ddeed/docs/plans/2026-11-05-problems-probe-runs.md)).
 
 The optional `report_probe` mode is report-only evidence about the image's
 problem-report sender: the snosi sender on Floe (snosi ADR-0030) and chairlift
@@ -671,6 +697,16 @@ ends `PASS`, so a sender that sends nothing is recorded and not judged. The mode
 runs no update, rollback, secure-boot or fs-verity check, and its bearer and DSN
 key are random per run and stay in the lab container
 ([ADR-0018](adr/0018-report-probe-is-a-report-only-lane-mode.md)).
+On 2026-11-05 and 2026-11-06 every product met the lab-intake bar: 3 runs
+each on Floe (snosi sender), Snow, Snowfield and Sundog (chairlift 0.15.0)
+ended `report=ok`. 1 Floe run with `intake: production` ended
+`production-accepted` (HTTP 202); that 1 lab test report was then deleted from
+GlitchTip by its report id with problem-intake's
+`scripts/glitchtip-delete-report.sh`. The desktops send through the same
+Worker, so no desktop production run was made. Runs on a known-defect kernel
+also send the `integrity_error` record of snosi#1130. The run plan and its
+manifests are in git history
+([plan](https://github.com/frostyard/lab/blob/43963340586865df1b84bd3cfb5f9ef1442ddeed/docs/plans/2026-11-05-report-probe-runs.md)).
 
 ## Evidence expected by change
 

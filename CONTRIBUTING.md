@@ -21,7 +21,7 @@ or supporting docs/tooling (`docs/`, `Justfile`, `scripts/`, `site/`).
 2. Read the [README](README.md) for an overview, the
    [architecture](docs/design/architecture.md) for how the pipeline fits
    together, and [docs/](docs/README.md) for the decisions, contracts and
-   operational guides (bootstrap, operating, roadmap, etc.).
+   operational guides (bootstrap, operating, quality, etc.).
 3. The [`Justfile`](Justfile) has convenience recipes for common operations
    (`just status`, `just refresh`, `just smoke`, `just qa ...`). Run
    `just --list` to see everything available.
@@ -78,7 +78,11 @@ make ci BASE=origin/main   # adds the corrections records check against the base
   with `just site-e2e` (Playwright specs live in `e2e/`).
 - If you're changing docs, keep the tone and structure consistent with the
   existing files in `docs/`.
-- Update `docs/roadmap.md` if your change affects the status of a QA lane.
+- If your change affects the status of a QA lane, update the live lane docs:
+  [architecture](docs/design/architecture.md),
+  [VM lanes](docs/design/vm-lanes.md) and the
+  [quality dashboard](docs/quality.md). `docs/roadmap.md` is history; only
+  its Open questions register stays live.
 - Use the [pull request review rubric](docs/review-rubric.md) to evaluate
   correctness, GitOps ownership, evidence, safety, and validation consistently.
 

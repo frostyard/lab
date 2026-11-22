@@ -57,19 +57,31 @@ runs:
 
 # Validate every YAML file against the live cluster without applying anything.
 # Catches schema errors before a push turns into a failed ArgoCD sync.
+# argo/*.yaml are generated-name Workflows (metadata.generateName), which can
+# only be created, never applied, so they are checked with `create`.
 validate:
     #!/usr/bin/env bash
     set -euo pipefail
     rc=0
-    for f in manifests/*.yaml argo/workflow-templates/*.yaml argo/*.yaml argocd/*.yaml; do
-        [[ -e "$f" ]] || continue
-        if kubectl apply --dry-run=server -f "$f" >/dev/null 2>/tmp/validate-err; then
+    err=$(mktemp)
+    trap 'rm -f "$err"' EXIT
+    check() {
+        local verb=$1 f=$2
+        if kubectl "$verb" --dry-run=server -f "$f" >/dev/null 2>"$err"; then
             echo "ok    $f"
         else
             echo "FAIL  $f"
-            sed 's/^/        /' /tmp/validate-err
+            sed 's/^/        /' "$err"
             rc=1
         fi
+    }
+    for f in manifests/*.yaml argo/workflow-templates/*.yaml argocd/*.yaml; do
+        [[ -e "$f" ]] || continue
+        check apply "$f"
+    done
+    for f in argo/*.yaml; do
+        [[ -e "$f" ]] || continue
+        check create "$f"
     done
     exit $rc
 
