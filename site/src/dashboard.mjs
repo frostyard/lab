@@ -55,7 +55,7 @@ export function legacyProductLanes(runs) {
 
 // Supply roster entries even when no workflow has been retained. Old JSON may
 // have a single image-poller lane: do not reuse its mixed-product latest run.
-export function productLanes(lanes, generated) {
+export function productLanes(lanes) {
   const existing = lanes.filter((lane) => lane.template !== 'image-poller' || productKey(lane.laneKey));
   return [...existing.filter((lane) => !isProductLane(lane)),
     ...PRODUCT_LANE_KEYS.map((key) => {
@@ -65,9 +65,9 @@ export function productLanes(lanes, generated) {
 }
 
 // Use the same snapshot composition for the page and the legacy contract test.
-export function displayLanes({ lanes = [], runs = [], generated }) {
+export function displayLanes({ lanes = [], runs = [] }) {
   return productLanes([...lanes, ...legacyProductLanes(runs).filter((legacy) =>
-    !lanes.some((lane) => lane.laneKey === legacy.laneKey))], generated);
+    !lanes.some((lane) => lane.laneKey === legacy.laneKey))]);
 }
 
 function evidenceAge(lane, generated) {
